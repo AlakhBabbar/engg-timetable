@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiUser, FiBookOpen, FiAward, FiLayers, FiUpload, FiInfo, FiDownload } from 'react-icons/fi';
 import TeacherManagementService from './services/TeacherManagement';
+import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
+import UploadProgressIndicator from '../common/UploadProgressIndicator';
 
 export default function TeacherManagement() {
   const [teachers, setTeachers] = useState([]);
@@ -22,6 +24,27 @@ export default function TeacherManagement() {
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
+
+  // Rate-limited upload hook
+  const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload(
+    // Processor function for faculty imports
+    async (facultyBatch) => {
+      const results = [];
+      for (const faculty of facultyBatch) {
+        try {
+          const result = await TeacherManagementService.processSingleFacultyImport(faculty);
+          results.push(result);
+        } catch (error) {
+          results.push({
+            success: false,
+            error: error.message,
+            item: faculty
+          });
+        }
+      }
+      return results;
+    }
+  );
 
   // Function to fetch all teachers on component mount
   useEffect(() => {
@@ -190,7 +213,7 @@ export default function TeacherManagement() {
     }
   };
 
-  // Handle file upload and JSON parsing
+  // Handle file upload and JSON parsing with rate limiting
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -198,30 +221,44 @@ export default function TeacherManagement() {
     try {
       setIsLoading(true);
       setError(null);
+      resetUploadState(); // Reset any previous upload state
       
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
           const jsonData = JSON.parse(event.target.result);
-          const result = await TeacherManagementService.processFacultyImport(jsonData);
           
-          if (result.success) {
-            const successful = result.results.filter(r => r.success).length;
-            if (successful === result.results.length) {
-              alert(`Successfully imported ${successful} faculty members.`);
-            } else {
-              alert(`Imported ${successful} out of ${result.results.length} faculty members. Check console for details.`);
-              console.table(result.results);
-            }
-            
-            fetchTeachers();
-          } else {
-            setError(result.error || 'Error processing data');
+          if (!Array.isArray(jsonData)) {
+            throw new Error('JSON data must be an array of faculty members');
           }
+
+          // Start rate-limited upload
+          await handleUpload(jsonData, {
+            batchSize: 1, // Process one faculty member at a time
+            onComplete: (results) => {
+              const successful = results.filter(r => r.success).length;
+              const failed = results.filter(r => !r.success).length;
+              
+              if (failed === 0) {
+                alert(`✅ Successfully imported ${successful} faculty members.`);
+              } else {
+                alert(`⚠️ Import completed: ${successful} successful, ${failed} failed. Check the progress indicator for details.`);
+                console.table(results.filter(r => !r.success));
+              }
+              
+              // Refresh the teachers list
+              fetchTeachers();
+              setIsLoading(false);
+            },
+            onError: (error) => {
+              setError(`Upload failed: ${error}`);
+              setIsLoading(false);
+            }
+          });
+          
         } catch (err) {
           setError(`Error parsing JSON: ${err.message}`);
           console.error(err);
-        } finally {
           setIsLoading(false);
         }
       };
@@ -623,6 +660,13 @@ export default function TeacherManagement() {
           </div>
         </div>
       )}
+
+      {/* Upload Progress Indicator */}
+      <UploadProgressIndicator 
+        uploadState={uploadState}
+        onDismiss={resetUploadState}
+        showQueueInfo={true}
+      />
     </div>
   );
 }

@@ -600,6 +600,103 @@ export const processUploadedCourses = async (jsonData, courses, faculty, departm
 };
 
 /**
+ * Process a single course import (used for rate-limited uploads)
+ * @param {Object} courseData - Single course data object
+ * @param {Array} faculty - Available faculty list
+ * @returns {Promise<Object>} Result object with success status
+ */
+export const processSingleCourseImport = async (courseData, faculty) => {
+  try {
+    // Validate required fields
+    if (!courseData.code || !courseData.title || !courseData.semester) {
+      return {
+        success: false,
+        error: 'Missing required fields (code, title, or semester)',
+        item: courseData
+      };
+    }
+
+    // Format weekly hours
+    const lectureHours = parseInt(courseData.lectureHours) || 0;
+    const tutorialHours = parseInt(courseData.tutorialHours) || 0;
+    const practicalHours = parseInt(courseData.practicalHours) || 0;
+    const totalHours = lectureHours + tutorialHours + practicalHours;
+
+    // Find faculty member if specified
+    let assignedFaculty = null;
+    if (courseData.faculty) {
+      assignedFaculty = faculty.find(f => 
+        f.name.toLowerCase().includes(courseData.faculty.toLowerCase()) ||
+        f.email.toLowerCase() === courseData.faculty.toLowerCase()
+      );
+    }
+
+    // Prepare course document
+    const courseDoc = {
+      code: courseData.code.toUpperCase(),
+      title: courseData.title,
+      semester: courseData.semester,
+      lectureHours,
+      tutorialHours,
+      practicalHours,
+      weeklyHours: totalHours,
+      faculty: assignedFaculty ? assignedFaculty.name : courseData.faculty || '',
+      facultyId: assignedFaculty ? assignedFaculty.id : null,
+      credits: courseData.credits || Math.ceil(totalHours / 3),
+      department: courseData.department || 'Computer Science',
+      type: courseData.type || 'Core',
+      description: courseData.description || '',
+      prerequisites: Array.isArray(courseData.prerequisites) ? courseData.prerequisites : [],
+      active: courseData.active !== false, // Default to true unless explicitly false
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Generate unique document ID
+    const docId = `${courseDoc.code}_${courseDoc.semester.replace(/\s+/g, '_')}`;
+    
+    // Check if course already exists in Firebase
+    const courseRef = doc(db, COURSES_COLLECTION, docId);
+    const existingDoc = await getDoc(courseRef);
+    
+    if (existingDoc.exists()) {
+      // Update existing course
+      await updateDoc(courseRef, {
+        ...courseDoc,
+        createdAt: existingDoc.data().createdAt, // Keep original creation date
+      });
+      
+      return {
+        success: true,
+        action: 'updated',
+        code: courseData.code,
+        title: courseData.title,
+        item: courseData
+      };
+    } else {
+      // Create new course
+      await setDoc(courseRef, courseDoc);
+      
+      return {
+        success: true,
+        action: 'created',
+        code: courseData.code,
+        title: courseData.title,
+        item: courseData
+      };
+    }
+
+  } catch (error) {
+    console.error('Error processing single course import:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred',
+      item: courseData
+    };
+  }
+};
+
+/**
  * Get example course data in JSON format
  * @returns {Array} - Example course data
  */
@@ -638,6 +735,7 @@ const CourseManagementService = {
   parseWeeklyHours,
   formatWeeklyHours,
   processUploadedCourses,
+  processSingleCourseImport,
   getExampleCourseData
 };
 

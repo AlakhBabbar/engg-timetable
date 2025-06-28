@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { FiPlus, FiEdit, FiTrash2, FiSearch, FiX, FiHome, FiUsers, FiMonitor, FiWifi, FiThermometer, FiSave, FiUpload, FiInfo, FiDownload } from 'react-icons/fi';
+import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
+import UploadProgressIndicator from '../common/UploadProgressIndicator';
 import { 
   getAllRooms, 
   createRoom, 
@@ -11,7 +13,8 @@ import {
   featureOptions as serviceFeatureOptions,
   getFacultyColorClass,
   getExampleJSONDataset,
-  processRoomImport
+  processRoomImport,
+  processSingleRoomImport
 } from './services/RoomManagement';
 
 // Feature options with icons
@@ -56,6 +59,27 @@ export default function RoomManagement() {
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Rate-limited upload hook
+  const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload(
+    // Processor function for room imports
+    async (roomBatch) => {
+      const results = [];
+      for (const room of roomBatch) {
+        try {
+          const result = await processSingleRoomImport(room);
+          results.push(result);
+        } catch (error) {
+          results.push({
+            success: false,
+            error: error.message,
+            item: room
+          });
+        }
+      }
+      return results;
+    }
+  );
 
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
@@ -228,7 +252,7 @@ export default function RoomManagement() {
     }
   };
 
-  // Handle file upload and JSON parsing
+  // Handle file upload and JSON parsing with rate limiting
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -236,31 +260,47 @@ export default function RoomManagement() {
     try {
       setIsLoading(true);
       setError(null);
+      resetUploadState(); // Reset any previous upload state
       
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
           const jsonData = JSON.parse(event.target.result);
-          const result = await processRoomImport(jsonData);
           
-          if (result.success) {
-            const successful = result.results.filter(r => r.success).length;
-            if (successful === result.results.length) {
-              alert(`Successfully imported ${successful} rooms.`);
-            } else {
-              alert(`Imported ${successful} out of ${result.results.length} rooms. Check console for details.`);
-              console.table(result.results);
-            }
-            
-            // Refresh rooms list
-            await fetchRooms();
-          } else {
-            setError(result.error || 'Error processing data');
+          // Handle both direct array and nested structure
+          const roomsArray = Array.isArray(jsonData) ? jsonData : jsonData.rooms;
+          
+          if (!Array.isArray(roomsArray)) {
+            throw new Error('JSON data must be an array of rooms or contain a "rooms" array');
           }
+
+          // Start rate-limited upload
+          await handleUpload(roomsArray, {
+            batchSize: 1, // Process one room at a time
+            onComplete: (results) => {
+              const successful = results.filter(r => r.success).length;
+              const failed = results.filter(r => !r.success).length;
+              
+              if (failed === 0) {
+                alert(`✅ Successfully imported ${successful} rooms.`);
+              } else {
+                alert(`⚠️ Import completed: ${successful} successful, ${failed} failed. Check the progress indicator for details.`);
+                console.table(results.filter(r => !r.success));
+              }
+              
+              // Refresh the rooms list
+              fetchRooms();
+              setIsLoading(false);
+            },
+            onError: (error) => {
+              setError(`Upload failed: ${error}`);
+              setIsLoading(false);
+            }
+          });
+          
         } catch (err) {
           setError(`Error parsing JSON: ${err.message}`);
           console.error(err);
-        } finally {
           setIsLoading(false);
         }
       };
@@ -657,6 +697,13 @@ export default function RoomManagement() {
           {error}
         </div>
       )}
+
+      {/* Upload Progress Indicator */}
+      <UploadProgressIndicator 
+        uploadState={uploadState}
+        onDismiss={resetUploadState}
+        showQueueInfo={true}
+      />
     </div>
   );
 }

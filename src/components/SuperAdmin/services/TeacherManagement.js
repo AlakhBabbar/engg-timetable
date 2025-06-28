@@ -415,6 +415,101 @@ export const processFacultyImport = async (jsonData) => {
 };
 
 /**
+ * Process a single faculty member import (used for rate-limited uploads)
+ * @param {Object} teacherData - Single teacher data object
+ * @returns {Promise<Object>} Result object with success status
+ */
+export const processSingleFacultyImport = async (teacherData) => {
+  try {
+    // Validate required fields
+    if (!teacherData.name) {
+      return {
+        success: false,
+        error: "Missing name field",
+        item: teacherData
+      };
+    }
+
+    const departmentMap = {
+      "Mechanical": "Mechanical Engineering",
+      "Electrical": "Electrical Engineering", 
+      "Civil": "Civil Engineering",
+      "Agricultural": "Agricultural Engineering",
+      "Footwear": "Footwear Technology",
+      // Add more mappings as needed
+    };
+
+    // Map department names if needed
+    let department = teacherData.department || '';
+    if (departmentMap[department]) {
+      department = departmentMap[department];
+    }
+
+    // Generate a default email if not provided
+    const email = teacherData.email || 
+      `${teacherData.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@university.edu`;
+
+    // Prepare teacher document
+    const teacherDoc = {
+      name: teacherData.name,
+      email: email,
+      department: department,
+      expertise: Array.isArray(teacherData.expertise) ? teacherData.expertise : 
+                  typeof teacherData.expertise === 'string' ? [teacherData.expertise] : [],
+      qualification: teacherData.qualification || 'Not specified',
+      experience: parseInt(teacherData.experience) || 0,
+      active: teacherData.active !== false, // Default to true unless explicitly false
+      employeeId: teacherData.employeeId || teacherData.id || null,
+      phoneNumber: teacherData.phoneNumber || teacherData.phone || '',
+      address: teacherData.address || '',
+      joiningDate: teacherData.joiningDate || new Date().toISOString().split('T')[0],
+      designation: teacherData.designation || 'Faculty',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Create unique document ID based on email
+    const docId = email.replace(/[@.]/g, '_');
+    const teacherRef = doc(db, TEACHERS_COLLECTION, docId);
+    
+    // Check if teacher already exists
+    const existingDoc = await getDoc(teacherRef);
+    if (existingDoc.exists()) {
+      // Update existing teacher
+      await updateDoc(teacherRef, {
+        ...teacherDoc,
+        createdAt: existingDoc.data().createdAt, // Keep original creation date
+      });
+      
+      return {
+        success: true,
+        action: 'updated',
+        name: teacherData.name,
+        item: teacherData
+      };
+    } else {
+      // Create new teacher
+      await setDoc(teacherRef, teacherDoc);
+      
+      return {
+        success: true,
+        action: 'created',
+        name: teacherData.name,
+        item: teacherData
+      };
+    }
+
+  } catch (error) {
+    console.error('Error processing single faculty import:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred',
+      item: teacherData
+    };
+  }
+};
+
+/**
  * Generate avatar initials from name
  * @param {string} name - Full name
  * @returns {string} Initials (up to 2 characters)
@@ -468,6 +563,7 @@ const TeacherManagementService = {
   searchTeachers,
   getExampleJSONDataset,
   processFacultyImport,
+  processSingleFacultyImport,
   getInitials,
   getAvatarBg,
   subjectAreas,

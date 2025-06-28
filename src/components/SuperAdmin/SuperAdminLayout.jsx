@@ -4,6 +4,7 @@ import { FiMenu, FiBell, FiSearch, FiUser, FiUsers, FiGrid, FiLayers, FiHome, Fi
 import { auth, signOut, onAuthStateChanged } from '../../firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
+import RateLimitStatusMonitor from '../common/RateLimitStatusMonitor';
 
 const navItems = [
   { label: 'Dashboard', icon: <FiGrid />, path: '/admin/dashboard' },
@@ -164,6 +165,9 @@ export default function SuperAdminLayout() {
           <Outlet />
         </main>
       </div>
+      
+      {/* Rate Limit Status Monitor */}
+      <RateLimitStatusMonitor />
     </div>
   );
 }
