@@ -228,12 +228,20 @@ export default function TeacherManagement() {
         try {
           const jsonData = JSON.parse(event.target.result);
           
-          if (!Array.isArray(jsonData)) {
-            throw new Error('JSON data must be an array of faculty members');
+          // Handle both direct array format and object with teachers/faculty property
+          let facultyArray;
+          if (Array.isArray(jsonData)) {
+            facultyArray = jsonData;
+          } else if (jsonData.teachers && Array.isArray(jsonData.teachers)) {
+            facultyArray = jsonData.teachers;
+          } else if (jsonData.faculty && Array.isArray(jsonData.faculty)) {
+            facultyArray = jsonData.faculty;
+          } else {
+            throw new Error('JSON data must be an array of faculty members or an object with "teachers" or "faculty" property containing an array');
           }
 
           // Start rate-limited upload
-          await handleUpload(jsonData, {
+          await handleUpload(facultyArray, {
             batchSize: 1, // Process one faculty member at a time
             onComplete: (results) => {
               const successful = results.filter(r => r.success).length;
@@ -411,7 +419,12 @@ export default function TeacherManagement() {
             {showInfoTooltip && (
               <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-lg shadow-xl p-4 text-sm border border-gray-200 z-50">
                 <p className="font-medium mb-2 text-gray-700">JSON Dataset Format</p>
-                <p className="text-gray-600 mb-3">Upload a JSON file containing an array of faculty members with their details.</p>
+                <p className="text-gray-600 mb-3">Upload a JSON file containing faculty data. Supports:</p>
+                <ul className="text-gray-600 mb-3 text-xs space-y-1">
+                  <li>• Direct array format</li>
+                  <li>• Object with "teachers" property</li>
+                  <li>• Object with "faculty" property</li>
+                </ul>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
