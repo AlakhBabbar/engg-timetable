@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { FiEdit, FiTrash2, FiSearch, FiFilter, FiX, FiBook, FiUser, FiClock, FiCalendar, FiHash, FiUpload, FiInfo, FiDownload } from 'react-icons/fi';
 import CourseManagementService from './services/CourseManagement';
+import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
+import UploadProgressIndicator from '../common/UploadProgressIndicator';
 
 export default function CourseManagement() {
   // State variables
@@ -28,6 +30,27 @@ export default function CourseManagement() {
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
+
+  // Rate-limited upload hook
+  const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload(
+    // Processor function for course imports
+    async (courseBatch) => {
+      const results = [];
+      for (const course of courseBatch) {
+        try {
+          const result = await CourseManagementService.processSingleCourseImport(course, faculty);
+          results.push(result);
+        } catch (error) {
+          results.push({
+            success: false,
+            error: error.message,
+            item: course
+          });
+        }
+      }
+      return results;
+    }
+  );
 
   // Load initial data
   useEffect(() => {
@@ -169,7 +192,7 @@ export default function CourseManagement() {
     }
   };
 
-  // Handle file upload and JSON parsing
+  // Handle file upload and JSON parsing with rate limiting
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -177,35 +200,47 @@ export default function CourseManagement() {
     try {
       setIsLoading(true);
       setError(null);
+      resetUploadState(); // Reset any previous upload state
       
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
           const jsonData = JSON.parse(event.target.result);
           
-          // Process the uploaded courses
-          const { results, updatedCourses } = CourseManagementService.processUploadedCourses(
-            jsonData,
-            courses,
-            faculty
-          );
+          // Handle both direct array and nested structure
+          const coursesArray = Array.isArray(jsonData) ? jsonData : jsonData.courses;
           
-          // Update courses state
-          setCourses(updatedCourses);
-          
-          // Show results summary
-          const successful = results.filter(r => r.success).length;
-          if (successful === results.length) {
-            alert(`Successfully imported ${successful} courses.`);
-          } else {
-            alert(`Imported ${successful} out of ${results.length} courses. Check console for details.`);
-            console.table(results);
+          if (!Array.isArray(coursesArray)) {
+            throw new Error('JSON data must be an array of courses or contain a "courses" array');
           }
+
+          // Start rate-limited upload
+          await handleUpload(coursesArray, {
+            batchSize: 1, // Process one course at a time
+            onComplete: (results) => {
+              const successful = results.filter(r => r.success).length;
+              const failed = results.filter(r => !r.success).length;
+              
+              if (failed === 0) {
+                alert(`✅ Successfully imported ${successful} courses.`);
+              } else {
+                alert(`⚠️ Import completed: ${successful} successful, ${failed} failed. Check the progress indicator for details.`);
+                console.table(results.filter(r => !r.success));
+              }
+              
+              // Refresh the courses list
+              loadCourses();
+              setIsLoading(false);
+            },
+            onError: (error) => {
+              setError(`Upload failed: ${error}`);
+              setIsLoading(false);
+            }
+          });
           
         } catch (err) {
           setError(`Error parsing JSON: ${err.message}`);
           console.error(err);
-        } finally {
           setIsLoading(false);
         }
       };
@@ -672,6 +707,13 @@ export default function CourseManagement() {
           </div>
         </div>
       )}
+
+      {/* Upload Progress Indicator */}
+      <UploadProgressIndicator 
+        uploadState={uploadState}
+        onDismiss={resetUploadState}
+        showQueueInfo={true}
+      />
     </div>
   );
 }

@@ -271,6 +271,77 @@ export const processRoomImport = async (jsonData) => {
 };
 
 /**
+ * Process a single room import (used for rate-limited uploads)
+ * @param {Object} roomData - Single room data object
+ * @returns {Promise<Object>} Result object with success status
+ */
+export const processSingleRoomImport = async (roomData) => {
+  try {
+    // Validate required fields
+    if (!roomData.roomNumber || !roomData.capacity || !roomData.faculty) {
+      return {
+        success: false,
+        error: "Missing required fields (roomNumber, capacity, faculty)",
+        item: roomData
+      };
+    }
+
+    // Prepare room data
+    const roomDoc = {
+      number: roomData.roomNumber,
+      capacity: parseInt(roomData.capacity) || 0,
+      features: Array.isArray(roomData.features) ? roomData.features : [],
+      faculty: roomData.faculty,
+      active: roomData.active !== false, // Default to true unless explicitly false
+      building: roomData.building || '',
+      floor: roomData.floor || '',
+      description: roomData.description || '',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Generate unique document ID
+    const docId = `${roomData.faculty.replace(/[^a-zA-Z0-9]/g, '_')}_${roomData.roomNumber.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const roomRef = doc(db, ROOMS_COLLECTION, docId);
+    
+    // Check if room already exists
+    const existingDoc = await getDoc(roomRef);
+    if (existingDoc.exists()) {
+      // Update existing room
+      await updateDoc(roomRef, {
+        ...roomDoc,
+        createdAt: existingDoc.data().createdAt, // Keep original creation date
+      });
+      
+      return {
+        success: true,
+        action: 'updated',
+        roomNumber: roomData.roomNumber,
+        item: roomData
+      };
+    } else {
+      // Create new room
+      await setDoc(roomRef, roomDoc);
+      
+      return {
+        success: true,
+        action: 'created',
+        roomNumber: roomData.roomNumber,
+        item: roomData
+      };
+    }
+
+  } catch (error) {
+    console.error('Error processing single room import:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred',
+      item: roomData
+    };
+  }
+};
+
+/**
  * Get all rooms from Firebase
  * @returns {Promise} Promise object with rooms data
  */
@@ -470,7 +541,8 @@ const RoomManagementService = {
   featureOptions,
   getFacultyColorClass,
   getExampleJSONDataset,
-  processRoomImport
+  processRoomImport,
+  processSingleRoomImport
 };
 
 export default RoomManagementService;

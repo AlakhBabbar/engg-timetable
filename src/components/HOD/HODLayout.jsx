@@ -4,6 +4,7 @@ import { Outlet } from 'react-router-dom';
 import { FiBell, FiSearch, FiChevronDown, FiChevronUp, FiLogOut } from 'react-icons/fi';
 import { AuthContext } from '../../App';
 import { useHODLayout } from './services/HODLayout';
+import RateLimitStatusMonitor from '../common/RateLimitStatusMonitor';
 
 export default function HODLayout() {
   const { user, setUser } = useContext(AuthContext);
@@ -147,6 +148,9 @@ export default function HODLayout() {
           <Outlet />
         </main>
       </div>
+      
+      {/* Rate Limit Status Monitor */}
+      <RateLimitStatusMonitor />
     </div>
   );
 }
