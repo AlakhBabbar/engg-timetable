@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { rateLimitedUpload, getUploadQueueStatus } from '../utils/rateLimitedUpload';
+import { rateLimitedUpload, getUploadQueueStatus, cancelUpload } from '../utils/rateLimitedUpload';
 
 /**
  * Custom hook for rate-limited dataset uploads
@@ -94,6 +94,16 @@ export const useRateLimitedUpload = (processorFunction) => {
     }
   }, [processorFunction]);
 
+  const handleCancel = useCallback(() => {
+    cancelUpload();
+    setUploadState(prev => ({
+      ...prev,
+      isUploading: false,
+      error: 'Upload canceled by user',
+      queueStatus: getUploadQueueStatus()
+    }));
+  }, []);
+
   const updateQueueStatus = useCallback(() => {
     setUploadState(prev => ({
       ...prev,
@@ -104,6 +114,7 @@ export const useRateLimitedUpload = (processorFunction) => {
   return {
     uploadState,
     handleUpload,
+    handleCancel,
     resetUploadState,
     updateQueueStatus
   };

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiUser, FiBookOpen, FiAward, FiLayers, FiUpload, FiInfo, FiDownload } from 'react-icons/fi';
+import { FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiUser, FiBookOpen, FiAward, FiLayers, FiUpload, FiInfo, FiDownload, FiX, FiAlertTriangle, FiCheckCircle, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import TeacherManagementService from './services/TeacherManagement';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
@@ -10,6 +10,8 @@ export default function TeacherManagement() {
   const { showSuccess, showError, showWarning, showInfo } = useToast();
   
   const [teachers, setTeachers] = useState([]);
+  const [selectedTeachers, setSelectedTeachers] = useState(new Set());
+  const [showBulkActions, setShowBulkActions] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
@@ -28,8 +30,18 @@ export default function TeacherManagement() {
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
 
+  // Upload confirmation states
+  const [showUploadConfirmation, setShowUploadConfirmation] = useState(false);
+  const [validationResults, setValidationResults] = useState(null);
+  const [pendingUploadData, setPendingUploadData] = useState(null);
+  const [warningsAcknowledged, setWarningsAcknowledged] = useState(false);
+
+  // Pagination states
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
+
   // Rate-limited upload hook
-  const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload(
+  const { uploadState, handleUpload, handleCancel, resetUploadState } = useRateLimitedUpload(
     // Processor function for faculty imports
     async (facultyBatch) => {
       const results = [];
@@ -54,6 +66,34 @@ export default function TeacherManagement() {
     fetchTeachers();
   }, []);
 
+  // Clear selections when teachers list changes
+  useEffect(() => {
+    setSelectedTeachers(new Set());
+    setShowBulkActions(false);
+    setCurrentPage(1); // Reset to first page when data changes
+  }, [teachers]);
+
+  // Pagination calculations
+  const totalPages = Math.ceil(teachers.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentTeachers = teachers.slice(startIndex, endIndex);
+
+  // Pagination helper functions
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  const goToFirstPage = () => goToPage(1);
+  const goToLastPage = () => goToPage(totalPages);
+  const goToPreviousPage = () => goToPage(currentPage - 1);
+  const goToNextPage = () => goToPage(currentPage + 1);
+
+  const handleItemsPerPageChange = (newItemsPerPage) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing page size
+  };
+
   // Handle clicks outside tooltip
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -71,6 +111,85 @@ export default function TeacherManagement() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showInfoTooltip]);
+
+  // Handle individual teacher selection
+  const handleTeacherSelect = (teacherId) => {
+    const newSelected = new Set(selectedTeachers);
+    if (newSelected.has(teacherId)) {
+      newSelected.delete(teacherId);
+    } else {
+      newSelected.add(teacherId);
+    }
+    setSelectedTeachers(newSelected);
+    setShowBulkActions(newSelected.size > 0);
+  };
+
+  // Handle select all toggle
+  const handleSelectAll = () => {
+    const currentTeacherIds = currentTeachers.map(teacher => teacher.id);
+    const currentlySelectedOnPage = currentTeacherIds.filter(id => selectedTeachers.has(id));
+    
+    if (currentlySelectedOnPage.length === currentTeachers.length) {
+      // Deselect all on current page
+      const newSelected = new Set(selectedTeachers);
+      currentTeacherIds.forEach(id => newSelected.delete(id));
+      setSelectedTeachers(newSelected);
+      setShowBulkActions(newSelected.size > 0);
+    } else {
+      // Select all on current page
+      const newSelected = new Set(selectedTeachers);
+      currentTeacherIds.forEach(id => newSelected.add(id));
+      setSelectedTeachers(newSelected);
+      setShowBulkActions(true);
+    }
+  };
+
+  // Handle bulk delete
+  const handleBulkDelete = async () => {
+    const selectedCount = selectedTeachers.size;
+    const confirmMessage = `Are you sure you want to delete ${selectedCount} teacher${selectedCount > 1 ? 's' : ''}? This action cannot be undone.`;
+    
+    if (window.confirm(confirmMessage)) {
+      try {
+        setIsLoading(true);
+        const teacherIds = Array.from(selectedTeachers);
+        const result = await TeacherManagementService.bulkDeleteTeachers(teacherIds);
+        
+        if (result.success) {
+          showSuccess(`Successfully deleted ${result.summary.successful} teacher${result.summary.successful > 1 ? 's' : ''}`, {
+            duration: 5000
+          });
+          await fetchTeachers();
+          setSelectedTeachers(new Set());
+          setShowBulkActions(false);
+        } else {
+          const { successful, failed } = result.summary;
+          if (successful > 0) {
+            showWarning(`Deleted ${successful} teacher${successful > 1 ? 's' : ''}, but ${failed} failed`, {
+              details: result.error,
+              duration: 8000
+            });
+            await fetchTeachers();
+            setSelectedTeachers(new Set());
+            setShowBulkActions(false);
+          } else {
+            showError('Failed to delete teachers', {
+              details: result.error,
+              duration: 8000
+            });
+          }
+        }
+      } catch (error) {
+        showError('Bulk delete operation failed', {
+          details: error.message,
+          duration: 8000
+        });
+        console.error(error);
+      } finally {
+        setIsLoading(false);
+      }
+    }
+  };
 
   const fetchTeachers = async () => {
     try {
@@ -210,8 +329,8 @@ export default function TeacherManagement() {
         const result = await TeacherManagementService.deleteTeacher(id);
         
         if (result.success) {
-          setTeachers(teachers.filter(teacher => teacher.id !== id));
           showSuccess('Teacher deleted successfully');
+          fetchTeachers();
         } else {
           showError('Failed to delete teacher', {
             details: result.error,
@@ -284,7 +403,7 @@ export default function TeacherManagement() {
       if (teacher.email) {
         const email = teacher.email.toString().trim().toLowerCase();
         if (emails.has(email)) {
-          errors.push(`${teacherContext}: Duplicate email "${email}"`);
+          errors.push(`${teacherContext}: Duplicate email address: ${email}`);
         } else {
           emails.add(email);
         }
@@ -292,18 +411,17 @@ export default function TeacherManagement() {
         // Basic email format validation
         const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
         if (!emailRegex.test(email)) {
-          warnings.push(`${teacherContext}: Email format appears invalid "${email}"`);
+          errors.push(`${teacherContext}: Invalid email format: ${email}`);
         }
       } else {
-        warnings.push(`${teacherContext}: No email provided - will generate default email`);
+        warnings.push(`${teacherContext}: No email provided`);
       }
       
       // Department validation
       if (teacher.department) {
-        const validDepts = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Chemical Engineering', 'Agricultural Engineering', 'Footwear Technology'];
         const dept = teacher.department.toString().trim();
-        if (!validDepts.some(validDept => validDept.toLowerCase().includes(dept.toLowerCase()) || dept.toLowerCase().includes(validDept.toLowerCase()))) {
-          warnings.push(`${teacherContext}: Unknown department "${dept}". Common departments: ${validDepts.slice(0, 3).join(', ')}, etc.`);
+        if (dept.length > 100) {
+          warnings.push(`${teacherContext}: Department name is very long`);
         }
       } else {
         warnings.push(`${teacherContext}: No department specified`);
@@ -311,30 +429,26 @@ export default function TeacherManagement() {
       
       // Experience validation
       if (teacher.experience !== undefined && teacher.experience !== null) {
-        const experience = parseInt(teacher.experience);
-        if (isNaN(experience)) {
-          warnings.push(`${teacherContext}: Experience should be a number, found "${teacher.experience}". Will default to 0.`);
-        } else if (experience < 0) {
-          warnings.push(`${teacherContext}: Experience cannot be negative (${experience}). Will default to 0.`);
-        } else if (experience > 50) {
-          warnings.push(`${teacherContext}: Very high experience (${experience} years) - please verify`);
+        const exp = parseInt(teacher.experience);
+        if (isNaN(exp) || exp < 0) {
+          warnings.push(`${teacherContext}: Invalid experience value: ${teacher.experience}`);
+        } else if (exp > 50) {
+          warnings.push(`${teacherContext}: Unusually high experience: ${exp} years`);
         }
       }
       
       // Expertise validation
       if (teacher.expertise !== undefined) {
-        if (typeof teacher.expertise === 'string') {
-          warnings.push(`${teacherContext}: Expertise should be an array, found string. Will be converted to array.`);
-        } else if (!Array.isArray(teacher.expertise)) {
-          warnings.push(`${teacherContext}: Expertise should be an array, found ${typeof teacher.expertise}. Will be converted to empty array.`);
+        if (!Array.isArray(teacher.expertise) && typeof teacher.expertise !== 'string') {
+          warnings.push(`${teacherContext}: Expertise should be an array or string`);
         }
       }
       
       // Employee ID validation
       if (teacher.employeeId || teacher.id) {
-        const empId = (teacher.employeeId || teacher.id).toString().trim();
+        const empId = (teacher.employeeId || teacher.id).toString();
         if (employeeIds.has(empId)) {
-          errors.push(`${teacherContext}: Duplicate employee ID "${empId}"`);
+          errors.push(`${teacherContext}: Duplicate employee ID: ${empId}`);
         } else {
           employeeIds.add(empId);
         }
@@ -346,7 +460,7 @@ export default function TeacherManagement() {
       const unexpectedFields = actualFields.filter(field => !expectedFields.includes(field));
       
       if (unexpectedFields.length > 0) {
-        warnings.push(`${teacherContext}: Unexpected fields found: ${unexpectedFields.join(', ')}. These will be ignored.`);
+        warnings.push(`${teacherContext}: Unexpected fields found: ${unexpectedFields.join(', ')}`);
       }
     });
     
@@ -368,170 +482,126 @@ export default function TeacherManagement() {
     // Validate file type
     if (!file.name.toLowerCase().endsWith('.json')) {
       showError('Please select a valid JSON file', {
+        details: 'Only .json files are supported for faculty data import',
         duration: 5000
       });
       return;
     }
     
     try {
-      setIsLoading(true);
-      resetUploadState(); // Reset any previous upload state
+      const text = await file.text();
+      const jsonData = JSON.parse(text);
       
-      const reader = new FileReader();
-      reader.onload = async (event) => {
-        try {
-          const jsonData = JSON.parse(event.target.result);
-          
-          // Handle both direct array format and object with teachers/faculty property
-          let teachersArray;
-          if (Array.isArray(jsonData)) {
-            teachersArray = jsonData;
-          } else if (jsonData.teachers && Array.isArray(jsonData.teachers)) {
-            teachersArray = jsonData.teachers;
-          } else if (jsonData.faculty && Array.isArray(jsonData.faculty)) {
-            teachersArray = jsonData.faculty;
-          } else {
-            throw new Error('JSON data must be an array of teachers/faculty or contain a "teachers" or "faculty" array');
-          }
-
-          if (teachersArray.length === 0) {
-            showWarning('The selected file contains no teachers to import');
-            setIsLoading(false);
-            return;
-          }
-
-          // Validate the teacher data structure and content
-          const validation = validateTeacherData(teachersArray);
-          
-          if (!validation.isValid) {
-            // Critical errors found - cannot proceed
-            const errorDetails = validation.errors.slice(0, 10).join('\n') + 
-              (validation.errors.length > 10 ? `\n... and ${validation.errors.length - 10} more errors` : '');
-            
-            showError(`❌ Data validation failed - cannot import`, {
-              details: `Found ${validation.errors.length} error(s):\n\n${errorDetails}\n\nPlease fix these issues and try again.`,
-              duration: 25000
-            });
-            setIsLoading(false);
-            return;
-          }
-          
-          // Show warnings if any, but allow upload to proceed
-          if (validation.warnings.length > 0) {
-            const warningDetails = validation.warnings.slice(0, 8).join('\n') + 
-              (validation.warnings.length > 8 ? `\n... and ${validation.warnings.length - 8} more warnings` : '');
-            
-            showWarning(`⚠️ Data validation completed with ${validation.warnings.length} warning(s)`, {
-              details: `${warningDetails}\n\nYou can proceed with the upload, but please review these warnings.`,
-              duration: 15000
-            });
-          } else {
-            // No errors or warnings
-            showSuccess(`✅ Data validation passed! Ready to import ${validation.teacherCount} teachers`, {
-              duration: 5000
-            });
-          }
-
-          // Brief delay to let user see validation results
-          setTimeout(() => {
-            showInfo(`🚀 Starting import of ${teachersArray.length} teachers...`);
-
-            // Start rate-limited upload
-            handleUpload(teachersArray, {
-              batchSize: 1, // Process one teacher at a time
-              onComplete: (results) => {
-                const successful = results.filter(r => r.success).length;
-                const failed = results.filter(r => !r.success).length;
-                const failedItems = results.filter(r => !r.success);
-                
-                // Show toasts immediately
-                if (failed === 0) {
-                  showSuccess(`✅ Successfully imported all ${successful} teachers!`, {
-                    duration: 8000
-                  });
-                } else if (successful > 0) {
-                  // Format error details for display
-                  const errorSummary = failedItems.slice(0, 5).map(item => 
-                    `${item.item?.name || 'Unknown'}: ${item.error}`
-                  ).join('\n');
-                  const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
-                  
-                  showWarning(`⚠️ Import completed: ${successful} successful, ${failed} failed`, {
-                    details: errorSummary + moreErrors,
-                    duration: 15000
-                  });
-                } else {
-                  // Format error details for display
-                  const errorSummary = failedItems.slice(0, 5).map(item => 
-                    `${item.item?.name || 'Unknown'}: ${item.error}`
-                  ).join('\n');
-                  const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
-                  
-                  showError(`❌ Import failed: All ${failed} teachers failed to import`, {
-                    details: errorSummary + moreErrors,
-                    duration: 20000
-                  });
-                }
-                
-                // Refresh the teachers list and update loading state
-                fetchTeachers();
-                setIsLoading(false);
-                
-                // Auto-dismiss upload indicator after a delay for successful imports
-                if (failed === 0) {
-                  setTimeout(() => {
-                    resetUploadState();
-                  }, 3000);
-                }
-              },
-              onError: (error) => {
-                showError(`Upload failed: ${error}`, {
-                  duration: 10000
-                });
-                setIsLoading(false);
-              }
-            });
-          }, validation.warnings.length > 0 ? 3000 : 1000); // Longer delay if there are warnings
-          
-        } catch (err) {
-          if (err.name === 'SyntaxError') {
-            showError('Invalid JSON file format. Please check your file and try again.', {
-              details: err.message,
-              duration: 8000
-            });
-          } else {
-            showError(`Error processing file: ${err.message}`, {
-              duration: 8000
-            });
-          }
-          // Log errors in development for debugging
-          if (process.env.NODE_ENV === 'development') {
-            console.error(err);
-          }
-          setIsLoading(false);
-        }
-      };
-      
-      reader.onerror = () => {
-        showError('Error reading the file. Please try again.', {
+      // Extract teachers array from different possible formats
+      let teachersArray;
+      if (Array.isArray(jsonData)) {
+        teachersArray = jsonData;
+      } else if (jsonData.teachers && Array.isArray(jsonData.teachers)) {
+        teachersArray = jsonData.teachers;
+      } else if (jsonData.faculty && Array.isArray(jsonData.faculty)) {
+        teachersArray = jsonData.faculty;
+      } else {
+        showError('Invalid JSON format', {
+          details: 'Expected an array of teachers or an object with "teachers" or "faculty" property',
           duration: 6000
         });
-        setIsLoading(false);
-      };
+        return;
+      }
       
-      reader.readAsText(file);
+      // Validate the data
+      const validation = validateTeacherData(teachersArray);
+      
+      // Always show validation results and require confirmation
+      setValidationResults(validation);
+      setPendingUploadData(teachersArray);
+      setWarningsAcknowledged(false);
+      setShowUploadConfirmation(true);
       
     } catch (err) {
-      showError(`An error occurred during file upload: ${err.message}`, {
-        duration: 8000
-      });
-      setIsLoading(false);
+      if (err instanceof SyntaxError) {
+        showError('Invalid JSON format', {
+          details: 'Please check your JSON file for syntax errors',
+          duration: 6000
+        });
+      } else {
+        showError('Error reading file', {
+          details: err.message,
+          duration: 6000
+        });
+      }
     }
     
     // Reset the file input
     if (e.target) {
       e.target.value = '';
     }
+  };
+
+  // Handle upload confirmation after validation
+  const handleConfirmUpload = async () => {
+    if (!pendingUploadData || !validationResults) {
+      showError('No data to upload');
+      return;
+    }
+
+    // Check if warnings exist and are not acknowledged
+    if (validationResults.warnings.length > 0 && !warningsAcknowledged) {
+      showWarning('Please acknowledge all warnings before proceeding', {
+        details: 'Review and check the warnings acknowledgment to continue',
+        duration: 5000
+      });
+      return;
+    }
+
+    // Check for validation errors
+    if (!validationResults.isValid) {
+      showError('Cannot proceed with upload due to validation errors', {
+        details: 'Please fix the errors in your data before uploading',
+        duration: 6000
+      });
+      return;
+    }
+
+    try {
+      setShowUploadConfirmation(false);
+      
+      showInfo(`Starting upload of ${pendingUploadData.length} faculty records...`, {
+        duration: 3000
+      });
+      
+      // Start the rate-limited upload
+      await handleUpload(pendingUploadData);
+      
+      // Show success message and reload page after successful upload
+      showSuccess('Upload completed successfully! Reloading page...', {
+        duration: 2000
+      });
+      
+      // Reload the page after a short delay to show the success message
+      setTimeout(() => {
+        window.location.reload();
+      }, 2500);
+      
+    } catch (error) {
+      showError('Failed to start upload', {
+        details: error.message,
+        duration: 8000
+      });
+    } finally {
+      // Clean up pending data
+      setPendingUploadData(null);
+      setValidationResults(null);
+      setWarningsAcknowledged(false);
+    }
+  };
+
+  // Handle upload cancellation
+  const handleCancelUpload = () => {
+    setShowUploadConfirmation(false);
+    setPendingUploadData(null);
+    setValidationResults(null);
+    setWarningsAcknowledged(false);
+    showInfo('Upload cancelled');
   };
 
   // Download example JSON dataset
@@ -551,10 +621,106 @@ export default function TeacherManagement() {
 
   return (
     <div className="p-6 relative">
-      <h1 className="text-2xl font-bold mb-6">Faculty Management</h1>
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          <span>{error}</span>
+      {/* Header with Action Buttons */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-6 gap-4">
+        <h1 className="text-2xl font-bold">Faculty Management</h1>
+        
+        {/* Action Buttons Group */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          {/* Upload Faculty Dataset Button with Info Icon */}
+          <div className="flex items-center relative group">
+            <button
+              onClick={handleUploadClick}
+              className="px-4 py-2 rounded-full bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-lg hover:scale-105 transition flex items-center"
+            >
+              <FiUpload size={18} className="mr-2" />
+              <span>Upload Faculty Dataset</span>
+            </button>
+            
+            {/* Info Icon with Tooltip */}
+            <div 
+              className="relative ml-2"
+              ref={tooltipRef}
+              onClick={() => setShowInfoTooltip(!showInfoTooltip)}
+            >
+              <button
+                className="w-8 h-8 rounded-full bg-white shadow-md flex items-center justify-center hover:bg-gray-100"
+              >
+                <FiInfo size={16} className="text-blue-600" />
+              </button>
+              
+              {/* Tooltip */}
+              {showInfoTooltip && (
+                <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-lg shadow-xl p-4 text-sm border border-gray-200 z-50">
+                  <p className="font-medium mb-2 text-gray-700">JSON Dataset Format</p>
+                  <p className="text-gray-600 mb-3">Upload a JSON file containing faculty data. Supports:</p>
+                  <ul className="text-gray-600 mb-3 text-xs space-y-1">
+                    <li>• Direct array format</li>
+                    <li>• Object with "teachers" property</li>
+                    <li>• Object with "faculty" property</li>
+                  </ul>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      downloadExampleJSON();
+                    }}
+                    className="flex items-center text-blue-600 hover:text-blue-800 font-medium"
+                  >
+                    <FiDownload size={14} className="mr-1" />
+                    Download Example Format
+                  </button>
+                </div>
+              )}
+            </div>
+            
+            {/* Hidden file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".json"
+              onChange={handleFileUpload}
+              className="hidden"
+            />
+          </div>
+          
+          {/* Add New Teacher Button */}
+          <button
+            onClick={() => openModal()}
+            className="px-4 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg hover:scale-105 transition flex items-center"
+          >
+            <FiPlus size={20} className="mr-2" />
+            <span>Add New Teacher</span>
+          </button>
+        </div>
+      </div>
+      
+      {/* Bulk Actions Bar */}
+      {showBulkActions && (
+        <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between">
+          <div className="flex items-center">
+            <span className="text-sm font-medium text-blue-800">
+              {selectedTeachers.size} teacher{selectedTeachers.size > 1 ? 's' : ''} selected
+            </span>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setSelectedTeachers(new Set());
+                setShowBulkActions(false);
+              }}
+              className="px-3 py-1 text-sm text-blue-600 hover:text-blue-800 transition"
+            >
+              Clear Selection
+            </button>
+            <button
+              onClick={handleBulkDelete}
+              disabled={isLoading}
+              className="px-4 py-2 bg-red-600 text-white text-sm rounded-lg hover:bg-red-700 transition disabled:opacity-50 flex items-center gap-2"
+            >
+              <FiTrash2 size={16} />
+              Delete Selected ({selectedTeachers.size})
+            </button>
+          </div>
         </div>
       )}
       
@@ -563,6 +729,14 @@ export default function TeacherManagement() {
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gradient-to-r from-indigo-100 to-purple-100">
             <tr>
+              <th className="px-6 py-3 text-left">
+                <input
+                  type="checkbox"
+                  checked={currentTeachers.length > 0 && currentTeachers.every(teacher => selectedTeachers.has(teacher.id))}
+                  onChange={handleSelectAll}
+                  className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                />
+              </th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Name</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Department</th>
               <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Expertise</th>
@@ -573,8 +747,16 @@ export default function TeacherManagement() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {teachers.map((teacher, idx) => (
+            {currentTeachers.map((teacher, idx) => (
               <tr key={teacher.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <input
+                    type="checkbox"
+                    checked={selectedTeachers.has(teacher.id)}
+                    onChange={() => handleTeacherSelect(teacher.id)}
+                    className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                  />
+                </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="flex items-center">
                     <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-medium ${TeacherManagementService.getAvatarBg(teacher.name)}`}>
@@ -638,73 +820,90 @@ export default function TeacherManagement() {
         </table>
       </div>
 
-      {/* Floating Buttons Group */}
-      <div className="fixed bottom-8 right-8 flex flex-col gap-4">
-        {/* Upload Faculty Dataset Button with Info Icon */}
-        <div className="flex items-center relative group">
-          <button
-            onClick={handleUploadClick}
-            className="p-4 rounded-full bg-gradient-to-r from-blue-500 to-cyan-600 text-white shadow-lg hover:scale-105 transition flex items-center"
-          >
-            <FiUpload size={20} className="mr-2" />
-            <span>Upload Faculty Dataset</span>
-          </button>
-          
-          {/* Info Icon with Tooltip */}
-          <div 
-            className="relative ml-2"
-            ref={tooltipRef}
-            onClick={() => setShowInfoTooltip(!showInfoTooltip)}
-          >
-            <button
-              className="w-8 h-8 rounded-full bg-white shadow-md flex items-center justify-center hover:bg-gray-100"
-            >
-              <FiInfo size={16} className="text-blue-600" />
-            </button>
+      {/* Pagination Controls */}
+      {teachers.length > 0 && (
+        <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <div className="flex items-center text-sm text-gray-700 gap-4">
+            <span>
+              Showing {teachers.length === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, teachers.length)} of {teachers.length} teachers
+            </span>
             
-            {/* Tooltip */}
-            {showInfoTooltip && (
-              <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-lg shadow-xl p-4 text-sm border border-gray-200 z-50">
-                <p className="font-medium mb-2 text-gray-700">JSON Dataset Format</p>
-                <p className="text-gray-600 mb-3">Upload a JSON file containing faculty data. Supports:</p>
-                <ul className="text-gray-600 mb-3 text-xs space-y-1">
-                  <li>• Direct array format</li>
-                  <li>• Object with "teachers" property</li>
-                  <li>• Object with "faculty" property</li>
-                </ul>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    downloadExampleJSON();
-                  }}
-                  className="flex items-center text-blue-600 hover:text-blue-800 font-medium"
-                >
-                  <FiDownload size={14} className="mr-1" />
-                  Download Example Format
-                </button>
-              </div>
-            )}
+            {/* Items per page selector */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="itemsPerPage" className="text-sm text-gray-600">
+                Show:
+              </label>
+              <select
+                id="itemsPerPage"
+                value={itemsPerPage}
+                onChange={(e) => handleItemsPerPageChange(Number(e.target.value))}
+                className="border border-gray-300 rounded-md px-2 py-1 text-sm focus:ring-2 focus:ring-indigo-500 focus:outline-none"
+              >
+                <option value={5}>5</option>
+                <option value={10}>10</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span className="text-sm text-gray-600">per page</span>
+            </div>
           </div>
           
-          {/* Hidden file input */}
-          <input
-            type="file"
-            ref={fileInputRef}
-            accept=".json"
-            onChange={handleFileUpload}
-            className="hidden"
-          />
+          {totalPages > 1 && (
+            <div className="flex items-center space-x-2">
+              {/* Previous Page Button */}
+              <button
+                onClick={goToPreviousPage}
+                disabled={currentPage === 1}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                <FiChevronLeft size={16} className="mr-1" />
+                Previous
+              </button>
+              
+              {/* Page Numbers */}
+              <div className="flex items-center space-x-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  let page;
+                  if (totalPages <= 5) {
+                    page = i + 1;
+                  } else if (currentPage <= 3) {
+                    page = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    page = totalPages - 4 + i;
+                  } else {
+                    page = currentPage - 2 + i;
+                  }
+                  
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => goToPage(page)}
+                      className={`px-3 py-2 text-sm font-medium rounded-lg ${
+                        currentPage === page
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-gray-500 bg-white border border-gray-300 hover:bg-gray-50'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                })}
+              </div>
+              
+              {/* Next Page Button */}
+              <button
+                onClick={goToNextPage}
+                disabled={currentPage === totalPages}
+                className="px-3 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+              >
+                Next
+                <FiChevronRight size={16} className="ml-1" />
+              </button>
+            </div>
+          )}
         </div>
-        
-        {/* Add New Teacher Button */}
-        <button
-          onClick={() => openModal()}
-          className="p-4 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white shadow-lg hover:scale-105 transition flex items-center"
-        >
-          <FiPlus size={24} className="mr-1" />
-          <span>Add New Teacher</span>
-        </button>
-      </div>
+      )}
 
       {/* Modal */}
       {showModal && (
@@ -921,10 +1120,181 @@ export default function TeacherManagement() {
         </div>
       )}
 
+      {/* Upload Confirmation Modal */}
+      {showUploadConfirmation && validationResults && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm z-50">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 w-11/12 max-w-4xl animate-fade-in-up overflow-y-auto max-h-[90vh]">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-semibold text-gray-800 flex items-center">
+                <FiUpload className="mr-3 text-blue-600" />
+                Upload Confirmation
+              </h2>
+              <button
+                onClick={handleCancelUpload}
+                className="text-gray-400 hover:text-gray-600 transition"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+
+            {/* Validation Summary */}
+            <div className="mb-6">
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+                <h3 className="text-lg font-medium text-blue-800 mb-2">Upload Summary</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-blue-600">{validationResults.teacherCount}</div>
+                    <div className="text-gray-600">Total Records</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-red-600">{validationResults.errors.length}</div>
+                    <div className="text-gray-600">Errors</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-amber-600">{validationResults.warnings.length}</div>
+                    <div className="text-gray-600">Warnings</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-600">
+                      {validationResults.teacherCount - validationResults.errors.length}
+                    </div>
+                    <div className="text-gray-600">Valid Records</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Validation Errors */}
+            {validationResults.errors.length > 0 && (
+              <div className="mb-6">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <h3 className="text-lg font-medium text-red-800 mb-3 flex items-center">
+                    <FiAlertTriangle className="mr-2" />
+                    Validation Errors ({validationResults.errors.length})
+                  </h3>
+                  <div className="max-h-40 overflow-y-auto">
+                    <ul className="space-y-1 text-sm text-red-700">
+                      {validationResults.errors.slice(0, 10).map((error, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="mr-2">•</span>
+                          <span>{error}</span>
+                        </li>
+                      ))}
+                      {validationResults.errors.length > 10 && (
+                        <li className="text-red-600 font-medium">
+                          ... and {validationResults.errors.length - 10} more errors
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                  <div className="mt-3 p-3 bg-red-100 rounded-lg">
+                    <p className="text-sm text-red-800 font-medium">
+                      ⚠️ Upload cannot proceed with validation errors. Please fix the data and try again.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Validation Warnings */}
+            {validationResults.warnings.length > 0 && (
+              <div className="mb-6">
+                <div className="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                  <h3 className="text-lg font-medium text-amber-800 mb-3 flex items-center">
+                    <FiAlertTriangle className="mr-2" />
+                    Validation Warnings ({validationResults.warnings.length})
+                  </h3>
+                  <div className="max-h-40 overflow-y-auto">
+                    <ul className="space-y-1 text-sm text-amber-700">
+                      {validationResults.warnings.slice(0, 10).map((warning, index) => (
+                        <li key={index} className="flex items-start">
+                          <span className="mr-2">•</span>
+                          <span>{warning}</span>
+                        </li>
+                      ))}
+                      {validationResults.warnings.length > 10 && (
+                        <li className="text-amber-600 font-medium">
+                          ... and {validationResults.warnings.length - 10} more warnings
+                        </li>
+                      )}
+                    </ul>
+                  </div>
+                  
+                  {/* Warning Acknowledgment */}
+                  <div className="mt-4 p-3 bg-amber-100 rounded-lg">
+                    <label className="flex items-start cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={warningsAcknowledged}
+                        onChange={(e) => setWarningsAcknowledged(e.target.checked)}
+                        className="mt-1 mr-3 w-4 h-4 text-amber-600 bg-gray-100 border-gray-300 rounded focus:ring-amber-500 focus:ring-2"
+                      />
+                      <span className="text-sm text-amber-800">
+                        <strong>I acknowledge these warnings</strong> and understand that the upload will proceed with the data as-is. 
+                        Some records may be processed with default values or may need manual review after import.
+                      </span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Success Message */}
+            {validationResults.isValid && validationResults.warnings.length === 0 && (
+              <div className="mb-6">
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <h3 className="text-lg font-medium text-green-800 mb-2 flex items-center">
+                    <FiCheckCircle className="mr-2" />
+                    Validation Successful
+                  </h3>
+                  <p className="text-sm text-green-700">
+                    All records passed validation. The upload is ready to proceed.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Action Buttons */}
+            <div className="flex justify-end gap-4 pt-4 border-t border-gray-200">
+              <button
+                onClick={handleCancelUpload}
+                className="px-6 py-3 rounded-full border border-gray-300 text-gray-700 hover:bg-gray-50 transition flex items-center"
+              >
+                <FiX className="mr-2" size={16} />
+                Cancel
+              </button>
+              
+              <button
+                onClick={handleConfirmUpload}
+                disabled={
+                  !validationResults.isValid || 
+                  (validationResults.warnings.length > 0 && !warningsAcknowledged)
+                }
+                className={`px-6 py-3 rounded-full text-white transition flex items-center ${
+                  validationResults.isValid && 
+                  (validationResults.warnings.length === 0 || warningsAcknowledged)
+                    ? 'bg-gradient-to-r from-green-500 to-blue-600 hover:from-green-600 hover:to-blue-700'
+                    : 'bg-gray-400 cursor-not-allowed'
+                }`}
+              >
+                <FiUpload className="mr-2" size={16} />
+                {validationResults.warnings.length > 0 && !warningsAcknowledged 
+                  ? 'Acknowledge Warnings to Proceed'
+                  : !validationResults.isValid 
+                  ? 'Fix Errors to Proceed'
+                  : `Start Upload (${validationResults.teacherCount} records)`
+                }
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Upload Progress Indicator */}
       <UploadProgressIndicator 
         uploadState={uploadState}
         onDismiss={resetUploadState}
+        onCancel={handleCancel}
         showQueueInfo={true}
       />
     </div>

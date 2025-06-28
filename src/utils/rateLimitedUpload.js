@@ -9,6 +9,7 @@ class RateLimitedUploader {
   constructor() {
     this.uploadQueue = [];
     this.isProcessing = false;
+    this.isCanceled = false;
     this.RATE_LIMIT_DELAY = 5000; // 5 seconds
   }
 
@@ -50,7 +51,7 @@ class RateLimitedUploader {
     this.isProcessing = true;
 
     try {
-      while (this.uploadQueue.length > 0) {
+      while (this.uploadQueue.length > 0 && !this.isCanceled) {
         const task = this.uploadQueue.shift();
         
         try {
@@ -65,9 +66,23 @@ class RateLimitedUploader {
           }
         }
 
+        // Check for cancellation before waiting
+        if (this.isCanceled) {
+          break;
+        }
+
         // Wait for rate limit delay before processing next item
         if (this.uploadQueue.length > 0) {
           await this.delay(this.RATE_LIMIT_DELAY);
+        }
+      }
+
+      // Handle cancellation
+      if (this.isCanceled) {
+        // Reject any remaining tasks
+        while (this.uploadQueue.length > 0) {
+          const task = this.uploadQueue.shift();
+          task.reject(new Error('Upload canceled by user'));
         }
       }
     } finally {
@@ -91,6 +106,11 @@ class RateLimitedUploader {
     
     // Process data in batches to respect rate limits
     for (let i = 0; i < data.length; i += batchSize) {
+      // Check for cancellation before each batch
+      if (this.isCanceled) {
+        throw new Error('Upload canceled by user');
+      }
+
       const batch = data.slice(i, i + batchSize);
       
       try {
@@ -102,6 +122,11 @@ class RateLimitedUploader {
         if (onProgress) {
           const progress = Math.round(((i + batch.length) / data.length) * 100);
           onProgress(progress, i + batch.length, data.length);
+        }
+
+        // Check for cancellation again before delay
+        if (this.isCanceled) {
+          throw new Error('Upload canceled by user');
         }
 
         // Add delay between batches (except for the last batch)
@@ -147,6 +172,7 @@ class RateLimitedUploader {
     return {
       queueLength: this.uploadQueue.length,
       isProcessing: this.isProcessing,
+      isCanceled: this.isCanceled,
       rateLimitDelay: this.RATE_LIMIT_DELAY
     };
   }
@@ -157,6 +183,21 @@ class RateLimitedUploader {
   clearQueue() {
     this.uploadQueue = [];
     this.isProcessing = false;
+    this.isCanceled = false;
+  }
+
+  /**
+   * Cancel the current upload process
+   */
+  cancelUpload() {
+    this.isCanceled = true;
+    this.uploadQueue = []; // Clear remaining queue
+    
+    // Reset processing state after a brief delay to ensure cleanup
+    setTimeout(() => {
+      this.isProcessing = false;
+      this.isCanceled = false;
+    }, 100);
   }
 }
 
@@ -198,6 +239,13 @@ export const rateLimitedUpload = async (data, processorFunction, options = {}) =
  */
 export const getUploadQueueStatus = () => {
   return rateLimitedUploader.getQueueStatus();
+};
+
+/**
+ * Cancel current upload
+ */
+export const cancelUpload = () => {
+  rateLimitedUploader.cancelUpload();
 };
 
 /**

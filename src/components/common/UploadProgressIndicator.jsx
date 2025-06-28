@@ -1,5 +1,5 @@
 import React from 'react';
-import { FiUpload, FiClock, FiCheckCircle, FiAlertCircle, FiLoader } from 'react-icons/fi';
+import { FiUpload, FiClock, FiCheckCircle, FiAlertCircle, FiLoader, FiX } from 'react-icons/fi';
 
 /**
  * Upload Progress Indicator Component
@@ -7,7 +7,8 @@ import { FiUpload, FiClock, FiCheckCircle, FiAlertCircle, FiLoader } from 'react
  */
 const UploadProgressIndicator = ({ 
   uploadState, 
-  onDismiss, 
+  onDismiss,
+  onCancel,
   className = "",
   showQueueInfo = true 
 }) => {
@@ -60,14 +61,30 @@ const UploadProgressIndicator = ({
             <span className="font-medium text-gray-800">{getStatusText()}</span>
           </div>
           
-          {onDismiss && !isUploading && (
-            <button 
-              onClick={onDismiss}
-              className="text-gray-400 hover:text-gray-600 transition"
-            >
-              ×
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Cancel button - only show when uploading */}
+            {isUploading && onCancel && (
+              <button 
+                onClick={onCancel}
+                className="px-3 py-1 text-sm bg-red-500 text-white rounded-full hover:bg-red-600 transition flex items-center gap-1"
+                title="Cancel upload"
+              >
+                <FiX size={14} />
+                <span>Cancel</span>
+              </button>
+            )}
+            
+            {/* Dismiss button - only show when not uploading */}
+            {onDismiss && !isUploading && (
+              <button 
+                onClick={onDismiss}
+                className="text-gray-400 hover:text-gray-600 transition"
+                title="Dismiss"
+              >
+                ×
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Progress Bar */}
@@ -101,6 +118,9 @@ const UploadProgressIndicator = ({
                 {queueStatus && queueStatus.queueLength > 0 && (
                   <div>Queued tasks: {queueStatus.queueLength}</div>
                 )}
+                <div className="text-amber-600 font-medium">
+                  You can cancel the upload at any time using the Cancel button above.
+                </div>
               </div>
             )}
           </div>

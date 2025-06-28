@@ -39,7 +39,7 @@ export default function CourseManagement() {
   const tooltipRef = useRef(null);
 
   // Rate-limited upload hook
-  const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload();
+  const { uploadState, handleUpload, handleCancel, resetUploadState } = useRateLimitedUpload();
 
   // Load initial data
   useEffect(() => {
@@ -304,15 +304,33 @@ export default function CourseManagement() {
             return;
           }
           
-          // Show warnings if any, but allow upload to proceed
+          // Show warnings if any and ask user for confirmation
           if (validation.warnings.length > 0) {
             const warningDetails = validation.warnings.slice(0, 8).join('\n') + 
               (validation.warnings.length > 8 ? `\n... and ${validation.warnings.length - 8} more warnings` : '');
             
             showWarning(`⚠️ Data validation completed with ${validation.warnings.length} warning(s)`, {
-              details: `${warningDetails}\n\nYou can proceed with the upload, but please review these warnings.`,
+              details: `${warningDetails}`,
               duration: 15000
             });
+
+            // Ask user for confirmation to proceed
+            const userConfirmed = window.confirm(
+              `⚠️ Data Validation Warnings Found\n\n` +
+              `Found ${validation.warnings.length} warning(s) in your course data:\n\n` +
+              `${validation.warnings.slice(0, 5).join('\n')}` +
+              `${validation.warnings.length > 5 ? `\n... and ${validation.warnings.length - 5} more warnings` : ''}\n\n` +
+              `These warnings won't prevent the upload, but you should review them.\n\n` +
+              `Do you want to proceed with the upload anyway?`
+            );
+
+            if (!userConfirmed) {
+              showInfo('Upload canceled by user due to data warnings.');
+              setIsLoading(false);
+              return;
+            }
+
+            showInfo('User confirmed to proceed despite warnings. Starting upload...');
           } else {
             // No errors or warnings
             showSuccess(`✅ Data validation passed! Ready to import ${validation.courseCount} courses`, {
@@ -406,7 +424,7 @@ export default function CourseManagement() {
                 setIsLoading(false);
               }
             });
-          }, validation.warnings.length > 0 ? 3000 : 1000); // Longer delay if there are warnings
+          }, 1000); // Standard delay since user has already confirmed
           
         } catch (err) {
           if (err.name === 'SyntaxError') {
@@ -1050,6 +1068,7 @@ export default function CourseManagement() {
       <UploadProgressIndicator 
         uploadState={uploadState}
         onDismiss={resetUploadState}
+        onCancel={handleCancel}
         showQueueInfo={true}
       />
     </div>

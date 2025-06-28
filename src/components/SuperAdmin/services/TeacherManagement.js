@@ -223,6 +223,78 @@ export const deleteTeacher = async (teacherId) => {
 };
 
 /**
+ * Delete multiple teachers by their IDs
+ * @param {Array<string>} teacherIds - Array of teacher IDs to delete
+ * @returns {Promise<Object>} Object with success status and results
+ */
+export const bulkDeleteTeachers = async (teacherIds) => {
+  try {
+    if (!Array.isArray(teacherIds) || teacherIds.length === 0) {
+      return {
+        success: false,
+        error: 'No teachers selected for deletion',
+        results: []
+      };
+    }
+
+    const results = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    // Process deletions sequentially to avoid overwhelming the database
+    for (const teacherId of teacherIds) {
+      try {
+        const result = await deleteTeacher(teacherId);
+        if (result.success) {
+          successCount++;
+          results.push({
+            teacherId,
+            success: true
+          });
+        } else {
+          failureCount++;
+          results.push({
+            teacherId,
+            success: false,
+            error: result.error
+          });
+        }
+      } catch (error) {
+        failureCount++;
+        results.push({
+          teacherId,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    return {
+      success: failureCount === 0,
+      results,
+      summary: {
+        total: teacherIds.length,
+        successful: successCount,
+        failed: failureCount
+      },
+      error: failureCount > 0 ? `${failureCount} out of ${teacherIds.length} deletions failed` : null
+    };
+  } catch (error) {
+    console.error('Error in bulk delete operation:', error);
+    return {
+      success: false,
+      error: 'Bulk delete operation failed',
+      results: [],
+      summary: {
+        total: teacherIds.length,
+        successful: 0,
+        failed: teacherIds.length
+      }
+    };
+  }
+};
+
+/**
  * Get a teacher by ID
  * @param {string} teacherId - ID of the teacher to fetch
  * @returns {Promise<Object>} Teacher data
@@ -547,6 +619,7 @@ const TeacherManagementService = {
   createTeacher,
   updateTeacher,
   deleteTeacher,
+  bulkDeleteTeachers,
   getTeacherById,
   searchTeachers,
   getExampleJSONDataset,
