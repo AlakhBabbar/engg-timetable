@@ -93,8 +93,15 @@ const UploadProgressIndicator = ({
               <FiClock size={12} />
               <span>Rate Limited Upload (5 sec intervals)</span>
             </div>
-            {showQueueInfo && queueStatus && queueStatus.queueLength > 0 && (
-              <div>Queue: {queueStatus.queueLength} items pending</div>
+            {showQueueInfo && (
+              <div className="space-y-1">
+                {total > 0 && (
+                  <div>Remaining: {total - completed} of {total} items</div>
+                )}
+                {queueStatus && queueStatus.queueLength > 0 && (
+                  <div>Queued tasks: {queueStatus.queueLength}</div>
+                )}
+              </div>
             )}
           </div>
         )}

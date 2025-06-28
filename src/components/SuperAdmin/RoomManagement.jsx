@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { FiPlus, FiEdit, FiTrash2, FiSearch, FiX, FiHome, FiUsers, FiMonitor, FiWifi, FiThermometer, FiSave, FiUpload, FiInfo, FiDownload } from 'react-icons/fi';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
+import { useToast } from '../../context/ToastContext';
 import { 
   getAllRooms, 
   createRoom, 
@@ -42,6 +43,9 @@ const featureOptions = serviceFeatureOptions.map(feature => {
 });
 
 export default function RoomManagement() {
+  // Toast notifications
+  const { showSuccess, showError, showWarning, showInfo } = useToast();
+  
   // State variables
   const [rooms, setRooms] = useState([]);
   const [filteredRooms, setFilteredRooms] = useState([]);
@@ -58,7 +62,6 @@ export default function RoomManagement() {
   });
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
 
   // Rate-limited upload hook
   const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload(
@@ -93,12 +96,14 @@ export default function RoomManagement() {
   const fetchRooms = async () => {
     try {
       setIsLoading(true);
-      setError(null);
       const allRooms = await getAllRooms();
       setRooms(allRooms);
       setFilteredRooms(allRooms);
     } catch (err) {
-      setError("Failed to fetch rooms: " + err.message);
+      showError("Failed to fetch rooms", { 
+        details: err.message,
+        duration: 8000 
+      });
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -180,7 +185,6 @@ export default function RoomManagement() {
     
     try {
       setIsLoading(true);
-      setError(null);
       
       if (editingRoom) {
         // Update existing room
@@ -193,6 +197,7 @@ export default function RoomManagement() {
         };
         
         await updateRoom(roomData);
+        showSuccess(`Room ${formData.roomNumber} updated successfully`);
       } else {
         // Add new room
         const roomData = {
@@ -203,13 +208,16 @@ export default function RoomManagement() {
         };
         
         await createRoom(roomData);
+        showSuccess(`Room ${formData.roomNumber} created successfully`);
       }
       
       // Refresh rooms after update
       await fetchRooms();
       setShowModal(false);
     } catch (err) {
-      setError("Failed to save room: " + err.message);
+      showError(`Failed to save room: ${err.message}`, {
+        duration: 8000
+      });
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -218,20 +226,28 @@ export default function RoomManagement() {
 
   // Delete a room
   const handleDeleteRoom = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this room?')) {
+      return;
+    }
+
     try {
       setIsLoading(true);
-      setError(null);
       
       const result = await deleteRoom(id);
       
       if (result.success) {
+        showSuccess('Room deleted successfully');
         // Refresh rooms after deletion
         await fetchRooms();
       } else {
-        setError("Failed to delete room: " + result.error);
+        showError(`Failed to delete room: ${result.error}`, {
+          duration: 8000
+        });
       }
     } catch (err) {
-      setError("Failed to delete room: " + err.message);
+      showError(`Failed to delete room: ${err.message}`, {
+        duration: 8000
+      });
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -252,14 +268,126 @@ export default function RoomManagement() {
     }
   };
 
+  // Comprehensive JSON validation function
+  const validateRoomData = (roomsArray) => {
+    const errors = [];
+    const warnings = [];
+    const roomNumbers = new Set();
+    
+    if (!Array.isArray(roomsArray)) {
+      errors.push('Data must be an array of rooms');
+      return { errors, warnings, isValid: false };
+    }
+    
+    if (roomsArray.length === 0) {
+      errors.push('No rooms found in the data');
+      return { errors, warnings, isValid: false };
+    }
+    
+    if (roomsArray.length > 1000) {
+      warnings.push(`Large dataset detected (${roomsArray.length} rooms). This may take a while to process.`);
+    }
+    
+    roomsArray.forEach((room, index) => {
+      const roomContext = `Room ${index + 1}${room.roomNumber ? ` (${room.roomNumber})` : ''}`;
+      
+      // Check if room is an object
+      if (typeof room !== 'object' || room === null) {
+        errors.push(`${roomContext}: Must be an object, found ${typeof room}`);
+        return;
+      }
+      
+      // Required field validation
+      if (!room.roomNumber || room.roomNumber.toString().trim() === '') {
+        errors.push(`${roomContext}: Missing or empty room number`);
+      } else {
+        const roomNum = room.roomNumber.toString().trim();
+        if (roomNumbers.has(roomNum)) {
+          errors.push(`${roomContext}: Duplicate room number "${roomNum}"`);
+        } else {
+          roomNumbers.add(roomNum);
+        }
+        
+        // Room number format validation
+        if (roomNum.length > 20) {
+          warnings.push(`${roomContext}: Room number is very long (${roomNum.length} characters)`);
+        }
+      }
+      
+      // Capacity validation
+      if (room.capacity === null || room.capacity === undefined || room.capacity === '') {
+        errors.push(`${roomContext}: Missing capacity`);
+      } else {
+        const capacity = parseInt(room.capacity);
+        if (isNaN(capacity)) {
+          errors.push(`${roomContext}: Capacity must be a number, found "${room.capacity}"`);
+        } else if (capacity < 0) {
+          errors.push(`${roomContext}: Capacity cannot be negative (${capacity})`);
+        } else if (capacity === 0) {
+          warnings.push(`${roomContext}: Capacity is 0 - is this intentional?`);
+        } else if (capacity > 1000) {
+          warnings.push(`${roomContext}: Very large capacity (${capacity}) - please verify`);
+        }
+      }
+      
+      // Faculty validation
+      if (!room.faculty || room.faculty.toString().trim() === '') {
+        errors.push(`${roomContext}: Missing faculty`);
+      } else {
+        const faculty = room.faculty.toString().trim();
+        if (!facultyOptions.includes(faculty)) {
+          errors.push(`${roomContext}: Invalid faculty "${faculty}". Valid options: ${facultyOptions.join(', ')}`);
+        }
+      }
+      
+      // Features validation
+      if (room.features !== undefined) {
+        if (!Array.isArray(room.features)) {
+          warnings.push(`${roomContext}: Features should be an array, found ${typeof room.features}. Will be converted to empty array.`);
+        } else {
+          const validFeatures = featureOptions.map(f => f.id);
+          room.features.forEach(feature => {
+            if (!validFeatures.includes(feature)) {
+              warnings.push(`${roomContext}: Unknown feature "${feature}". Valid features: ${validFeatures.join(', ')}`);
+            }
+          });
+        }
+      }
+      
+      // Check for unexpected fields
+      const expectedFields = ['roomNumber', 'capacity', 'faculty', 'features', 'building', 'floor', 'description', 'active'];
+      const actualFields = Object.keys(room);
+      const unexpectedFields = actualFields.filter(field => !expectedFields.includes(field));
+      
+      if (unexpectedFields.length > 0) {
+        warnings.push(`${roomContext}: Unexpected fields found: ${unexpectedFields.join(', ')}. These will be ignored.`);
+      }
+    });
+    
+    return {
+      errors,
+      warnings,
+      isValid: errors.length === 0,
+      roomCount: roomsArray.length,
+      duplicateCount: roomsArray.length - roomNumbers.size
+    };
+  };
+
   // Handle file upload and JSON parsing with rate limiting
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      showError('Please select a valid JSON file', {
+        duration: 5000
+      });
+      return;
+    }
+    
     try {
       setIsLoading(true);
-      setError(null);
       resetUploadState(); // Reset any previous upload state
       
       const reader = new FileReader();
@@ -274,51 +402,143 @@ export default function RoomManagement() {
             throw new Error('JSON data must be an array of rooms or contain a "rooms" array');
           }
 
-          // Start rate-limited upload
-          await handleUpload(roomsArray, {
+          if (roomsArray.length === 0) {
+            showWarning('The selected file contains no rooms to import');
+            setIsLoading(false);
+            return;
+          }
+
+          // Validate the room data structure and content
+          const validation = validateRoomData(roomsArray);
+          
+          if (!validation.isValid) {
+            // Critical errors found - cannot proceed
+            const errorDetails = validation.errors.slice(0, 10).join('\n') + 
+              (validation.errors.length > 10 ? `\n... and ${validation.errors.length - 10} more errors` : '');
+            
+            showError(`❌ Data validation failed - cannot import`, {
+              details: `Found ${validation.errors.length} error(s):\n\n${errorDetails}\n\nPlease fix these issues and try again.`,
+              duration: 25000
+            });
+            setIsLoading(false);
+            return;
+          }
+          
+          // Show warnings if any, but allow upload to proceed
+          if (validation.warnings.length > 0) {
+            const warningDetails = validation.warnings.slice(0, 8).join('\n') + 
+              (validation.warnings.length > 8 ? `\n... and ${validation.warnings.length - 8} more warnings` : '');
+            
+            showWarning(`⚠️ Data validation completed with ${validation.warnings.length} warning(s)`, {
+              details: `${warningDetails}\n\nYou can proceed with the upload, but please review these warnings.`,
+              duration: 15000
+            });
+          } else {
+            // No errors or warnings
+            showSuccess(`✅ Data validation passed! Ready to import ${validation.roomCount} rooms`, {
+              duration: 5000
+            });
+          }
+
+          // Brief delay to let user see validation results
+          setTimeout(() => {
+            showInfo(`🚀 Starting import of ${roomsArray.length} rooms...`);
+
+            // Start rate-limited upload
+            handleUpload(roomsArray, {
             batchSize: 1, // Process one room at a time
             onComplete: (results) => {
               const successful = results.filter(r => r.success).length;
               const failed = results.filter(r => !r.success).length;
+              const failedItems = results.filter(r => !r.success);
               
+              // Show toasts immediately - don't wait
               if (failed === 0) {
-                alert(`✅ Successfully imported ${successful} rooms.`);
+                showSuccess(`✅ Successfully imported all ${successful} rooms!`, {
+                  duration: 8000
+                });
+              } else if (successful > 0) {
+                // Format error details for display
+                const errorSummary = failedItems.slice(0, 5).map(item => 
+                  `${item.item?.roomNumber || 'Unknown'}: ${item.error}`
+                ).join('\n');
+                const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
+                
+                showWarning(`⚠️ Import completed: ${successful} successful, ${failed} failed`, {
+                  details: errorSummary + moreErrors,
+                  duration: 15000
+                });
               } else {
-                alert(`⚠️ Import completed: ${successful} successful, ${failed} failed. Check the progress indicator for details.`);
-                console.table(results.filter(r => !r.success));
+                // Format error details for display
+                const errorSummary = failedItems.slice(0, 5).map(item => 
+                  `${item.item?.roomNumber || 'Unknown'}: ${item.error}`
+                ).join('\n');
+                const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
+                
+                showError(`❌ Import failed: All ${failed} rooms failed to import`, {
+                  details: errorSummary + moreErrors,
+                  duration: 20000 // Longer duration for error messages
+                });
               }
               
-              // Refresh the rooms list
+              // Refresh the rooms list and update loading state
               fetchRooms();
               setIsLoading(false);
-            },
-            onError: (error) => {
-              setError(`Upload failed: ${error}`);
-              setIsLoading(false);
-            }
-          });
+              
+              // Auto-dismiss upload indicator after a delay for successful imports
+              if (failed === 0) {
+                setTimeout(() => {
+                  resetUploadState();
+                }, 3000);
+              }
+            },              onError: (error) => {
+                showError(`Upload failed: ${error}`, {
+                  duration: 10000
+                });
+                setIsLoading(false);
+              }
+            });
+          }, validation.warnings.length > 0 ? 3000 : 1000); // Longer delay if there are warnings
           
         } catch (err) {
-          setError(`Error parsing JSON: ${err.message}`);
-          console.error(err);
+          if (err.name === 'SyntaxError') {
+            showError('Invalid JSON file format. Please check your file and try again.', {
+              details: err.message,
+              duration: 8000
+            });
+          } else {
+            showError(`Error processing file: ${err.message}`, {
+              duration: 8000
+            });
+          }
+          // Log errors in development for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.error(err);
+          }
           setIsLoading(false);
         }
       };
       
       reader.onerror = () => {
-        setError('Error reading the file');
+        showError('Error reading the file. Please try again.', {
+          duration: 6000
+        });
         setIsLoading(false);
       };
       
       reader.readAsText(file);
       
     } catch (err) {
-      setError(err.message || 'An error occurred during file upload');
+      showError(`An error occurred during file upload: ${err.message}`, {
+        duration: 8000
+      });
       setIsLoading(false);
     }
     
     // Reset the file input
-    e.target.value = '';
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   // Download example JSON dataset
@@ -418,6 +638,10 @@ export default function RoomManagement() {
               <span className="text-lg">➕</span>
               <span>Add Room</span>
             </button>
+            
+
+            
+
           </div>
         </div>
       </div>
@@ -690,13 +914,6 @@ export default function RoomManagement() {
           />
         </div>
       </div>
-
-      {/* Error Display */}
-      {error && (
-        <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded shadow-md">
-          {error}
-        </div>
-      )}
 
       {/* Upload Progress Indicator */}
       <UploadProgressIndicator 

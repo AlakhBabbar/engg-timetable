@@ -277,21 +277,39 @@ export const processRoomImport = async (jsonData) => {
  */
 export const processSingleRoomImport = async (roomData) => {
   try {
-    // Validate required fields
-    if (!roomData.roomNumber || !roomData.capacity || !roomData.faculty) {
+    // Detailed validation with specific error messages
+    const validationErrors = [];
+    
+    if (!roomData.roomNumber || roomData.roomNumber.trim() === '') {
+      validationErrors.push('Room number is required');
+    }
+    
+    if (!roomData.capacity && roomData.capacity !== 0) {
+      validationErrors.push('Capacity is required');
+    } else if (isNaN(parseInt(roomData.capacity)) || parseInt(roomData.capacity) < 0) {
+      validationErrors.push('Capacity must be a valid positive number');
+    }
+    
+    if (!roomData.faculty || roomData.faculty.trim() === '') {
+      validationErrors.push('Faculty is required');
+    } else if (!facultyOptions.includes(roomData.faculty)) {
+      validationErrors.push(`Invalid faculty "${roomData.faculty}". Valid options: ${facultyOptions.join(', ')}`);
+    }
+    
+    if (validationErrors.length > 0) {
       return {
         success: false,
-        error: "Missing required fields (roomNumber, capacity, faculty)",
+        error: validationErrors.join('; '),
         item: roomData
       };
     }
 
     // Prepare room data
     const roomDoc = {
-      number: roomData.roomNumber,
+      number: roomData.roomNumber.trim(),
       capacity: parseInt(roomData.capacity) || 0,
       features: Array.isArray(roomData.features) ? roomData.features : [],
-      faculty: roomData.faculty,
+      faculty: roomData.faculty.trim(),
       active: roomData.active !== false, // Default to true unless explicitly false
       building: roomData.building || '',
       floor: roomData.floor || '',
@@ -333,9 +351,21 @@ export const processSingleRoomImport = async (roomData) => {
 
   } catch (error) {
     console.error('Error processing single room import:', error);
+    
+    // Provide more specific error messages based on error type
+    let errorMessage = 'Unknown error occurred';
+    
+    if (error.code === 'permission-denied') {
+      errorMessage = 'Permission denied - please check your access rights';
+    } else if (error.code === 'network-error') {
+      errorMessage = 'Network error - please check your connection';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
     return {
       success: false,
-      error: error.message || 'Unknown error occurred',
+      error: errorMessage,
       item: roomData
     };
   }
