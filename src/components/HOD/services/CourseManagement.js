@@ -27,56 +27,7 @@ const COURSES_COLLECTION = 'courses';
 const FACULTY_COLLECTION = 'faculty';
 
 // Dummy data for courses (used as fallback)
-const dummyCourses = [
-  { 
-    id: 1, 
-    code: 'CS101', 
-    title: 'Introduction to Computer Science', 
-    faculty: { id: 1, name: 'Dr. Alex Johnson', avatar: 'https://via.placeholder.com/36', status: 'available' }, 
-    semester: 'Fall 2024', 
-    weeklyHours: '3L+1T' 
-  },
-  { 
-    id: 2, 
-    code: 'CS202', 
-    title: 'Data Structures and Algorithms', 
-    faculty: { id: 2, name: 'Dr. Sarah Miller', avatar: 'https://via.placeholder.com/36', status: 'busy' }, 
-    semester: 'Spring 2025', 
-    weeklyHours: '3L+2P' 
-  },
-  { 
-    id: 3, 
-    code: 'CS303', 
-    title: 'Database Systems', 
-    faculty: { id: 3, name: 'Prof. Robert Chen', avatar: 'https://via.placeholder.com/36', status: 'available' }, 
-    semester: 'Fall 2024', 
-    weeklyHours: '3L+1T+2P' 
-  },
-  { 
-    id: 4, 
-    code: 'CS405', 
-    title: 'Artificial Intelligence', 
-    faculty: { id: 4, name: 'Dr. Emily Zhang', avatar: 'https://via.placeholder.com/36', status: 'available' }, 
-    semester: 'Spring 2025', 
-    weeklyHours: '4L+2P' 
-  },
-  { 
-    id: 5, 
-    code: 'CS301', 
-    title: 'Software Engineering', 
-    faculty: { id: 5, name: 'Prof. David Wilson', avatar: 'https://via.placeholder.com/36', status: 'on-leave' }, 
-    semester: 'Fall 2024', 
-    weeklyHours: '3L+1T' 
-  },
-  { 
-    id: 6, 
-    code: 'CS210', 
-    title: 'Computer Networks', 
-    faculty: null, 
-    semester: 'Spring 2025', 
-    weeklyHours: '3L+1T+1P' 
-  },
-];
+const dummyCourses = [];
 
 // Dummy data for faculty (used as fallback)
 const dummyFaculty = [
@@ -603,9 +554,10 @@ export const processUploadedCourses = async (jsonData, courses, faculty, departm
  * Process a single course import (used for rate-limited uploads)
  * @param {Object} courseData - Single course data object
  * @param {Array} faculty - Available faculty list
+ * @param {string} departmentId - Department ID of the user
  * @returns {Promise<Object>} Result object with success status
  */
-export const processSingleCourseImport = async (courseData, faculty) => {
+export const processSingleCourseImport = async (courseData, faculty, departmentId) => {
   try {
     // Validate required fields
     if (!courseData.code || !courseData.title || !courseData.semester) {
@@ -643,7 +595,7 @@ export const processSingleCourseImport = async (courseData, faculty) => {
       faculty: assignedFaculty ? assignedFaculty.name : courseData.faculty || '',
       facultyId: assignedFaculty ? assignedFaculty.id : null,
       credits: courseData.credits || Math.ceil(totalHours / 3),
-      department: courseData.department || 'Computer Science',
+      department: departmentId, // Use the user's department, not from JSON data
       type: courseData.type || 'Core',
       description: courseData.description || '',
       prerequisites: Array.isArray(courseData.prerequisites) ? courseData.prerequisites : [],
@@ -725,6 +677,8 @@ export const getExampleCourseData = () => {
 
 // Export functions for use in the component
 const CourseManagementService = {
+  fetchCourses,
+  fetchFaculty,
   getCourses,
   getFaculty,
   getSemesterOptions,

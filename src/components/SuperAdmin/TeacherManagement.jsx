@@ -3,8 +3,12 @@ import { FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiUser, FiBookOpen, FiAward
 import TeacherManagementService from './services/TeacherManagement';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
+import { useToast } from '../../context/ToastContext';
 
 export default function TeacherManagement() {
+  // Toast notifications
+  const { showSuccess, showError, showWarning, showInfo } = useToast();
+  
   const [teachers, setTeachers] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [formData, setFormData] = useState({
@@ -20,7 +24,6 @@ export default function TeacherManagement() {
   const [showPassword, setShowPassword] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState(null);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
@@ -76,13 +79,22 @@ export default function TeacherManagement() {
       if (response.success) {
         setTeachers(response.teachers);
       } else {
-        setError(response.error || 'Failed to load teachers');
+        showError('Failed to load teachers', {
+          details: response.error,
+          duration: 8000
+        });
         // Use dummy data as fallback
         setTeachers(TeacherManagementService.dummyTeachers);
       }
     } catch (error) {
-      setError('Failed to load teachers');
-      console.error(error);
+      showError('Failed to load teachers', {
+        details: error.message,
+        duration: 8000
+      });
+      // Log errors in development for debugging
+      if (process.env.NODE_ENV === 'development') {
+        console.error(error);
+      }
       // Use dummy data as fallback
       setTeachers(TeacherManagementService.dummyTeachers);
     } finally {
@@ -123,7 +135,6 @@ export default function TeacherManagement() {
   const closeModal = () => {
     setShowModal(false);
     setShowPassword(false);
-    setError(null);
   };
 
   const handleChange = (e) => {
@@ -151,7 +162,6 @@ export default function TeacherManagement() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
     setIsLoading(true);
     
     try {
@@ -169,13 +179,20 @@ export default function TeacherManagement() {
       }
       
       if (result.success) {
+        showSuccess(`Teacher ${formData.name} ${editingId ? 'updated' : 'created'} successfully`);
         fetchTeachers();
         closeModal();
       } else {
-        setError(result.error || 'Failed to save teacher information');
+        showError(`Failed to ${editingId ? 'update' : 'create'} teacher`, {
+          details: result.error,
+          duration: 8000
+        });
       }
     } catch (err) {
-      setError(err.message || 'Failed to save teacher information');
+      showError(`Failed to ${editingId ? 'update' : 'create'} teacher`, {
+        details: err.message,
+        duration: 8000
+      });
       console.error(err);
     } finally {
       setIsLoading(false);
@@ -194,12 +211,22 @@ export default function TeacherManagement() {
         
         if (result.success) {
           setTeachers(teachers.filter(teacher => teacher.id !== id));
+          showSuccess('Teacher deleted successfully');
         } else {
-          setError(result.error || 'Failed to delete teacher');
+          showError('Failed to delete teacher', {
+            details: result.error,
+            duration: 8000
+          });
         }
       } catch (error) {
-        setError('Failed to delete teacher');
-        console.error(error);
+        showError('Failed to delete teacher', {
+          details: error.message,
+          duration: 8000
+        });
+        // Log errors in development for debugging
+        if (process.env.NODE_ENV === 'development') {
+          console.error(error);
+        }
       } finally {
         setIsLoading(false);
       }
@@ -213,14 +240,141 @@ export default function TeacherManagement() {
     }
   };
 
+  // Comprehensive JSON validation function for teachers
+  const validateTeacherData = (teachersArray) => {
+    const errors = [];
+    const warnings = [];
+    const emails = new Set();
+    const employeeIds = new Set();
+    
+    if (!Array.isArray(teachersArray)) {
+      errors.push('Data must be an array of teachers');
+      return { errors, warnings, isValid: false };
+    }
+    
+    if (teachersArray.length === 0) {
+      errors.push('No teachers found in the data');
+      return { errors, warnings, isValid: false };
+    }
+    
+    if (teachersArray.length > 500) {
+      warnings.push(`Large dataset detected (${teachersArray.length} teachers). This may take a while to process.`);
+    }
+    
+    teachersArray.forEach((teacher, index) => {
+      const teacherContext = `Teacher ${index + 1}${teacher.name ? ` (${teacher.name})` : ''}`;
+      
+      // Check if teacher is an object
+      if (typeof teacher !== 'object' || teacher === null) {
+        errors.push(`${teacherContext}: Must be an object, found ${typeof teacher}`);
+        return;
+      }
+      
+      // Required field validation
+      if (!teacher.name || teacher.name.toString().trim() === '') {
+        errors.push(`${teacherContext}: Missing or empty name`);
+      } else {
+        const name = teacher.name.toString().trim();
+        if (name.length > 100) {
+          warnings.push(`${teacherContext}: Name is very long (${name.length} characters)`);
+        }
+      }
+      
+      // Email validation
+      if (teacher.email) {
+        const email = teacher.email.toString().trim().toLowerCase();
+        if (emails.has(email)) {
+          errors.push(`${teacherContext}: Duplicate email "${email}"`);
+        } else {
+          emails.add(email);
+        }
+        
+        // Basic email format validation
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email)) {
+          warnings.push(`${teacherContext}: Email format appears invalid "${email}"`);
+        }
+      } else {
+        warnings.push(`${teacherContext}: No email provided - will generate default email`);
+      }
+      
+      // Department validation
+      if (teacher.department) {
+        const validDepts = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Chemical Engineering', 'Agricultural Engineering', 'Footwear Technology'];
+        const dept = teacher.department.toString().trim();
+        if (!validDepts.some(validDept => validDept.toLowerCase().includes(dept.toLowerCase()) || dept.toLowerCase().includes(validDept.toLowerCase()))) {
+          warnings.push(`${teacherContext}: Unknown department "${dept}". Common departments: ${validDepts.slice(0, 3).join(', ')}, etc.`);
+        }
+      } else {
+        warnings.push(`${teacherContext}: No department specified`);
+      }
+      
+      // Experience validation
+      if (teacher.experience !== undefined && teacher.experience !== null) {
+        const experience = parseInt(teacher.experience);
+        if (isNaN(experience)) {
+          warnings.push(`${teacherContext}: Experience should be a number, found "${teacher.experience}". Will default to 0.`);
+        } else if (experience < 0) {
+          warnings.push(`${teacherContext}: Experience cannot be negative (${experience}). Will default to 0.`);
+        } else if (experience > 50) {
+          warnings.push(`${teacherContext}: Very high experience (${experience} years) - please verify`);
+        }
+      }
+      
+      // Expertise validation
+      if (teacher.expertise !== undefined) {
+        if (typeof teacher.expertise === 'string') {
+          warnings.push(`${teacherContext}: Expertise should be an array, found string. Will be converted to array.`);
+        } else if (!Array.isArray(teacher.expertise)) {
+          warnings.push(`${teacherContext}: Expertise should be an array, found ${typeof teacher.expertise}. Will be converted to empty array.`);
+        }
+      }
+      
+      // Employee ID validation
+      if (teacher.employeeId || teacher.id) {
+        const empId = (teacher.employeeId || teacher.id).toString().trim();
+        if (employeeIds.has(empId)) {
+          errors.push(`${teacherContext}: Duplicate employee ID "${empId}"`);
+        } else {
+          employeeIds.add(empId);
+        }
+      }
+      
+      // Check for unexpected fields
+      const expectedFields = ['name', 'email', 'department', 'expertise', 'qualification', 'experience', 'active', 'employeeId', 'id', 'phoneNumber', 'phone', 'address', 'joiningDate', 'designation'];
+      const actualFields = Object.keys(teacher);
+      const unexpectedFields = actualFields.filter(field => !expectedFields.includes(field));
+      
+      if (unexpectedFields.length > 0) {
+        warnings.push(`${teacherContext}: Unexpected fields found: ${unexpectedFields.join(', ')}. These will be ignored.`);
+      }
+    });
+    
+    return {
+      errors,
+      warnings,
+      isValid: errors.length === 0,
+      teacherCount: teachersArray.length,
+      duplicateEmails: teachersArray.length - emails.size,
+      duplicateIds: teachersArray.length - employeeIds.size
+    };
+  };
+
   // Handle file upload and JSON parsing with rate limiting
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      showError('Please select a valid JSON file', {
+        duration: 5000
+      });
+      return;
+    }
+    
     try {
       setIsLoading(true);
-      setError(null);
       resetUploadState(); // Reset any previous upload state
       
       const reader = new FileReader();
@@ -229,62 +383,155 @@ export default function TeacherManagement() {
           const jsonData = JSON.parse(event.target.result);
           
           // Handle both direct array format and object with teachers/faculty property
-          let facultyArray;
+          let teachersArray;
           if (Array.isArray(jsonData)) {
-            facultyArray = jsonData;
+            teachersArray = jsonData;
           } else if (jsonData.teachers && Array.isArray(jsonData.teachers)) {
-            facultyArray = jsonData.teachers;
+            teachersArray = jsonData.teachers;
           } else if (jsonData.faculty && Array.isArray(jsonData.faculty)) {
-            facultyArray = jsonData.faculty;
+            teachersArray = jsonData.faculty;
           } else {
-            throw new Error('JSON data must be an array of faculty members or an object with "teachers" or "faculty" property containing an array');
+            throw new Error('JSON data must be an array of teachers/faculty or contain a "teachers" or "faculty" array');
           }
 
-          // Start rate-limited upload
-          await handleUpload(facultyArray, {
-            batchSize: 1, // Process one faculty member at a time
-            onComplete: (results) => {
-              const successful = results.filter(r => r.success).length;
-              const failed = results.filter(r => !r.success).length;
-              
-              if (failed === 0) {
-                alert(`✅ Successfully imported ${successful} faculty members.`);
-              } else {
-                alert(`⚠️ Import completed: ${successful} successful, ${failed} failed. Check the progress indicator for details.`);
-                console.table(results.filter(r => !r.success));
+          if (teachersArray.length === 0) {
+            showWarning('The selected file contains no teachers to import');
+            setIsLoading(false);
+            return;
+          }
+
+          // Validate the teacher data structure and content
+          const validation = validateTeacherData(teachersArray);
+          
+          if (!validation.isValid) {
+            // Critical errors found - cannot proceed
+            const errorDetails = validation.errors.slice(0, 10).join('\n') + 
+              (validation.errors.length > 10 ? `\n... and ${validation.errors.length - 10} more errors` : '');
+            
+            showError(`❌ Data validation failed - cannot import`, {
+              details: `Found ${validation.errors.length} error(s):\n\n${errorDetails}\n\nPlease fix these issues and try again.`,
+              duration: 25000
+            });
+            setIsLoading(false);
+            return;
+          }
+          
+          // Show warnings if any, but allow upload to proceed
+          if (validation.warnings.length > 0) {
+            const warningDetails = validation.warnings.slice(0, 8).join('\n') + 
+              (validation.warnings.length > 8 ? `\n... and ${validation.warnings.length - 8} more warnings` : '');
+            
+            showWarning(`⚠️ Data validation completed with ${validation.warnings.length} warning(s)`, {
+              details: `${warningDetails}\n\nYou can proceed with the upload, but please review these warnings.`,
+              duration: 15000
+            });
+          } else {
+            // No errors or warnings
+            showSuccess(`✅ Data validation passed! Ready to import ${validation.teacherCount} teachers`, {
+              duration: 5000
+            });
+          }
+
+          // Brief delay to let user see validation results
+          setTimeout(() => {
+            showInfo(`🚀 Starting import of ${teachersArray.length} teachers...`);
+
+            // Start rate-limited upload
+            handleUpload(teachersArray, {
+              batchSize: 1, // Process one teacher at a time
+              onComplete: (results) => {
+                const successful = results.filter(r => r.success).length;
+                const failed = results.filter(r => !r.success).length;
+                const failedItems = results.filter(r => !r.success);
+                
+                // Show toasts immediately
+                if (failed === 0) {
+                  showSuccess(`✅ Successfully imported all ${successful} teachers!`, {
+                    duration: 8000
+                  });
+                } else if (successful > 0) {
+                  // Format error details for display
+                  const errorSummary = failedItems.slice(0, 5).map(item => 
+                    `${item.item?.name || 'Unknown'}: ${item.error}`
+                  ).join('\n');
+                  const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
+                  
+                  showWarning(`⚠️ Import completed: ${successful} successful, ${failed} failed`, {
+                    details: errorSummary + moreErrors,
+                    duration: 15000
+                  });
+                } else {
+                  // Format error details for display
+                  const errorSummary = failedItems.slice(0, 5).map(item => 
+                    `${item.item?.name || 'Unknown'}: ${item.error}`
+                  ).join('\n');
+                  const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
+                  
+                  showError(`❌ Import failed: All ${failed} teachers failed to import`, {
+                    details: errorSummary + moreErrors,
+                    duration: 20000
+                  });
+                }
+                
+                // Refresh the teachers list and update loading state
+                fetchTeachers();
+                setIsLoading(false);
+                
+                // Auto-dismiss upload indicator after a delay for successful imports
+                if (failed === 0) {
+                  setTimeout(() => {
+                    resetUploadState();
+                  }, 3000);
+                }
+              },
+              onError: (error) => {
+                showError(`Upload failed: ${error}`, {
+                  duration: 10000
+                });
+                setIsLoading(false);
               }
-              
-              // Refresh the teachers list
-              fetchTeachers();
-              setIsLoading(false);
-            },
-            onError: (error) => {
-              setError(`Upload failed: ${error}`);
-              setIsLoading(false);
-            }
-          });
+            });
+          }, validation.warnings.length > 0 ? 3000 : 1000); // Longer delay if there are warnings
           
         } catch (err) {
-          setError(`Error parsing JSON: ${err.message}`);
-          console.error(err);
+          if (err.name === 'SyntaxError') {
+            showError('Invalid JSON file format. Please check your file and try again.', {
+              details: err.message,
+              duration: 8000
+            });
+          } else {
+            showError(`Error processing file: ${err.message}`, {
+              duration: 8000
+            });
+          }
+          // Log errors in development for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.error(err);
+          }
           setIsLoading(false);
         }
       };
       
       reader.onerror = () => {
-        setError('Error reading the file');
+        showError('Error reading the file. Please try again.', {
+          duration: 6000
+        });
         setIsLoading(false);
       };
       
       reader.readAsText(file);
       
     } catch (err) {
-      setError(err.message || 'An error occurred during file upload');
+      showError(`An error occurred during file upload: ${err.message}`, {
+        duration: 8000
+      });
       setIsLoading(false);
     }
     
     // Reset the file input
-    e.target.value = '';
+    if (e.target) {
+      e.target.value = '';
+    }
   };
 
   // Download example JSON dataset
