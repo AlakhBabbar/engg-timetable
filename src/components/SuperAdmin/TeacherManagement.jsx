@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'react';
-import { FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiUser, FiBookOpen, FiAward, FiLayers, FiUpload, FiInfo, FiDownload, FiX, FiAlertTriangle, FiCheckCircle, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { FiPlus, FiEdit2, FiTrash2, FiEye, FiEyeOff, FiUser, FiBookOpen, FiAward, FiLayers, FiUpload, FiInfo, FiDownload, FiX, FiAlertTriangle, FiCheckCircle, FiChevronLeft, FiChevronRight, FiSearch } from 'react-icons/fi';
 import TeacherManagementService from './services/TeacherManagement';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
@@ -10,6 +10,9 @@ export default function TeacherManagement() {
   const { showSuccess, showError, showWarning, showInfo } = useToast();
   
   const [teachers, setTeachers] = useState([]);
+  const [filteredTeachers, setFilteredTeachers] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
   const [selectedTeachers, setSelectedTeachers] = useState(new Set());
   const [showBulkActions, setShowBulkActions] = useState(false);
   const [showModal, setShowModal] = useState(false);
@@ -66,18 +69,81 @@ export default function TeacherManagement() {
     fetchTeachers();
   }, []);
 
+  // Initialize filtered teachers when teachers data changes
+  useEffect(() => {
+    setFilteredTeachers(teachers);
+  }, [teachers]);
+
+  // Debounced search function
+  const debouncedSearch = useCallback(
+    debounce(async (searchTerm) => {
+      if (searchTerm.trim() === '') {
+        setFilteredTeachers(teachers);
+        setIsSearching(false);
+        return;
+      }
+
+      setIsSearching(true);
+      try {
+        const result = await TeacherManagementService.searchTeachers(searchTerm);
+        if (result.success) {
+          setFilteredTeachers(result.teachers);
+        } else {
+          showError('Search failed', {
+            details: result.error,
+            duration: 3000
+          });
+          setFilteredTeachers([]);
+        }
+      } catch (error) {
+        console.error('Search error:', error);
+        showError('Search failed', {
+          details: error.message,
+          duration: 3000
+        });
+        setFilteredTeachers([]);
+      } finally {
+        setIsSearching(false);
+      }
+    }, 300),
+    [teachers]
+  );
+
+  // Handle search input change
+  const handleSearchChange = (e) => {
+    const value = e.target.value;
+    setSearchTerm(value);
+    debouncedSearch(value);
+  };
+
+  // Clear search
+  const clearSearch = () => {
+    setSearchTerm('');
+    setFilteredTeachers(teachers);
+    setIsSearching(false);
+  };
+
+  // Debounce utility function
+  function debounce(func, delay) {
+    let timeoutId;
+    return (...args) => {
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => func.apply(null, args), delay);
+    };
+  }
+
   // Clear selections when teachers list changes
   useEffect(() => {
     setSelectedTeachers(new Set());
     setShowBulkActions(false);
     setCurrentPage(1); // Reset to first page when data changes
-  }, [teachers]);
+  }, [filteredTeachers]);
 
   // Pagination calculations
-  const totalPages = Math.ceil(teachers.length / itemsPerPage);
+  const totalPages = Math.ceil(filteredTeachers.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentTeachers = teachers.slice(startIndex, endIndex);
+  const currentTeachers = filteredTeachers.slice(startIndex, endIndex);
 
   // Pagination helper functions
   const goToPage = (page) => {
@@ -693,6 +759,46 @@ export default function TeacherManagement() {
           </button>
         </div>
       </div>
+
+      {/* Search Bar */}
+      <div className="mb-6">
+        <div className="relative max-w-md">
+          <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+            <FiSearch className="h-5 w-5 text-gray-400" />
+          </div>
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={handleSearchChange}
+            placeholder="Search teachers by name, department, or expertise..."
+            className="block w-full pl-10 pr-10 py-3 border border-gray-300 rounded-full leading-5 bg-white placeholder-gray-500 focus:outline-none focus:placeholder-gray-400 focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all duration-200"
+          />
+          {searchTerm && (
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center">
+              <button
+                onClick={clearSearch}
+                className="h-5 w-5 text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <FiX />
+              </button>
+            </div>
+          )}
+          {isSearching && (
+            <div className="absolute inset-y-0 right-8 pr-3 flex items-center">
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-indigo-600"></div>
+            </div>
+          )}
+        </div>
+        {searchTerm && (
+          <div className="mt-2 text-sm text-gray-600">
+            {isSearching ? (
+              'Searching...'
+            ) : (
+              `Found ${filteredTeachers.length} teacher${filteredTeachers.length === 1 ? '' : 's'} matching "${searchTerm}"`
+            )}
+          </div>
+        )}
+      </div>
       
       {/* Bulk Actions Bar */}
       {showBulkActions && (
@@ -747,7 +853,44 @@ export default function TeacherManagement() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {currentTeachers.map((teacher, idx) => (
+            {currentTeachers.length === 0 ? (
+              <tr>
+                <td colSpan="8" className="px-6 py-12 text-center">
+                  <div className="flex flex-col items-center justify-center">
+                    <FiSearch className="h-12 w-12 text-gray-400 mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">
+                      {searchTerm ? 'No teachers found' : 'No teachers available'}
+                    </h3>
+                    <p className="text-gray-500 max-w-md">
+                      {searchTerm ? (
+                        <>
+                          No teachers match your search for "{searchTerm}". Try adjusting your search terms or{' '}
+                          <button
+                            onClick={clearSearch}
+                            className="text-indigo-600 hover:text-indigo-800 underline"
+                          >
+                            clear the search
+                          </button>
+                          .
+                        </>
+                      ) : (
+                        'Get started by adding your first teacher to the system.'
+                      )}
+                    </p>
+                    {!searchTerm && (
+                      <button
+                        onClick={() => openModal()}
+                        className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center"
+                      >
+                        <FiPlus size={16} className="mr-2" />
+                        Add First Teacher
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ) : (
+              currentTeachers.map((teacher, idx) => (
               <tr key={teacher.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <input
@@ -815,17 +958,19 @@ export default function TeacherManagement() {
                   </button>
                 </td>
               </tr>
-            ))}
+              ))
+            )}
           </tbody>
         </table>
       </div>
 
       {/* Pagination Controls */}
-      {teachers.length > 0 && (
+      {filteredTeachers.length > 0 && (
         <div className="mt-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center text-sm text-gray-700 gap-4">
             <span>
-              Showing {teachers.length === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, teachers.length)} of {teachers.length} teachers
+              Showing {filteredTeachers.length === 0 ? 0 : startIndex + 1} to {Math.min(endIndex, filteredTeachers.length)} of {filteredTeachers.length} teachers
+              {searchTerm && ` (filtered from ${teachers.length} total)`}
             </span>
             
             {/* Items per page selector */}
