@@ -19,41 +19,6 @@ const ROOMS_COLLECTION = 'rooms';
 
 // Mock data for rooms
 const dummyRooms = [
-  { 
-    id: '1', 
-    roomNumber: 'CS101', 
-    capacity: 60,
-    features: ['Projector', 'AC', 'Wi-Fi'],
-    faculty: 'Faculty of Engineering'
-  },
-  { 
-    id: '2', 
-    roomNumber: 'LH201', 
-    capacity: 120,
-    features: ['Projector', 'SmartBoard', 'Audio System', 'AC', 'Wi-Fi'],
-    faculty: 'Faculty of Engineering'
-  },
-  { 
-    id: '3', 
-    roomNumber: 'LAB302', 
-    capacity: 40,
-    features: ['Computers', 'Projector', 'AC', 'Wi-Fi'],
-    faculty: 'Faculty of Science'
-  },
-  { 
-    id: '4', 
-    roomNumber: 'PH101', 
-    capacity: 30,
-    features: ['Audio System', 'Wi-Fi'],
-    faculty: 'Faculty of Science'
-  },
-  { 
-    id: '5', 
-    roomNumber: 'CH202', 
-    capacity: 35,
-    features: ['Audio System', 'SmartBoard'],
-    faculty: 'Faculty of Social Science'
-  },
 ];
 
 // Room types for dropdown

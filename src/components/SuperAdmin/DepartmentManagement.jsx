@@ -8,12 +8,12 @@ import {
   createDepartment, 
   updateDepartment, 
   deleteDepartment,
-  departmentTypes 
+  departmentCategories 
 } from './services/DepartmentManagement';
 
 export default function DepartmentManagement() {
   const [showModal, setShowModal] = useState(false);
-  const [formData, setFormData] = useState({ name: '', type: '', hod: '', description: '', status: 'Active' });
+  const [formData, setFormData] = useState({ name: '', category: '', hod: '', description: '', status: 'Active' });
   const [searchTerm, setSearchTerm] = useState('');
   const [departments, setDepartments] = useState([]);
   const [hodOptions, setHodOptions] = useState([]);
@@ -56,7 +56,7 @@ export default function DepartmentManagement() {
   }, [showModal]);
 
   const openModal = () => {
-    setFormData({ name: '', type: '', hod: '', description: '', status: 'Active' });
+    setFormData({ name: '', category: '', hod: '', description: '', status: 'Active' });
     setEditingDepartment(null);
     setError('');
     setShowModal(true);
@@ -65,7 +65,7 @@ export default function DepartmentManagement() {
   const openEditModal = (department) => {
     setFormData({
       name: department.name,
-      type: department.type,
+      category: department.category,
       hod: department.hod === 'Not Assigned' ? '' : department.hod,
       description: department.description || '',
       status: department.status
@@ -77,7 +77,7 @@ export default function DepartmentManagement() {
   
   const closeModal = () => {
     setShowModal(false);
-    setFormData({ name: '', type: '', hod: '', description: '', status: 'Active' });
+    setFormData({ name: '', category: '', hod: '', description: '', status: 'Active' });
     setEditingDepartment(null);
     setError('');
   };
@@ -97,8 +97,8 @@ export default function DepartmentManagement() {
       setError('Department name is required');
       return false;
     }
-    if (!formData.type) {
-      setError('Department type is required');
+    if (!formData.category) {
+      setError('Department category is required');
       return false;
     }
     if (formData.name.trim().length < 2) {
@@ -134,7 +134,7 @@ export default function DepartmentManagement() {
         addToast(`Department "${formData.name}" created successfully!`, 'success');
       }
       
-      setFormData({ name: '', type: '', hod: '', description: '', status: 'Active' });
+      setFormData({ name: '', category: '', hod: '', description: '', status: 'Active' });
       closeModal();
     } catch (err) {
       const errorMessage = err.message || `Failed to ${editingDepartment ? 'update' : 'create'} department`;
@@ -218,10 +218,10 @@ export default function DepartmentManagement() {
             
             <div className="space-y-4">
               <div>
-                <span className="text-sm text-gray-500">Type</span>
+                <span className="text-sm text-gray-500">Category</span>
                 <div className="mt-1">
                   <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-600">
-                    {dept.type}
+                    {dept.category}
                   </span>
                 </div>
               </div>
@@ -310,6 +310,7 @@ export default function DepartmentManagement() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Department Name *
+                    <span className="text-xs text-gray-500 block font-normal">The specific name of your department</span>
                   </label>
                   <div className="relative">
                     <FiBookOpen className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
@@ -318,7 +319,7 @@ export default function DepartmentManagement() {
                       value={formData.name}
                       onChange={handleChange}
                       required
-                      placeholder="e.g., Computer Science"
+                      placeholder="e.g., Computer Science & Engineering, Applied Mathematics, etc."
                       className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
                     />
                   </div>
@@ -327,19 +328,20 @@ export default function DepartmentManagement() {
                 {/* Department Type */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Department Type *
+                    Department Category *
+                    <span className="text-xs text-gray-500 block font-normal">The academic field or broad category</span>
                   </label>
                   <select
-                    name="type"
-                    value={formData.type}
+                    name="category"
+                    value={formData.category}
                     onChange={handleChange}
                     required
                     className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
                   >
-                    <option value="">Select Department Type</option>
-                    {departmentTypes.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
+                    <option value="">Select Department Category</option>
+                    {departmentCategories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
                       </option>
                     ))}
                   </select>
@@ -459,7 +461,7 @@ export default function DepartmentManagement() {
               </button>
               <button
                 onClick={handleSubmit}
-                disabled={isLoading || !formData.name || !formData.type}
+                disabled={isLoading || !formData.name || !formData.category}
                 className="px-6 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 {isLoading ? (

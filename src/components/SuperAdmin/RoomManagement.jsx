@@ -62,6 +62,8 @@ export default function RoomManagement() {
   });
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [selectedRooms, setSelectedRooms] = useState(new Set());
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
 
   // Rate-limited upload hook
   const { uploadState, handleUpload, handleCancel, resetUploadState } = useRateLimitedUpload(
@@ -136,6 +138,8 @@ export default function RoomManagement() {
       searchTerm: searchTerm
     });
     setFilteredRooms(filtered);
+    // Clear selection when filters change to avoid confusion
+    setSelectedRooms(new Set());
   }, [rooms, selectedFaculty, selectedFeature, searchTerm]);
 
   // Handle input changes in form
@@ -254,11 +258,90 @@ export default function RoomManagement() {
     }
   };
 
+  // Handle selecting/deselecting individual rooms
+  const handleRoomSelect = (roomId) => {
+    setSelectedRooms(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(roomId)) {
+        newSet.delete(roomId);
+      } else {
+        newSet.add(roomId);
+      }
+      return newSet;
+    });
+  };
+
+  // Handle select all rooms
+  const handleSelectAll = () => {
+    if (selectedRooms.size === filteredRooms.length) {
+      setSelectedRooms(new Set());
+    } else {
+      setSelectedRooms(new Set(filteredRooms.map(room => room.id)));
+    }
+  };
+
+  // Handle bulk delete
+  const handleBulkDelete = async () => {
+    if (selectedRooms.size === 0) {
+      showWarning('Please select rooms to delete');
+      return;
+    }
+
+    setShowBulkDeleteConfirm(true);
+  };
+
+  // Confirm bulk delete
+  const confirmBulkDelete = async () => {
+    try {
+      setIsLoading(true);
+      setShowBulkDeleteConfirm(false);
+
+      const deletePromises = Array.from(selectedRooms).map(roomId => deleteRoom(roomId));
+      const results = await Promise.allSettled(deletePromises);
+
+      let successCount = 0;
+      let failureCount = 0;
+
+      results.forEach((result, index) => {
+        if (result.status === 'fulfilled' && result.value.success) {
+          successCount++;
+        } else {
+          failureCount++;
+        }
+      });
+
+      if (successCount > 0) {
+        showSuccess(`Successfully deleted ${successCount} room${successCount > 1 ? 's' : ''}`);
+      }
+
+      if (failureCount > 0) {
+        showError(`Failed to delete ${failureCount} room${failureCount > 1 ? 's' : ''}`);
+      }
+
+      // Clear selection and refresh rooms
+      setSelectedRooms(new Set());
+      await fetchRooms();
+
+    } catch (err) {
+      showError(`Failed to delete rooms: ${err.message}`, {
+        duration: 8000
+      });
+      console.error(err);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Reset all filters
   const resetFilters = () => {
     setSelectedFaculty('');
     setSelectedFeature('');
     setSearchTerm('');
+  };
+
+  // Clear all selections
+  const clearSelection = () => {
+    setSelectedRooms(new Set());
   };
 
   // Trigger the hidden file input
@@ -648,6 +731,26 @@ export default function RoomManagement() {
               </button>
             )}
             
+            {/* Bulk Delete Button */}
+            {selectedRooms.size > 0 && (
+              <>
+                <button
+                  onClick={clearSelection}
+                  className="px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition flex items-center gap-2"
+                >
+                  <FiX size={16} />
+                  <span>Clear Selection</span>
+                </button>
+                <button
+                  onClick={handleBulkDelete}
+                  className="px-4 py-3 rounded-lg bg-red-500 text-white hover:bg-red-600 transition flex items-center gap-2"
+                >
+                  <FiTrash2 size={16} />
+                  <span>Delete Selected ({selectedRooms.size})</span>
+                </button>
+              </>
+            )}
+            
             {/* Add New Room Button */}
             <button
               onClick={openNewRoomModal}
@@ -656,10 +759,6 @@ export default function RoomManagement() {
               <span className="text-lg">➕</span>
               <span>Add Room</span>
             </button>
-            
-
-            
-
           </div>
         </div>
       </div>
@@ -677,6 +776,14 @@ export default function RoomManagement() {
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
               <tr>
+                <th className="px-6 py-4 text-left">
+                  <input
+                    type="checkbox"
+                    checked={filteredRooms.length > 0 && selectedRooms.size === filteredRooms.length}
+                    onChange={handleSelectAll}
+                    className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
+                  />
+                </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Room Number</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Capacity</th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Features</th>
@@ -688,6 +795,14 @@ export default function RoomManagement() {
               {filteredRooms.length > 0 ? (
                 filteredRooms.map((room, index) => (
                   <tr key={room.id} className={`hover:bg-gray-50 transition ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <input
+                        type="checkbox"
+                        checked={selectedRooms.has(room.id)}
+                        onChange={() => handleRoomSelect(room.id)}
+                        className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
+                      />
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-teal-700">{room.roomNumber || room.number}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{room.capacity} Seats</td>
                     <td className="px-6 py-4">
@@ -735,13 +850,13 @@ export default function RoomManagement() {
                 ))
               ) : isLoading ? (
                 <tr>
-                  <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan="6" className="px-6 py-10 text-center text-gray-500">
                     Loading rooms...
                   </td>
                 </tr>
               ) : (
                 <tr>
-                  <td colSpan="5" className="px-6 py-10 text-center text-gray-500">
+                  <td colSpan="6" className="px-6 py-10 text-center text-gray-500">
                     No rooms found with the current filters. Try adjusting your search or filters.
                   </td>
                 </tr>
@@ -874,6 +989,58 @@ export default function RoomManagement() {
                   </button>
                 </div>
               </form>
+            </div>
+          </motion.div>
+        </div>
+      )}
+      
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 z-50 backdrop-blur-sm">
+          <motion.div 
+            className="relative w-full max-w-md bg-white/90 backdrop-blur-xl shadow-xl rounded-3xl mx-4"
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3 }}
+          >
+            <button 
+              onClick={() => setShowBulkDeleteConfirm(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition"
+            >
+              <FiX size={24} />
+            </button>
+            
+            <div className="p-8">
+              <div className="flex items-center mb-4">
+                <div className="flex-shrink-0 w-10 h-10 mx-auto bg-red-100 rounded-full flex items-center justify-center">
+                  <FiTrash2 className="w-6 h-6 text-red-600" />
+                </div>
+              </div>
+              
+              <h2 className="text-xl font-bold mb-4 text-gray-800 text-center">
+                Delete Selected Rooms
+              </h2>
+              
+              <p className="text-gray-600 mb-6 text-center">
+                Are you sure you want to delete <span className="font-semibold text-red-600">{selectedRooms.size}</span> selected room{selectedRooms.size > 1 ? 's' : ''}? This action cannot be undone.
+              </p>
+              
+              <div className="flex justify-end gap-4">
+                <button
+                  type="button"
+                  onClick={() => setShowBulkDeleteConfirm(false)}
+                  className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmBulkDelete}
+                  className="px-6 py-2 rounded-lg bg-red-600 text-white hover:bg-red-700 transition flex items-center gap-2"
+                >
+                  <FiTrash2 size={18} />
+                  <span>Delete {selectedRooms.size} Room{selectedRooms.size > 1 ? 's' : ''}</span>
+                </button>
+              </div>
             </div>
           </motion.div>
         </div>
