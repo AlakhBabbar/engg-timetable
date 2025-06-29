@@ -19,19 +19,18 @@ const DEPARTMENTS_COLLECTION = 'departments';
 const TEACHERS_COLLECTION = 'teachers';
 const PROFILES_COLLECTION = 'profiles';
 
-// Available department types
-export const departmentTypes = [
-  'Computer Science',
-  'Electrical Engineering',
-  'Mechanical Engineering',
-  'Civil Engineering',
-  'Chemical Engineering',
-  'Mathematics',
-  'Physics',
-  'Chemistry',
-  'Arts',
-  'Business',
-  'Administration'
+// Available department categories
+export const departmentCategories = [
+  'Engineering',
+  'Sciences',
+  'Mathematics & Statistics',
+  'Business & Management',
+  'Arts & Humanities',
+  'Medical & Health Sciences',
+  'Education',
+  'Administration',
+  'Research',
+  'Other'
 ];
 
 /**
@@ -54,7 +53,7 @@ export const getAllDepartments = async () => {
       departments.push({
         id: deptDoc.id,
         name: deptData.name || '',
-        type: deptData.type || '',
+        category: deptData.category || '',
         hod: deptData.hodName || 'Not Assigned',
         hodId: deptData.hodId || null,
         hodAvatar: deptData.hodAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(deptData.hodName || 'NA')}&background=random`,
@@ -66,14 +65,12 @@ export const getAllDepartments = async () => {
     
     return departments;
   } catch (error) {
-    console.error('Error fetching departments:', error);
-    
-    // Return mock data if Firebase fetch fails
-    return [
-      { id: '1', name: 'Computer Science', type: 'Computer Science', hod: 'Dr. Alan Turing', hodAvatar: 'https://ui-avatars.com/api/?name=Alan+Turing&background=random', description: 'Computer Science and Software Engineering Department', status: 'Active', totalCourses: 24 },
-      { id: '2', name: 'Electrical Engineering', type: 'Electrical Engineering', hod: 'Dr. Nikola Tesla', hodAvatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=random', description: 'Electrical and Electronics Engineering', status: 'Active', totalCourses: 18 },
-      { id: '3', name: 'Mathematics', type: 'Mathematics', hod: 'Dr. Katherine Johnson', hodAvatar: 'https://ui-avatars.com/api/?name=Katherine+Johnson&background=random', description: 'Pure and Applied Mathematics', status: 'Active', totalCourses: 15 }
-    ];
+    console.error('Error fetching departments:', error);      // Return mock data if Firebase fetch fails
+      return [
+        { id: '1', name: 'Computer Science & Engineering', category: 'Engineering', hod: 'Dr. Alan Turing', hodAvatar: 'https://ui-avatars.com/api/?name=Alan+Turing&background=random', description: 'Computer Science and Software Engineering Department', status: 'Active', totalCourses: 24 },
+        { id: '2', name: 'Electrical & Electronics Engineering', category: 'Engineering', hod: 'Dr. Nikola Tesla', hodAvatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=random', description: 'Electrical and Electronics Engineering', status: 'Active', totalCourses: 18 },
+        { id: '3', name: 'Applied Mathematics', category: 'Mathematics & Statistics', hod: 'Dr. Katherine Johnson', hodAvatar: 'https://ui-avatars.com/api/?name=Katherine+Johnson&background=random', description: 'Pure and Applied Mathematics', status: 'Active', totalCourses: 15 }
+      ];
   }
 };
 
@@ -153,7 +150,7 @@ export const searchDepartments = async (searchTerm) => {
         return {
           id: doc.id,
           name: data.name || '',
-          type: data.type || '',
+          category: data.category || '',
           hod: data.hodName || 'Not Assigned',
           hodId: data.hodId || null,
           hodAvatar: data.hodAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.hodName || 'NA')}&background=random`,
@@ -167,7 +164,7 @@ export const searchDepartments = async (searchTerm) => {
     return allDepartments.filter(dept => {
       return (
         dept.name.toLowerCase().includes(searchTermLower) ||
-        dept.type.toLowerCase().includes(searchTermLower) ||
+        dept.category.toLowerCase().includes(searchTermLower) ||
         dept.hod.toLowerCase().includes(searchTermLower) ||
         (dept.description && dept.description.toLowerCase().includes(searchTermLower))
       );
@@ -210,7 +207,7 @@ export const createDepartment = async (departmentData) => {
     // Create the department document
     const newDepartment = {
       name: departmentData.name,
-      type: departmentData.type,
+      category: departmentData.category,
       hodName: departmentData.hod || 'Not Assigned',
       hodId: hodId,
       hodAvatar: hodAvatar,
@@ -356,7 +353,7 @@ export const updateDepartment = async (departmentData) => {
     // Update the department
     const updateData = {
       name: departmentData.name,
-      type: departmentData.type,
+      category: departmentData.category,
       hodName: departmentData.hod || 'Not Assigned',
       hodId: hodId,
       hodAvatar: hodAvatar,
@@ -441,7 +438,7 @@ const DepartmentManagementService = {
   createDepartment,
   updateDepartment,
   deleteDepartment,
-  departmentTypes,
+  departmentCategories,
   getHODOptions
 };
 

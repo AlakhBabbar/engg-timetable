@@ -42,7 +42,8 @@ export const departments = [
   'Electrical Engineering', 
   'Mechanical Engineering',
   'Civil Engineering',
-  'Chemical Engineering'
+  'Chemical Engineering',
+  'Agricultural Engineering'
 ];
 
 // Sample teachers data for fallback
