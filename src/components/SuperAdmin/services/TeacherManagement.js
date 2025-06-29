@@ -614,6 +614,8 @@ export const getAvatarBg = (name) => {
   return colors[hash % colors.length];
 };
 
+
+
 // Export all functions as a service object
 const TeacherManagementService = {
   fetchTeachers,
@@ -630,7 +632,7 @@ const TeacherManagementService = {
   getAvatarBg,
   subjectAreas,
   departments,
-  dummyTeachers
+  dummyTeachers,
 };
 
 export default TeacherManagementService;

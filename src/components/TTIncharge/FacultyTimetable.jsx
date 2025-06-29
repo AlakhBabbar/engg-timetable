@@ -7,16 +7,18 @@ import {
 } from 'react-icons/fi';
 
 // Import business logic from service file
-import { 
-  prepareFacultyData, 
-  getStatusColorClass, 
-  facultyData, 
-  timeSlots, 
-  weekDays 
+import {
+  prepareFacultyData,
+  getStatusColorClass,
+  timeSlots,
+  weekDays,
+  fetchFacultyTimetableFromDB,
+  fetchFacultyListFromDB // <-- new import
 } from './services/FacultyTimetable';
 
 export default function FacultyTimetable() {
   // State for faculty data with timetable information
+  const [facultyList, setFacultyList] = useState([]); // <-- new state
   const [enhancedFacultyData, setEnhancedFacultyData] = useState([]);
   
   // State for filters
@@ -33,14 +35,37 @@ export default function FacultyTimetable() {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [successMessageType, setSuccessMessageType] = useState('');
   
-  // Get unique departments from faculty data
-  const departments = [...new Set(facultyData.map(faculty => faculty.department))];
+  // State for faculty timetable grids
+  const [facultyTimetables, setFacultyTimetables] = useState({});
 
-  // Prepare the enhanced faculty data with their schedules on component mount
+  // Get unique departments from faculty data
+  const departments = [...new Set(facultyList.map(faculty => faculty.department))];
+
+  // Fetch faculty list from Firestore on mount
   useEffect(() => {
-    const enhanced = prepareFacultyData();
-    setEnhancedFacultyData(enhanced);
+    const unsubscribe = fetchFacultyListFromDB((list) => {
+      setFacultyList(list);
+    });
+    return () => unsubscribe();
   }, []);
+
+  // Prepare the enhanced faculty data with their schedules when facultyList changes
+  useEffect(() => {
+    // You may want to fetch courses for each faculty here if needed
+    // For now, just pass through the facultyList
+    setEnhancedFacultyData(facultyList);
+  }, [facultyList]);
+
+  // Fetch timetable for each faculty in real time
+  useEffect(() => {
+    // For each faculty, subscribe to their timetable
+    const unsubscribes = facultyList.map(faculty =>
+      fetchFacultyTimetableFromDB(faculty.id, (grid) => {
+        setFacultyTimetables(prev => ({ ...prev, [faculty.id]: grid }));
+      })
+    );
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [facultyList]);
   
   // Handle sending timetable to faculty
   const handleSendTimetable = (faculty) => {
@@ -100,21 +125,24 @@ export default function FacultyTimetable() {
   
   // Generate the timetable for the mini grid view
   const renderMiniTimetable = (timetableGrid) => {
+    if (!timetableGrid) {
+      return <div className="text-xs text-gray-400">No timetable</div>;
+    }
     // Show only workdays (Monday to Friday) and limited hours
     const daysToShow = weekDays.slice(0, 5);
     const slotsToShow = timeSlots.slice(2, 8); // Show mid-day slots only
-    
+
     return (
       <div className="grid grid-cols-5 gap-0.5 mt-2">
         {daysToShow.map(day => (
           slotsToShow.map(slot => {
-            const cellData = timetableGrid[day][slot];
+            const cellData = timetableGrid?.[day]?.[slot] || null;
             return (
               <div 
                 key={`${day}-${slot}`}
                 className={`w-2 h-2 rounded-sm ${
                   cellData 
-                    ? `bg-${cellData.color}-500` 
+                    ? `bg-${cellData.color || 'gray'}-500` 
                     : 'bg-gray-200'
                 }`}
                 title={cellData ? `${cellData.id} - ${day} ${slot}` : 'Free'}
@@ -285,16 +313,20 @@ export default function FacultyTimetable() {
             <div className="mt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-1">Assigned Courses</h4>
               <div className="flex flex-wrap gap-1">
-                {faculty.assignedCourses.map(course => (
+                {(faculty.assignedCourses || []).map(course => (
                   <span 
                     key={course.id}
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-${course.color}-100 text-${course.color}-800`}
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-${course.color || 'gray'}-100 text-${course.color || 'gray'}-800`}
                   >
                     {course.id}
                   </span>
                 ))}
                 
-                {faculty.assignedCourses.length === 0 && (
+                {(faculty.assignedCourses && faculty.assignedCourses.length === 0) && (
+                  <span className="text-sm text-gray-500 italic">No courses assigned</span>
+                )}
+                
+                {(!faculty.assignedCourses) && (
                   <span className="text-sm text-gray-500 italic">No courses assigned</span>
                 )}
               </div>
@@ -303,7 +335,10 @@ export default function FacultyTimetable() {
             {/* Mini Timetable Grid */}
             <div className="mt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-1">Weekly Schedule</h4>
-              {renderMiniTimetable(faculty.timetableGrid)}
+              {facultyTimetables[faculty.id]
+                ? renderMiniTimetable(facultyTimetables[faculty.id])
+                : <div className="text-xs text-gray-400">No timetable</div>
+              }
             </div>
             
             {/* Action Buttons */}
@@ -428,7 +463,7 @@ export default function FacultyTimetable() {
                   
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h3 className="text-sm font-medium text-gray-500">Assigned Courses</h3>
-                    <p className="text-lg font-medium">{selectedFaculty.assignedCourses.length} courses</p>
+                    <p className="text-lg font-medium">{(selectedFaculty.assignedCourses ? selectedFaculty.assignedCourses.length : 0)} courses</p>
                   </div>
                 </div>
                 
@@ -445,11 +480,11 @@ export default function FacultyTimetable() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedFaculty.assignedCourses.map(course => {
+                      {(selectedFaculty.assignedCourses || []).map(course => {
                         // Count unique time slots for this course
                         const slots = [];
-                        Object.entries(selectedFaculty.timetableGrid).forEach(([day, daySlots]) => {
-                          Object.entries(daySlots).forEach(([timeSlot, slotData]) => {
+                        Object.entries(selectedFaculty.timetableGrid || {}).forEach(([day, daySlots]) => {
+                          Object.entries(daySlots || {}).forEach(([timeSlot, slotData]) => {
                             if (slotData && slotData.id === course.id) {
                               slots.push(`${day}, ${timeSlot}`);
                             }
@@ -512,7 +547,7 @@ export default function FacultyTimetable() {
                         );
                       })}
                       
-                      {selectedFaculty.assignedCourses.length === 0 && (
+                      {(!selectedFaculty.assignedCourses || selectedFaculty.assignedCourses.length === 0) && (
                         <tr>
                           <td colSpan="4" className="px-6 py-4 text-center text-gray-500">
                             No courses assigned
@@ -542,7 +577,7 @@ export default function FacultyTimetable() {
                             {slot}
                           </td>
                           {weekDays.slice(0, 5).map(day => {
-                            const cellData = selectedFaculty.timetableGrid[day][slot];
+                            const cellData = selectedFaculty.timetableGrid?.[day]?.[slot];
                             return (
                               <td key={`${day}-${slot}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 border-r">
                                 {cellData ? (

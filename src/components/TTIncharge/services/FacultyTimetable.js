@@ -1,5 +1,6 @@
 // Import data from TimetableBuilder service
 import { facultyData, coursesData, roomsData, timeSlots, weekDays } from './TimetableBuilder';
+import { db, collection, query, where, onSnapshot, getDocs } from '../../../firebase/config';
 
 // Function to calculate weekly hours from string format (e.g., "3L+1T+2P")
 export const calculateHoursFromString = (hoursString) => {
@@ -105,6 +106,61 @@ export const getStatusColorClass = (status) => {
     default:
       return 'bg-green-100 border-green-300';
   }
+};
+
+// Fetch timetable slots for a specific teacher from Firestore
+export const fetchFacultyTimetableFromDB = (teacherId, callback) => {
+  const timetableRef = collection(db, 'timetable');
+  const q = query(timetableRef, where('teacher.id', '==', teacherId));
+  return onSnapshot(q, async (snapshot) => {
+    if (snapshot.empty) {
+      // If timetable is empty, fetch only teacher info from teachers collection
+      const teachersSnap = await getDocs(collection(db, 'teachers'));
+      const teachers = teachersSnap.docs.map(doc => doc.data());
+      // Find the teacher by id
+      const teacher = teachers.find(t => t.id === teacherId);
+      // Return an empty grid for this teacher
+      const grid = {};
+      weekDays.forEach(day => {
+        grid[day] = {};
+        timeSlots.forEach(slot => {
+          grid[day][slot] = null;
+        });
+      });
+      callback(grid, teacher);
+      return;
+    }
+    const slots = snapshot.docs.map(doc => doc.data());
+    // Build a grid: day -> time -> slotObj
+    const grid = {};
+    weekDays.forEach(day => {
+      grid[day] = {};
+      timeSlots.forEach(slot => {
+        grid[day][slot] = null;
+      });
+    });
+    slots.forEach(slot => {
+      if (grid[slot.day] && grid[slot.day][slot.time] !== undefined) {
+        grid[slot.day][slot.time] = slot;
+      }
+    });
+    callback(grid);
+  });
+};
+
+// Fetch faculty list from Firestore teachers collection (real-time)
+export const fetchFacultyListFromDB = (callback) => {
+  return onSnapshot(collection(db, 'teachers'), (snapshot) => {
+    const facultyList = snapshot.docs.map(doc => {
+      const data = doc.data();
+      return {
+        id: data.id || doc.id,
+        name: data.name,
+        department: data.department
+      };
+    });
+    callback(facultyList);
+  });
 };
 
 // Export the data so the component can use it directly

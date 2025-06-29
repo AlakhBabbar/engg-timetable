@@ -19,7 +19,7 @@ import { weekDays, timeSlots } from './services/TimetableBuilder';
 import {
   departments,
   roomTypes,
-  generateRoomAvailabilityData,
+  fetchRoomAvailabilityFromDB, // <-- use new Firestore fetch
   filterRooms,
   getVisibleTimeSlots,
   getVisibleDays,
@@ -41,27 +41,27 @@ export default function RoomAvailability() {
 
   // Enhanced room data with availability status
   const [enhancedRoomsData, setEnhancedRoomsData] = useState([]);
-  
-  // Filtered rooms using the service function
-  const filteredRooms = filterRooms(enhancedRoomsData, selectedDepartment, selectedRoomType);
 
-  // Initialize room data with availability
+  // Fetch room data from Firestore on mount (real-time)
   useEffect(() => {
-    updateRoomAvailabilityData();
+    const unsubscribe = fetchRoomAvailabilityFromDB((roomsWithAvailability) => {
+      setEnhancedRoomsData(roomsWithAvailability);
+      if (!selectedRoom && roomsWithAvailability.length > 0) {
+        setSelectedRoom(roomsWithAvailability[0]);
+      }
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
-  // Function to update room availability data
-  const updateRoomAvailabilityData = () => {
-    const roomsWithAvailability = generateRoomAvailabilityData();
-    setEnhancedRoomsData(roomsWithAvailability);
-    setSelectedRoom(roomsWithAvailability[0]);
-  };
+  // Filtered rooms using the service function
+  const filteredRooms = filterRooms(enhancedRoomsData, selectedDepartment, selectedRoomType);
 
   // Function to refresh data with animation
   const handleRefresh = () => {
     setIsRefreshing(true);
     setTimeout(() => {
-      updateRoomAvailabilityData();
       setIsRefreshing(false);
     }, 1000);
   };
@@ -204,32 +204,32 @@ export default function RoomAvailability() {
       <div className="bg-white p-4 rounded-xl shadow-md">
         <div className="mb-4">
           <h3 className="text-lg font-semibold text-gray-800 mb-2">Select Room</h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
             {filteredRooms.map(room => (
               <button
                 key={room.id}
                 onClick={() => setSelectedRoom(room)}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors
+                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex-shrink-0 min-w-[120px] max-w-xs text-ellipsis overflow-hidden
                   ${selectedRoom?.id === room.id 
                     ? 'bg-indigo-600 text-white' 
                     : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
               >
                 <div className="flex items-center gap-1">
-                  <span>{room.id}</span>
+                  <span>{room.number || room.id}</span>
                   <span className="text-xs">({room.capacity})</span>
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {room.facilities.includes('AC') && (
+                  {(room.facilities || []).includes('AC') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       AC
                     </span>
                   )}
-                  {room.facilities.includes('Smart Board') && (
+                  {(room.facilities || []).includes('Smart Board') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       Smart
                     </span>
                   )}
-                  {room.facilities.includes('Projector') && (
+                  {(room.facilities || []).includes('Projector') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                       Proj
                     </span>
@@ -244,8 +244,8 @@ export default function RoomAvailability() {
           <div className="bg-gray-50 p-3 rounded-lg mb-4">
             <div className="flex justify-between items-center">
               <div>
-                <h4 className="font-semibold text-gray-800">{selectedRoom.id} - {selectedRoom.type}</h4>
-                <p className="text-sm text-gray-600">Capacity: {selectedRoom.capacity} | Facilities: {selectedRoom.facilities.join(', ')}</p>
+                <h4 className="font-semibold text-gray-800">{selectedRoom.number || selectedRoom.id} - {selectedRoom.type}</h4>
+                <p className="text-sm text-gray-600">Capacity: {selectedRoom.capacity} | Facilities: {(selectedRoom.features || []).join(', ')}</p>
               </div>
               
               <div className="flex space-x-2">
@@ -319,7 +319,13 @@ export default function RoomAvailability() {
                           {slot}
                         </td>
                         {visibleDays.map(day => {
-                          const slotData = selectedRoom.availability[day][slot];
+                          const slotData =
+                            selectedRoom &&
+                            selectedRoom.availability &&
+                            selectedRoom.availability[day] &&
+                            selectedRoom.availability[day][slot]
+                              ? selectedRoom.availability[day][slot]
+                              : {};
                           return (
                             <td 
                               key={`${day}-${slot}`}
@@ -336,7 +342,7 @@ export default function RoomAvailability() {
                                 {slotData.course ? (
                                   <>
                                     <div className="font-semibold text-sm">{slotData.course.id}</div>
-                                    <div className="text-xs">{slotData.course.faculty.name}</div>
+                                    <div className="text-xs">{slotData.course.faculty?.name}</div>
                                   </>
                                 ) : (
                                   <div className="flex items-center justify-center h-full">

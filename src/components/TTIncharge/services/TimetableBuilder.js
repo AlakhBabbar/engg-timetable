@@ -69,7 +69,7 @@ export const facultyData = [
   { id: 3, name: 'Prof. Robert Chen', department: 'Computer Science', availableSlots: ['Monday-14:00', 'Thursday-11:00'] },
   { id: 4, name: 'Dr. Emily Zhang', department: 'Computer Science', availableSlots: ['Tuesday-09:00', 'Friday-14:00'] },
   { id: 5, name: 'Prof. Maria Garcia', department: 'Electrical Engineering', availableSlots: ['Wednesday-14:00', 'Thursday-09:00'] },
-  { id: 6, name: 'Dr. John Smith', department: 'Mechanical Engineering', availableSlots: ['Monday-11:00', 'Thursday-14:00'] },
+  { id: 6, name: 'Dr. John Smith', department: 'Mechanical Engineering', availableSlots: ['Monday-11:00', 'Thursday-14:00'] }
 ];
 
 // Room data
@@ -84,9 +84,16 @@ export const roomsData = [
 
 // Time slots (reduced for better fit)
 export const timeSlots = [
-  '09:00 - 10:00', '10:00 - 11:00', '11:00 - 12:00',
-  '12:00 - 13:00', '13:00 - 14:00', '14:00 - 15:00', 
-  '15:00 - 16:00', '16:00 - 17:00'
+  '7:00-7:55',
+  '7:55-8:50',
+  '8:50-9:45',
+  '10:30-11:25',
+  '11:25-12:20',
+  '12:20-1:15',
+  '1:15-2:10',
+  '2:10-3:05',
+  '3:05-4:00',
+  '4:00-5:00'
 ];
 
 // Days of the week (reduced for better fit)
@@ -124,20 +131,23 @@ export const checkConflicts = (timetableData, day, slot, course, selectedRoom) =
   });
   
   // Check for faculty conflicts
-  const facultyId = course.faculty.id;
-  Object.keys(timetableData).forEach(d => {
-    Object.keys(timetableData[d]).forEach(s => {
-      const existingCourse = timetableData[d][s];
-      if (existingCourse && existingCourse.faculty.id === facultyId && d === day && s === slot) {
-        conflicts.push({
-          type: 'faculty',
-          message: `${course.faculty.name} already teaching ${existingCourse.id} at ${slot} on ${day}`,
-          day,
-          slot
-        });
-      }
+  const facultyId = (course.faculty && course.faculty.id) ? course.faculty.id : (course.teacher && course.teacher.id ? course.teacher.id : undefined);
+  if (facultyId) {
+    Object.keys(timetableData).forEach(d => {
+      Object.keys(timetableData[d]).forEach(s => {
+        const existingCourse = timetableData[d][s];
+        const existingFacultyId = existingCourse?.faculty?.id || existingCourse?.teacher?.id;
+        if (existingCourse && existingFacultyId === facultyId && d === day && s === slot) {
+          conflicts.push({
+            type: 'faculty',
+            message: `${existingCourse.faculty?.name || existingCourse.teacher?.name || 'Faculty'} already teaching ${existingCourse.id || existingCourse.code} at ${slot} on ${day}`,
+            day,
+            slot
+          });
+        }
+      });
     });
-  });
+  }
   
   return conflicts;
 };
@@ -268,18 +278,29 @@ export const deleteCourse = (timetableData, day, slot) => {
 // Update timetable on course drop
 export const updateTimetableOnDrop = (timetableData, day, slot, course, selectedRoom, dragSourceInfo) => {
   const newTimetable = JSON.parse(JSON.stringify(timetableData));
-  
+
   // If this is a re-drag from another cell, remove the course from its original position
   if (dragSourceInfo) {
     newTimetable[dragSourceInfo.day][dragSourceInfo.slot] = null;
   }
-  
-  // Add the course to the timetable
-  newTimetable[day][slot] = {
-    ...course,
-    room: selectedRoom.id
+
+  // Normalize course block structure for timetable grid
+  const normalizedCourse = {
+    id: course.id || course.code, // prefer id, fallback to code
+    code: course.code,
+    name: course.title || course.name || '',
+    faculty: course.faculty || course.teacher || {},
+    teacher: course.teacher || course.faculty || {},
+    color: course.color,
+    duration: course.duration,
+    weeklyHours: course.weeklyHours,
+    room: selectedRoom.id,
+    roomNumber: selectedRoom.number || '',
   };
-  
+
+  // Add the normalized course to the timetable
+  newTimetable[day][slot] = normalizedCourse;
+
   return newTimetable;
 };
 
