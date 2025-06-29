@@ -1,6 +1,21 @@
+/**
+ * Room Management Component with Comprehensive Pagination
+ * 
+ * Pagination Features Implemented:
+ * - Page-based navigation with numbered pages
+ * - Items per page selector (10, 25, 50, 100)
+ * - First/Previous/Next/Last navigation buttons
+ * - Page number indicators with ellipsis for large page counts
+ * - Real-time pagination info display
+ * - Automatic page reset when filters change
+ * - Responsive design for mobile and desktop
+ * - Visual feedback for disabled states
+ * - Total items and filtered results display
+ */
+
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { motion } from 'framer-motion';
-import { FiPlus, FiEdit, FiTrash2, FiSearch, FiX, FiHome, FiUsers, FiMonitor, FiWifi, FiThermometer, FiSave, FiUpload, FiInfo, FiDownload, FiClock, FiCheck } from 'react-icons/fi';
+import { FiPlus, FiEdit, FiTrash2, FiSearch, FiX, FiHome, FiUsers, FiMonitor, FiWifi, FiThermometer, FiSave, FiUpload, FiInfo, FiDownload, FiClock, FiCheck, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
 import { useToast } from '../../context/ToastContext';
@@ -17,6 +32,10 @@ import {
   processRoomImport,
   processSingleRoomImport
 } from './services/RoomManagement';
+
+// Pagination constants
+const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
+const DEFAULT_ITEMS_PER_PAGE = 25;
 
 // Time slots for room allocation
 const timeSlots = [
@@ -101,6 +120,10 @@ export default function RoomManagement() {
   // State for room statistics
   const [showUtilizationStats, setShowUtilizationStats] = useState(false);
 
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_ITEMS_PER_PAGE);
+
   // Rate-limited upload hook
   const { uploadState, handleUpload, handleCancel, resetUploadState } = useRateLimitedUpload(
     // Processor function for room imports
@@ -176,7 +199,14 @@ export default function RoomManagement() {
     setFilteredRooms(filtered);
     // Clear selection when filters change to avoid confusion
     setSelectedRooms(new Set());
+    // Reset to first page when filters change
+    setCurrentPage(1);
   }, [rooms, selectedFaculty, selectedFeature, searchTerm]);
+
+  // Reset pagination when items per page changes
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [itemsPerPage]);
 
   // Handle input changes in form
   const handleChange = (e) => {
@@ -381,13 +411,32 @@ export default function RoomManagement() {
     });
   };
 
-  // Handle select all rooms
+  // Handle select all rooms (current page only)
   const handleSelectAll = () => {
-    if (selectedRooms.size === filteredRooms.length) {
-      setSelectedRooms(new Set());
+    const currentPageRoomIds = paginatedRooms.map(room => room.id);
+    const currentPageSelected = currentPageRoomIds.filter(id => selectedRooms.has(id));
+    
+    if (currentPageSelected.length === currentPageRoomIds.length) {
+      // Deselect all rooms on current page
+      setSelectedRooms(prev => {
+        const newSet = new Set(prev);
+        currentPageRoomIds.forEach(id => newSet.delete(id));
+        return newSet;
+      });
     } else {
-      setSelectedRooms(new Set(filteredRooms.map(room => room.id)));
+      // Select all rooms on current page
+      setSelectedRooms(prev => {
+        const newSet = new Set(prev);
+        currentPageRoomIds.forEach(id => newSet.add(id));
+        return newSet;
+      });
     }
+  };
+
+  // Check if all rooms on current page are selected
+  const isCurrentPageFullySelected = () => {
+    const currentPageRoomIds = paginatedRooms.map(room => room.id);
+    return currentPageRoomIds.length > 0 && currentPageRoomIds.every(id => selectedRooms.has(id));
   };
 
   // Handle bulk delete
@@ -796,6 +845,30 @@ export default function RoomManagement() {
     };
   }, [rooms]);
 
+  // Pagination logic
+  const paginatedRooms = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage;
+    const end = start + itemsPerPage;
+    return filteredRooms.slice(start, end);
+  }, [filteredRooms, currentPage, itemsPerPage]);
+
+  // Pagination statistics
+  const paginationStats = useMemo(() => {
+    const totalPages = Math.ceil(filteredRooms.length / itemsPerPage);
+    const startItem = filteredRooms.length === 0 ? 0 : (currentPage - 1) * itemsPerPage + 1;
+    const endItem = Math.min(currentPage * itemsPerPage, filteredRooms.length);
+    
+    return {
+      totalPages,
+      startItem,
+      endItem,
+      hasNextPage: currentPage < totalPages,
+      hasPrevPage: currentPage > 1,
+      isFirstPage: currentPage === 1,
+      isLastPage: currentPage === totalPages
+    };
+  }, [filteredRooms.length, currentPage, itemsPerPage]);
+
   return (
     <div className="p-6 relative bg-gray-50 min-h-screen">
       <h1 className="text-2xl font-bold text-gray-800 mb-6">
@@ -876,6 +949,14 @@ export default function RoomManagement() {
             {selectedRooms.size > 0 && (
               <>
                 <button
+                  onClick={() => setSelectedRooms(new Set(filteredRooms.map(room => room.id)))}
+                  className="px-4 py-3 rounded-lg border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100 transition flex items-center gap-2"
+                  title="Select all filtered rooms across all pages"
+                >
+                  <FiCheck size={16} />
+                  <span>Select All ({filteredRooms.length})</span>
+                </button>
+                <button
                   onClick={clearSelection}
                   className="px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition flex items-center gap-2"
                 >
@@ -913,6 +994,31 @@ export default function RoomManagement() {
       
       {/* Rooms Table */}
       <div className="bg-white rounded-2xl shadow-md overflow-hidden">
+        {/* Table Header with Pagination Info */}
+        {filteredRooms.length > 0 && (
+          <div className="px-6 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+            <div className="flex items-center gap-4">
+              <h3 className="text-sm font-medium text-gray-900">
+                Room List ({filteredRooms.length} total)
+              </h3>
+              {selectedRooms.size > 0 && (
+                <span className="text-xs px-2 py-1 bg-teal-100 text-teal-800 rounded-full">
+                  {selectedRooms.size} selected
+                </span>
+              )}
+            </div>
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              <span>
+                Showing {((currentPage - 1) * itemsPerPage) + 1}-{Math.min(currentPage * itemsPerPage, filteredRooms.length)} of {filteredRooms.length}
+              </span>
+              <span className="text-gray-300">|</span>
+              <span>
+                Page {currentPage} of {Math.ceil(filteredRooms.length / itemsPerPage)}
+              </span>
+            </div>
+          </div>
+        )}
+        
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">
             <thead className="bg-gray-50">
@@ -920,9 +1026,10 @@ export default function RoomManagement() {
                 <th className="px-6 py-4 text-left">
                   <input
                     type="checkbox"
-                    checked={filteredRooms.length > 0 && selectedRooms.size === filteredRooms.length}
+                    checked={isCurrentPageFullySelected()}
                     onChange={handleSelectAll}
                     className="h-4 w-4 text-teal-600 focus:ring-teal-500 border-gray-300 rounded"
+                    title="Select all rooms on current page"
                   />
                 </th>
                 <th className="px-6 py-4 text-left text-xs font-semibold text-gray-500 uppercase">Room Number</th>
@@ -934,8 +1041,8 @@ export default function RoomManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 bg-white">
-              {filteredRooms.length > 0 ? (
-                filteredRooms.map((room, index) => (
+              {paginatedRooms.length > 0 ? (
+                paginatedRooms.map((room, index) => (
                   <tr key={room.id} className={`hover:bg-gray-50 transition ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <input
@@ -1029,6 +1136,148 @@ export default function RoomManagement() {
           </table>
         </div>
       </div>
+      
+      {/* Pagination Controls */}
+      {filteredRooms.length > 0 && (
+        <div className="mt-6 bg-white rounded-xl shadow-md p-4">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            {/* Results Info */}
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="text-sm text-gray-600">
+                Showing {Math.min((currentPage - 1) * itemsPerPage + 1, filteredRooms.length)} to{' '}
+                {Math.min(currentPage * itemsPerPage, filteredRooms.length)} of {filteredRooms.length} rooms
+                {filteredRooms.length !== rooms.length && (
+                  <span className="text-gray-500"> (filtered from {rooms.length} total)</span>
+                )}
+              </div>
+              
+              {/* Items per page selector */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600">Items per page:</span>
+                <select
+                  value={itemsPerPage}
+                  onChange={(e) => {
+                    setItemsPerPage(parseInt(e.target.value));
+                    setCurrentPage(1);
+                  }}
+                  className="px-3 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm bg-white"
+                >
+                  {ITEMS_PER_PAGE_OPTIONS.map(option => (
+                    <option key={option} value={option}>{option}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            
+            {/* Pagination Navigation */}
+            <div className="flex items-center gap-2">
+              {/* First Page Button */}
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="First page"
+              >
+                First
+              </button>
+              
+              {/* Previous Button */}
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                disabled={currentPage === 1}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition flex items-center gap-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FiChevronLeft size={16} />
+                Previous
+              </button>
+              
+              {/* Page Numbers */}
+              <div className="flex items-center gap-1">
+                {(() => {
+                  const totalPages = Math.ceil(filteredRooms.length / itemsPerPage);
+                  const maxVisiblePages = 5;
+                  let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+                  let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+                  
+                  if (endPage - startPage + 1 < maxVisiblePages) {
+                    startPage = Math.max(1, endPage - maxVisiblePages + 1);
+                  }
+                  
+                  const pages = [];
+                  
+                  if (startPage > 1) {
+                    pages.push(
+                      <button
+                        key={1}
+                        onClick={() => setCurrentPage(1)}
+                        className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm"
+                      >
+                        1
+                      </button>
+                    );
+                    if (startPage > 2) {
+                      pages.push(<span key="ellipsis1" className="px-2 text-gray-500">...</span>);
+                    }
+                  }
+                  
+                  for (let i = startPage; i <= endPage; i++) {
+                    pages.push(
+                      <button
+                        key={i}
+                        onClick={() => setCurrentPage(i)}
+                        className={`px-3 py-2 rounded-lg transition text-sm ${
+                          i === currentPage
+                            ? 'bg-teal-600 text-white border border-teal-600'
+                            : 'border border-gray-300 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {i}
+                      </button>
+                    );
+                  }
+                  
+                  if (endPage < totalPages) {
+                    if (endPage < totalPages - 1) {
+                      pages.push(<span key="ellipsis2" className="px-2 text-gray-500">...</span>);
+                    }
+                    pages.push(
+                      <button
+                        key={totalPages}
+                        onClick={() => setCurrentPage(totalPages)}
+                        className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm"
+                      >
+                        {totalPages}
+                      </button>
+                    );
+                  }
+                  
+                  return pages;
+                })()}
+              </div>
+              
+              {/* Next Button */}
+              <button
+                onClick={() => setCurrentPage(prev => prev + 1)}
+                disabled={currentPage * itemsPerPage >= filteredRooms.length}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition flex items-center gap-1 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Next
+                <FiChevronRight size={16} />
+              </button>
+              
+              {/* Last Page Button */}
+              <button
+                onClick={() => setCurrentPage(Math.ceil(filteredRooms.length / itemsPerPage))}
+                disabled={currentPage * itemsPerPage >= filteredRooms.length}
+                className="px-3 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Last page"
+              >
+                Last
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Add/Edit Room Modal */}
       {showModal && (
@@ -1295,16 +1544,16 @@ export default function RoomManagement() {
                   <button
                     type="button"
                     onClick={() => setShowModal(false)}
-                    className="w-full sm:w-auto px-4 py-2 sm:py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm sm:text-base order-2 sm:order-1"
+                    className="px-4 py-2 sm:px-6 sm:py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm sm:text-base"
                   >
                     Cancel
                   </button>
                   <button
                     type="submit"
-                    className="w-full sm:w-auto px-6 py-2 sm:py-2.5 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition flex items-center justify-center gap-2 text-sm sm:text-base order-1 sm:order-2"
+                    className="px-4 py-2 sm:px-6 sm:py-3 rounded-lg bg-gradient-to-r from-teal-500 to-blue-600 text-white font-semibold hover:shadow-lg transition duration-300 flex items-center justify-center gap-2 text-sm sm:text-base"
                   >
                     <FiSave size={16} className="sm:w-5 sm:h-5" />
-                    <span>💾 Save Room</span>
+                    <span>{editingRoom ? 'Update Room' : 'Add Room'}</span>
                   </button>
                 </div>
               </form>
