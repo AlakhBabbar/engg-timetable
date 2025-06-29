@@ -63,7 +63,13 @@ export const facultyOptions = [
   'Faculty of Law',
   'Faculty of Medicine',
   'Faculty of Education',
-  'Common Facilities'
+  'Common Facilities',
+  'Technical College',
+  'Faculty of Architecture',
+  'Shatabdi Bhawan',
+  'School of Education',
+  'Department of English',
+  'General'
 ];
 
 // Feature options with name and id
@@ -91,7 +97,13 @@ export const getFacultyColorClass = (faculty) => {
     'Faculty of Law': 'bg-indigo-100 text-indigo-800',
     'Faculty of Medicine': 'bg-red-100 text-red-800',
     'Faculty of Education': 'bg-teal-100 text-teal-800',
-    'Common Facilities': 'bg-gray-100 text-gray-800'
+    'Common Facilities': 'bg-gray-100 text-gray-800',
+    'Technical College': 'bg-pink-100 text-pink-800',
+    'Faculty of Architecture': 'bg-cyan-100 text-cyan-800',
+    'Shatabdi Bhawan': 'bg-lime-100 text-lime-800',
+    'School of Education': 'bg-amber-100 text-amber-800',
+    'Department of English': 'bg-violet-100 text-violet-800',
+    'General': 'bg-slate-100 text-slate-800'
   };
   
   return colorMap[faculty] || 'bg-gray-100 text-gray-800';
