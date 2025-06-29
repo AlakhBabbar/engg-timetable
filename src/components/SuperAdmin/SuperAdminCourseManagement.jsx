@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useContext } from 'react';
-import { FiEdit, FiTrash2, FiSearch, FiFilter, FiX, FiBook, FiUser, FiClock, FiCalendar, FiHash, FiUpload, FiInfo, FiDownload, FiLayers } from 'react-icons/fi';
+import { FiEdit, FiTrash2, FiSearch, FiFilter, FiX, FiBook, FiUser, FiClock, FiCalendar, FiHash, FiUpload, FiInfo, FiDownload, FiLayers, FiChevronLeft, FiChevronRight, FiChevronsLeft, FiChevronsRight, FiAlertTriangle } from 'react-icons/fi';
 import SuperAdminCourseManagementService, { processSuperAdminCourseImport } from './services/SuperAdminCourseManagement';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
@@ -28,6 +28,10 @@ export default function SuperAdminCourseManagement() {
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Rate-limited upload hook
   const { uploadState, handleUpload, handleCancel, resetUploadState } = useRateLimitedUpload();
@@ -75,6 +79,7 @@ export default function SuperAdminCourseManagement() {
       selectedDepartment
     );
     setFilteredCourses(filtered);
+    setCurrentPage(1); // Reset to first page when filters change
   }, [courses, searchTerm, selectedSemester, selectedFaculty, selectedDepartment]);
 
   // Handle click outside for tooltip
@@ -159,7 +164,7 @@ export default function SuperAdminCourseManagement() {
 
           // Validate and show warnings for course data
           const validation = validateCourseData(jsonData, targetDepartment);
-          const coursesArray = jsonData;
+          let coursesArray = jsonData;
 
           if (validation.errors.length > 0) {
             showError(`❌ Found ${validation.errors.length} error(s) in your course data:\n\n${validation.errors.slice(0, 5).join('\n')}${validation.errors.length > 5 ? `\n... and ${validation.errors.length - 5} more errors` : ''}\n\nPlease fix these errors and try again.`, {
@@ -196,10 +201,50 @@ export default function SuperAdminCourseManagement() {
             });
           }
 
+          // Check for duplicates before upload
+          const duplicateCheck = await SuperAdminCourseManagementService.checkBatchDuplicates(
+            coursesArray, 
+            targetDepartment?.id || null, 
+            departments
+          );
+          
+          let shouldOverwriteExisting = false;
+          
+          if (duplicateCheck.duplicates.length > 0) {
+            const duplicatesList = duplicateCheck.duplicates.slice(0, 5).map(dup => 
+              `${dup.courseData.code} (${dup.courseData.semester})`
+            ).join(', ');
+            const moreDuplicates = duplicateCheck.duplicates.length > 5 ? 
+              ` and ${duplicateCheck.duplicates.length - 5} more` : '';
+            
+            const userWantsToOverwrite = window.confirm(
+              `⚠️ Found ${duplicateCheck.duplicates.length} duplicate course(s) that already exist:\n\n` +
+              `${duplicatesList}${moreDuplicates}\n\n` +
+              `Do you want to overwrite the existing courses?\n\n` +
+              `• Click "OK" to overwrite existing courses\n` +
+              `• Click "Cancel" to skip duplicates and only import new courses`
+            );
+            
+            if (userWantsToOverwrite) {
+              // Upload all courses with overwrite enabled
+              showInfo(`🔄 User chose to overwrite duplicates. Starting import of all ${coursesArray.length} courses...`);
+            } else {
+              // Upload only unique courses
+              if (duplicateCheck.uniqueCourses.length === 0) {
+                showWarning('All courses already exist. Upload canceled.', {
+                  duration: 6000
+                });
+                setIsLoading(false);
+                return;
+              }
+              coursesArray = duplicateCheck.uniqueCourses;
+              showInfo(`� Skipping ${duplicateCheck.duplicates.length} duplicates. Starting import of ${coursesArray.length} new courses...`);
+            }
+          }
+
           // Brief delay to let user see validation results
           setTimeout(() => {
             const uploadTarget = targetDepartment ? ` to ${targetDepartment.name}` : ' to their specified departments';
-            showInfo(`🚀 Starting import of ${coursesArray.length} courses${uploadTarget}...`);
 
             // Start rate-limited upload
             handleUpload(coursesArray, {
@@ -212,7 +257,8 @@ export default function SuperAdminCourseManagement() {
                       course, 
                       faculty, 
                       targetDepartment?.id || null,
-                      departments
+                      departments,
+                      shouldOverwriteExisting
                     );
                     results.push(result);
                   } catch (error) {
@@ -233,8 +279,8 @@ export default function SuperAdminCourseManagement() {
                 // Show toasts immediately
                 if (failed === 0) {
                   const completionTarget = targetDepartment ? ` to ${targetDepartment.name}` : ' to their respective departments';
-                  showSuccess(`✅ Successfully imported all ${successful} courses${completionTarget}!`, {
-                    duration: 8000
+                  showSuccess(`✅ Successfully imported all ${successful} courses${completionTarget}! Page will reload in 3 seconds...`, {
+                    duration: 3000
                   });
                 } else if (successful > 0) {
                   const errorSummary = failedItems.slice(0, 5).map(item => 
@@ -242,9 +288,9 @@ export default function SuperAdminCourseManagement() {
                   ).join('\n');
                   const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
                   
-                  showWarning(`⚠️ Import completed: ${successful} successful, ${failed} failed`, {
+                  showWarning(`⚠️ Import completed: ${successful} successful, ${failed} failed. Page will reload in 5 seconds...`, {
                     details: errorSummary + moreErrors,
-                    duration: 15000
+                    duration: 5000
                   });
                 } else {
                   const errorSummary = failedItems.slice(0, 5).map(item => 
@@ -254,29 +300,16 @@ export default function SuperAdminCourseManagement() {
                   
                   showError(`❌ Import failed: All ${failed} courses failed to import`, {
                     details: errorSummary + moreErrors,
-                    duration: 20000
+                    duration: 10000
                   });
-                }
-                
-                // Refresh the courses list from Firebase after upload
-                const refreshData = async () => {
-                  try {
-                    const refreshedCourses = await SuperAdminCourseManagementService.fetchAllCourses();
-                    setCourses(refreshedCourses);
-                  } catch (error) {
-                    console.error('Error refreshing courses after upload:', error);
-                  }
                   setIsLoading(false);
-                };
-                
-                refreshData();
-                
-                // Auto-dismiss upload indicator after a delay for successful imports
-                if (failed === 0) {
-                  setTimeout(() => {
-                    resetUploadState();
-                  }, 3000);
+                  return;
                 }
+                
+                // Reload the page to show new courses
+                setTimeout(() => {
+                  window.location.reload();
+                }, failed === 0 ? 3000 : 5000);
               },
               onError: (error) => {
                 showError(`Upload failed: ${error}`, {
@@ -455,6 +488,26 @@ export default function SuperAdminCourseManagement() {
     setSelectedFaculty(null);
     setSelectedDepartment(null);
     showInfo('All filters cleared', { duration: 2000 });
+  };
+
+  // Pagination helper functions
+  const totalPages = Math.ceil(filteredCourses.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const currentCourses = filteredCourses.slice(startIndex, endIndex);
+
+  const goToPage = (page) => {
+    setCurrentPage(Math.max(1, Math.min(page, totalPages)));
+  };
+
+  const goToFirstPage = () => goToPage(1);
+  const goToLastPage = () => goToPage(totalPages);
+  const goToPreviousPage = () => goToPage(currentPage - 1);
+  const goToNextPage = () => goToPage(currentPage + 1);
+
+  const handleItemsPerPageChange = (newItemsPerPage) => {
+    setItemsPerPage(newItemsPerPage);
+    setCurrentPage(1); // Reset to first page when changing items per page
   };
 
   return (
@@ -674,21 +727,23 @@ export default function SuperAdminCourseManagement() {
 
       {/* Results Summary */}
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex items-center gap-2">
             <FiBook className="text-blue-600" />
             <span className="text-blue-800 font-medium">
-              {filteredCourses.length} courses found
+              {filteredCourses.length} course{filteredCourses.length !== 1 ? 's' : ''} found
               {selectedDepartment && ` in ${selectedDepartment.name}`}
               {selectedSemester !== 'All Semesters' && ` for ${selectedSemester}`}
               {selectedFaculty && ` taught by ${selectedFaculty.name}`}
             </span>
           </div>
-          {searchTerm && (
-            <span className="text-blue-600 text-sm">
-              Searching for: "{searchTerm}"
-            </span>
-          )}
+          <div className="flex items-center gap-4">
+            {searchTerm && (
+              <span className="text-blue-600 text-sm">
+                Searching for: "{searchTerm}"
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -738,7 +793,7 @@ export default function SuperAdminCourseManagement() {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredCourses.map((course) => (
+                {currentCourses.map((course) => (
                   <tr key={course.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div>
@@ -816,6 +871,181 @@ export default function SuperAdminCourseManagement() {
                 ))}
               </tbody>
             </table>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="bg-gray-50 border-t border-gray-200 px-6 py-4">
+                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                  {/* Results Info */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                    <div className="text-sm text-gray-700">
+                      Showing <span className="font-medium text-gray-900">{startIndex + 1}</span> to{' '}
+                      <span className="font-medium text-gray-900">{Math.min(endIndex, filteredCourses.length)}</span> of{' '}
+                      <span className="font-medium text-gray-900">{filteredCourses.length}</span> results
+                    </div>
+                    
+                    {/* Items Per Page */}
+                    <div className="flex items-center gap-2">
+                      <label className="text-sm text-gray-700 font-medium">Show:</label>
+                      <select
+                        value={itemsPerPage}
+                        onChange={(e) => handleItemsPerPageChange(parseInt(e.target.value))}
+                        className="px-3 py-1.5 text-sm border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                      >
+                        <option value={10}>10</option>
+                        <option value={25}>25</option>
+                        <option value={50}>50</option>
+                        <option value={100}>100</option>
+                      </select>
+                      <span className="text-sm text-gray-700">per page</span>
+                    </div>
+                  </div>
+
+                  {/* Pagination Navigation */}
+                  <div className="flex items-center justify-center lg:justify-end">
+                    <nav className="flex items-center gap-1" aria-label="Pagination">
+                      {/* First Page */}
+                      <button
+                        onClick={goToFirstPage}
+                        disabled={currentPage === 1}
+                        className="inline-flex items-center px-2 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-l-md hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-500 transition-colors duration-200"
+                        title="First page"
+                      >
+                        <FiChevronsLeft size={16} />
+                      </button>
+                      
+                      {/* Previous Page */}
+                      <button
+                        onClick={goToPreviousPage}
+                        disabled={currentPage === 1}
+                        className="inline-flex items-center px-2 py-2 text-sm font-medium text-gray-500 bg-white border-t border-b border-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-500 transition-colors duration-200"
+                        title="Previous page"
+                      >
+                        <FiChevronLeft size={16} />
+                      </button>
+
+                      {/* Page Numbers */}
+                      {(() => {
+                        const getPageNumbers = () => {
+                          const pages = [];
+                          const maxVisible = 7; // Maximum number of page buttons to show
+                          
+                          if (totalPages <= maxVisible) {
+                            // Show all pages if total is small
+                            for (let i = 1; i <= totalPages; i++) {
+                              pages.push(i);
+                            }
+                          } else {
+                            // Smart pagination logic
+                            const startPage = Math.max(1, currentPage - 3);
+                            const endPage = Math.min(totalPages, currentPage + 3);
+                            
+                            // Always show first page
+                            if (startPage > 1) {
+                              pages.push(1);
+                              if (startPage > 2) {
+                                pages.push('...');
+                              }
+                            }
+                            
+                            // Show pages around current page
+                            for (let i = startPage; i <= endPage; i++) {
+                              pages.push(i);
+                            }
+                            
+                            // Always show last page
+                            if (endPage < totalPages) {
+                              if (endPage < totalPages - 1) {
+                                pages.push('...');
+                              }
+                              pages.push(totalPages);
+                            }
+                          }
+                          
+                          return pages;
+                        };
+
+                        return getPageNumbers().map((page, index) => {
+                          if (page === '...') {
+                            return (
+                              <span
+                                key={`ellipsis-${index}`}
+                                className="inline-flex items-center px-4 py-2 text-sm font-medium text-gray-500 bg-white border-t border-b border-gray-300"
+                              >
+                                ...
+                              </span>
+                            );
+                          }
+                          
+                          const isCurrentPage = page === currentPage;
+                          return (
+                            <button
+                              key={page}
+                              onClick={() => goToPage(page)}
+                              className={`inline-flex items-center px-4 py-2 text-sm font-medium border-t border-b border-gray-300 transition-colors duration-200 ${
+                                isCurrentPage
+                                  ? 'bg-blue-50 border-blue-500 text-blue-600 z-10 relative'
+                                  : 'bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700'
+                              }`}
+                              aria-current={isCurrentPage ? 'page' : undefined}
+                            >
+                              {page}
+                            </button>
+                          );
+                        });
+                      })()}
+
+                      {/* Next Page */}
+                      <button
+                        onClick={goToNextPage}
+                        disabled={currentPage === totalPages}
+                        className="inline-flex items-center px-2 py-2 text-sm font-medium text-gray-500 bg-white border-t border-b border-gray-300 hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-500 transition-colors duration-200"
+                        title="Next page"
+                      >
+                        <FiChevronRight size={16} />
+                      </button>
+                      
+                      {/* Last Page */}
+                      <button
+                        onClick={goToLastPage}
+                        disabled={currentPage === totalPages}
+                        className="inline-flex items-center px-2 py-2 text-sm font-medium text-gray-500 bg-white border border-gray-300 rounded-r-md hover:bg-gray-50 hover:text-gray-700 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-gray-500 transition-colors duration-200"
+                        title="Last page"
+                      >
+                        <FiChevronsRight size={16} />
+                      </button>
+                    </nav>
+                  </div>
+                </div>
+
+                {/* Mobile-friendly quick navigation */}
+                <div className="lg:hidden mt-4 pt-4 border-t border-gray-200">
+                  <div className="flex items-center justify-between">
+                    <button
+                      onClick={goToPreviousPage}
+                      disabled={currentPage === 1}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                    >
+                      <FiChevronLeft size={16} />
+                      Previous
+                    </button>
+                    
+                    <span className="text-sm text-gray-700 font-medium">
+                      Page {currentPage} of {totalPages}
+                    </span>
+                    
+                    <button
+                      onClick={goToNextPage}
+                      disabled={currentPage === totalPages}
+                      className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+                    >
+                      Next
+                      <FiChevronRight size={16} />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

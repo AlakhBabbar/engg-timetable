@@ -337,14 +337,98 @@ export const fetchFacultyByDepartment = async (departmentId) => {
 };
 
 /**
+ * Check if a course already exists in the database
+ * @param {string} code - Course code
+ * @param {string} semester - Semester
+ * @param {string} departmentId - Department ID
+ * @returns {Promise<Object|null>} Existing course data or null
+ */
+export const checkCourseExists = async (code, semester, departmentId) => {
+  try {
+    const docId = `${code.toUpperCase()}_${semester.replace(/\s+/g, '_')}_${departmentId}`;
+    const courseRef = doc(db, COURSES_COLLECTION, docId);
+    const existingDoc = await getDoc(courseRef);
+    
+    if (existingDoc.exists()) {
+      return {
+        id: existingDoc.id,
+        ...existingDoc.data()
+      };
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('Error checking course existence:', error);
+    return null;
+  }
+};
+
+/**
+ * Check for duplicate courses in a batch
+ * @param {Array} courseDataArray - Array of course data objects
+ * @param {string} targetDepartmentId - Fallback department ID
+ * @param {Array} departments - Available departments list
+ * @returns {Promise<Object>} Result object with duplicates and unique courses
+ */
+export const checkBatchDuplicates = async (courseDataArray, targetDepartmentId, departments = []) => {
+  try {
+    const duplicates = [];
+    const uniqueCourses = [];
+    
+    for (const courseData of courseDataArray) {
+      // Determine department ID (same logic as in processSuperAdminCourseImport)
+      let departmentId = courseData.department || targetDepartmentId;
+      
+      if (courseData.department && departments.length > 0) {
+        const dept = courseData.department.toString().trim();
+        const foundById = departments.find(d => d.id === dept);
+        if (foundById) {
+          departmentId = dept;
+        } else {
+          const foundByName = departments.find(d => d.name === dept);
+          if (foundByName) {
+            departmentId = foundByName.id;
+          } else {
+            departmentId = dept;
+          }
+        }
+      }
+      
+      // Check if course exists
+      const existingCourse = await checkCourseExists(
+        courseData.code, 
+        courseData.semester, 
+        departmentId
+      );
+      
+      if (existingCourse) {
+        duplicates.push({
+          courseData,
+          existingCourse,
+          departmentId
+        });
+      } else {
+        uniqueCourses.push(courseData);
+      }
+    }
+    
+    return { duplicates, uniqueCourses };
+  } catch (error) {
+    console.error('Error checking batch duplicates:', error);
+    return { duplicates: [], uniqueCourses: courseDataArray };
+  }
+};
+
+/**
  * Process a single course import for SuperAdmin (with department override capability)
  * @param {Object} courseData - Single course data object
  * @param {Array} faculty - Available faculty list
  * @param {string} targetDepartmentId - Fallback department ID (used only if course doesn't specify department)
  * @param {Array} departments - Available departments list for name-to-ID conversion
+ * @param {boolean} overwriteExisting - Whether to overwrite existing courses
  * @returns {Promise<Object>} Result object with success status
  */
-export const processSuperAdminCourseImport = async (courseData, faculty, targetDepartmentId, departments = []) => {
+export const processSuperAdminCourseImport = async (courseData, faculty, targetDepartmentId, departments = [], overwriteExisting = false) => {
   try {
     // Validate required fields
     if (!courseData.code || !courseData.title || !courseData.semester) {
@@ -386,6 +470,21 @@ export const processSuperAdminCourseImport = async (courseData, faculty, targetD
       };
     }
 
+    // Check if course already exists and handle accordingly
+    const existingCourse = await checkCourseExists(courseData.code, courseData.semester, departmentId);
+    
+    if (existingCourse && !overwriteExisting) {
+      return {
+        success: false,
+        action: 'skipped',
+        code: courseData.code,
+        title: courseData.title,
+        department: departmentId,
+        error: 'Course already exists',
+        item: courseData
+      };
+    }
+
     // Format weekly hours
     const lectureHours = parseInt(courseData.lectureHours) || 0;
     const tutorialHours = parseInt(courseData.tutorialHours) || 0;
@@ -420,61 +519,34 @@ export const processSuperAdminCourseImport = async (courseData, faculty, targetD
       description: courseData.description || '',
       prerequisites: Array.isArray(courseData.prerequisites) ? courseData.prerequisites : [],
       active: courseData.active !== false, // Default to true unless explicitly false
-      createdAt: new Date().toISOString(),
+      createdAt: existingCourse ? existingCourse.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
 
     // Generate unique document ID
     const docId = `${courseDoc.code}_${courseDoc.semester.replace(/\s+/g, '_')}_${departmentId}`;
     
-    // Check if course already exists in Firebase
+    // Create or update course
     const courseRef = doc(db, COURSES_COLLECTION, docId);
-    const existingDoc = await getDoc(courseRef);
+    await setDoc(courseRef, courseDoc);
     
-    if (existingDoc.exists()) {
-      // Update existing course
-      await updateDoc(courseRef, {
-        ...courseDoc,
-        createdAt: existingDoc.data().createdAt, // Keep original creation date
+    // Update faculty assignment if applicable
+    if (assignedFaculty) {
+      const facultyRef = doc(db, FACULTY_COLLECTION, assignedFaculty.id);
+      await updateDoc(facultyRef, {
+        assignedCourses: arrayUnion(docId)
       });
-      
-      // Update faculty assignment if applicable
-      if (assignedFaculty) {
-        const facultyRef = doc(db, FACULTY_COLLECTION, assignedFaculty.id);
-        await updateDoc(facultyRef, {
-          assignedCourses: arrayUnion(docId)
-        });
-      }
-      
-      return {
-        success: true,
-        action: 'updated',
-        code: courseData.code,
-        title: courseData.title,
-        department: departmentId,
-        item: courseData
-      };
-    } else {
-      // Create new course
-      await setDoc(courseRef, courseDoc);
-      
-      // Update faculty assignment if applicable
-      if (assignedFaculty) {
-        const facultyRef = doc(db, FACULTY_COLLECTION, assignedFaculty.id);
-        await updateDoc(facultyRef, {
-          assignedCourses: arrayUnion(docId)
-        });
-      }
-      
-      return {
-        success: true,
-        action: 'created',
-        code: courseData.code,
-        title: courseData.title,
-        department: departmentId,
-        item: courseData
-      };
     }
+    
+    return {
+      success: true,
+      action: existingCourse ? 'updated' : 'created',
+      code: courseData.code,
+      title: courseData.title,
+      department: departmentId,
+      courseDoc: { id: docId, ...courseDoc },
+      item: courseData
+    };
 
   } catch (error) {
     console.error('Error processing SuperAdmin course import:', error);
@@ -701,6 +773,8 @@ const SuperAdminCourseManagementService = {
   fetchAllFaculty,
   fetchFacultyByDepartment,
   processSuperAdminCourseImport,
+  checkCourseExists,
+  checkBatchDuplicates,
   getSemesterOptions,
   filterCourses,
   deleteCourse,
