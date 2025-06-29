@@ -802,7 +802,35 @@ export default function CourseManagement() {
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-teal-700">{course.code}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{course.title}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      {course.faculty ? (
+                      {course.facultyList && course.facultyList.length > 0 ? (
+                        <div className="flex flex-col gap-1">
+                          {course.facultyList.slice(0, 2).map((faculty, idx) => (
+                            <div key={faculty.id} className="flex items-center gap-2">
+                              <div className="relative">
+                                {/* <img src={faculty.avatar} alt={faculty.name} className="w-6 h-6 rounded-full" /> */}
+                                <span 
+                                  className={`absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-white ${
+                                    faculty.status === 'available' ? 'bg-green-500' : 
+                                    faculty.status === 'busy' ? 'bg-yellow-500' : 
+                                    'bg-red-500'
+                                  }`}
+                                ></span>
+                              </div>
+                              <span className="text-xs text-gray-700">
+                                {faculty.name}
+                                {idx === 0 && course.facultyList.length > 1 && (
+                                  <span className="ml-1 text-xs text-teal-600 font-medium">(Primary)</span>
+                                )}
+                              </span>
+                            </div>
+                          ))}
+                          {course.facultyList.length > 2 && (
+                            <span className="text-xs text-gray-500 italic">
+                              +{course.facultyList.length - 2} more
+                            </span>
+                          )}
+                        </div>
+                      ) : course.faculty ? (
                         <div className="flex items-center gap-2">
                           <div className="relative">
                             <img src={course.faculty.avatar} alt={course.faculty.name} className="w-8 h-8 rounded-full" />
@@ -996,7 +1024,7 @@ export default function CourseManagement() {
                 <div className="relative">
                   <div className="flex items-center mb-1">
                     <FiUser size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-600">Assigned Faculty</label>
+                    <label className="block text-sm font-medium text-gray-600">Primary Faculty</label>
                   </div>
                   <select
                     name="faculty"
@@ -1011,6 +1039,9 @@ export default function CourseManagement() {
                       </option>
                     ))}
                   </select>
+                  <p className="text-xs text-gray-500 mt-1">
+                    💡 To assign multiple faculty to this course, use the <strong>Faculty Assignment</strong> page after creating the course.
+                  </p>
                 </div>
                 
                 {/* Faculty Avatars Quick Selection */}

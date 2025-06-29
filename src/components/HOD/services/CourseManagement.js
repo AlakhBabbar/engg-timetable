@@ -24,24 +24,16 @@ import {
 
 // Collection references
 const COURSES_COLLECTION = 'courses';
-const FACULTY_COLLECTION = 'faculty';
+const FACULTY_COLLECTION = 'teachers';
 
 // Dummy data for courses (used as fallback)
 const dummyCourses = [];
 
 // Dummy data for faculty (used as fallback)
-const dummyFaculty = [
-  { id: 1, name: 'Dr. Alex Johnson', avatar: 'https://via.placeholder.com/36', status: 'available' },
-  { id: 2, name: 'Dr. Sarah Miller', avatar: 'https://via.placeholder.com/36', status: 'busy' },
-  { id: 3, name: 'Prof. Robert Chen', avatar: 'https://via.placeholder.com/36', status: 'available' },
-  { id: 4, name: 'Dr. Emily Zhang', avatar: 'https://via.placeholder.com/36', status: 'available' },
-  { id: 5, name: 'Prof. David Wilson', avatar: 'https://via.placeholder.com/36', status: 'on-leave' },
-  { id: 6, name: 'Dr. Lisa Kumar', avatar: 'https://via.placeholder.com/36', status: 'available' },
-  { id: 7, name: 'Prof. Michael Brown', avatar: 'https://via.placeholder.com/36', status: 'busy' },
-];
+const dummyFaculty = [];
 
 /**
- * Fetch courses from Firebase
+ * Fetch courses from Firebase with support for multiple faculty assignments
  * @param {string} departmentId - Department ID 
  * @returns {Promise<Array>} - Array of courses
  */
@@ -62,20 +54,43 @@ export const fetchCourses = async (departmentId) => {
     for (const courseDoc of snapshot.docs) {
       const courseData = courseDoc.data();
       let facultyData = null;
+      let facultyList = [];
       
-      // Fetch faculty data if assigned
+      // Handle both single faculty (backward compatibility) and multiple faculty
+      const facultyIds = [];
+      
+      // Add primary faculty if exists
       if (courseData.faculty) {
-        const facultyRef = doc(db, FACULTY_COLLECTION, courseData.faculty);
-        const facultySnapshot = await getDoc(facultyRef);
-        
-        if (facultySnapshot.exists()) {
-          const faculty = facultySnapshot.data();
-          facultyData = {
-            id: courseData.faculty,
-            name: faculty.name || '',
-            avatar: faculty.avatar || 'https://via.placeholder.com/36',
-            status: faculty.status || 'available'
-          };
+        facultyIds.push(courseData.faculty);
+      }
+      
+      // Add faculty from facultyList if exists
+      if (courseData.facultyList && Array.isArray(courseData.facultyList)) {
+        facultyIds.push(...courseData.facultyList.filter(id => id && !facultyIds.includes(id)));
+      }
+      
+      // Fetch all faculty data
+      if (facultyIds.length > 0) {
+        for (const facultyId of facultyIds) {
+          const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+          const facultySnapshot = await getDoc(facultyRef);
+          
+          if (facultySnapshot.exists()) {
+            const faculty = facultySnapshot.data();
+            const facultyInfo = {
+              id: facultyId,
+              name: faculty.name || '',
+              avatar: faculty.avatar || 'https://via.placeholder.com/36',
+              status: faculty.status || 'available'
+            };
+            
+            facultyList.push(facultyInfo);
+            
+            // Set the first faculty as primary for backward compatibility
+            if (!facultyData) {
+              facultyData = facultyInfo;
+            }
+          }
         }
       }
       
@@ -83,7 +98,8 @@ export const fetchCourses = async (departmentId) => {
         id: courseDoc.id,
         code: courseData.code || '',
         title: courseData.title || '',
-        faculty: facultyData,
+        faculty: facultyData, // Primary faculty (backward compatibility)
+        facultyList: facultyList, // All assigned faculty
         semester: courseData.semester || '',
         weeklyHours: courseData.weeklyHours || ''
       });
@@ -164,7 +180,7 @@ export const getSemesterOptions = () => {
 };
 
 /**
- * Filter courses based on search and filters
+ * Filter courses based on search and filters with support for multiple faculty
  * @param {Array} courses - Array of courses
  * @param {string} searchTerm - Search term
  * @param {string} selectedSemester - Selected semester
@@ -178,9 +194,23 @@ export const filterCourses = (courses, searchTerm, selectedSemester, selectedFac
       return false;
     }
     
-    // Filter by faculty
-    if (selectedFaculty && (!course.faculty || course.faculty.id !== selectedFaculty.id)) {
-      return false;
+    // Filter by faculty - check both primary faculty and facultyList
+    if (selectedFaculty) {
+      let facultyMatch = false;
+      
+      // Check primary faculty (backward compatibility)
+      if (course.faculty && course.faculty.id === selectedFaculty.id) {
+        facultyMatch = true;
+      }
+      
+      // Check facultyList for multiple faculty assignments
+      if (!facultyMatch && course.facultyList && Array.isArray(course.facultyList)) {
+        facultyMatch = course.facultyList.some(faculty => faculty.id === selectedFaculty.id);
+      }
+      
+      if (!facultyMatch) {
+        return false;
+      }
     }
     
     // Filter by search term
@@ -241,7 +271,7 @@ export const formatWeeklyHours = (lectureHours, tutorialHours, practicalHours) =
 };
 
 /**
- * Add a new course to Firebase
+ * Add a new course to Firebase with support for multiple faculty assignments
  * @param {Array} courses - Current courses array
  * @param {Object} formData - Form data for new course
  * @param {Array} faculty - Available faculty
@@ -250,10 +280,34 @@ export const formatWeeklyHours = (lectureHours, tutorialHours, practicalHours) =
  */
 export const addCourse = async (courses, formData, faculty, departmentId) => {
   try {
+    // Prepare faculty assignments
+    const facultyIds = [];
+    let primaryFacultyId = null;
+    
+    // Handle single faculty (backward compatibility)
+    if (formData.faculty) {
+      primaryFacultyId = formData.faculty;
+      facultyIds.push(formData.faculty);
+    }
+    
+    // Handle multiple faculty from facultyList
+    if (formData.facultyList && Array.isArray(formData.facultyList)) {
+      formData.facultyList.forEach(id => {
+        if (id && !facultyIds.includes(id)) {
+          facultyIds.push(id);
+          // Set first faculty as primary if not already set
+          if (!primaryFacultyId) {
+            primaryFacultyId = id;
+          }
+        }
+      });
+    }
+    
     const courseData = {
       code: formData.code,
       title: formData.title,
-      faculty: formData.faculty ? formData.faculty : null,
+      faculty: primaryFacultyId, // Primary faculty for backward compatibility
+      facultyList: facultyIds, // All assigned faculty
       semester: formData.semester,
       weeklyHours: formData.weeklyHours,
       department: departmentId,
@@ -269,28 +323,35 @@ export const addCourse = async (courses, formData, faculty, departmentId) => {
     // Add the course to Firebase
     const courseRef = await addDoc(collection(db, COURSES_COLLECTION), courseData);
     
-    // If faculty is assigned, update their assigned courses
-    if (formData.faculty) {
-      const facultyRef = doc(db, FACULTY_COLLECTION, formData.faculty);
-      await updateDoc(facultyRef, {
-        assignedCourses: arrayUnion(courseRef.id)
+    // Update all assigned faculty's course lists
+    if (facultyIds.length > 0) {
+      const updatePromises = facultyIds.map(facultyId => {
+        const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+        return updateDoc(facultyRef, {
+          assignedCourses: arrayUnion(courseRef.id)
+        });
       });
+      await Promise.all(updatePromises);
     }
     
     // Log activity
     await logActivity(
       departmentId,
       'course',
-      `Added new course: ${formData.code} - ${formData.title}`
+      `Added new course: ${formData.code} - ${formData.title} with ${facultyIds.length} faculty assigned`
     );
+    
+    // Prepare faculty data for UI
+    const facultyList = facultyIds.map(id => 
+      faculty.find(f => f.id.toString() === id)
+    ).filter(Boolean);
     
     // Create a new course object for the UI
     const newCourse = {
       id: courseRef.id,
       ...courseData,
-      faculty: formData.faculty 
-        ? faculty.find(f => f.id.toString() === formData.faculty)
-        : null
+      faculty: facultyList.length > 0 ? facultyList[0] : null, // Primary faculty
+      facultyList: facultyList // All assigned faculty
     };
     
     // Return updated courses array
@@ -302,7 +363,7 @@ export const addCourse = async (courses, formData, faculty, departmentId) => {
 };
 
 /**
- * Update an existing course in Firebase
+ * Update an existing course in Firebase with support for multiple faculty assignments
  * @param {Array} courses - Current courses array
  * @param {string} courseId - Course ID to update
  * @param {Object} formData - Updated course data
@@ -320,11 +381,48 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
     
     const existingCourse = courses[courseIndex];
     
+    // Get previous faculty assignments
+    const previousFacultyIds = [];
+    if (existingCourse.faculty && existingCourse.faculty.id) {
+      previousFacultyIds.push(existingCourse.faculty.id);
+    }
+    if (existingCourse.facultyList && Array.isArray(existingCourse.facultyList)) {
+      existingCourse.facultyList.forEach(f => {
+        if (f.id && !previousFacultyIds.includes(f.id)) {
+          previousFacultyIds.push(f.id);
+        }
+      });
+    }
+    
+    // Prepare new faculty assignments
+    const newFacultyIds = [];
+    let primaryFacultyId = null;
+    
+    // Handle single faculty (backward compatibility)
+    if (formData.faculty) {
+      primaryFacultyId = formData.faculty;
+      newFacultyIds.push(formData.faculty);
+    }
+    
+    // Handle multiple faculty from facultyList
+    if (formData.facultyList && Array.isArray(formData.facultyList)) {
+      formData.facultyList.forEach(id => {
+        if (id && !newFacultyIds.includes(id)) {
+          newFacultyIds.push(id);
+          // Set first faculty as primary if not already set
+          if (!primaryFacultyId) {
+            primaryFacultyId = id;
+          }
+        }
+      });
+    }
+    
     // Prepare update data
     const courseData = {
       code: formData.code,
       title: formData.title,
-      faculty: formData.faculty ? formData.faculty : null,
+      faculty: primaryFacultyId, // Primary faculty for backward compatibility
+      facultyList: newFacultyIds, // All assigned faculty
       semester: formData.semester,
       weeklyHours: formData.weeklyHours,
       updatedAt: serverTimestamp(),
@@ -339,42 +437,50 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
     await updateDoc(courseRef, courseData);
     
     // Handle faculty assignment changes
-    const previousFacultyId = existingCourse.faculty ? existingCourse.faculty.id : null;
-    const newFacultyId = formData.faculty;
+    const facultyToRemove = previousFacultyIds.filter(id => !newFacultyIds.includes(id));
+    const facultyToAdd = newFacultyIds.filter(id => !previousFacultyIds.includes(id));
     
-    if (previousFacultyId !== newFacultyId) {
-      // Remove course from previous faculty's assignments if necessary
-      if (previousFacultyId) {
-        const prevFacultyRef = doc(db, FACULTY_COLLECTION, previousFacultyId);
-        await updateDoc(prevFacultyRef, {
+    // Remove course from faculty who are no longer assigned
+    if (facultyToRemove.length > 0) {
+      const removePromises = facultyToRemove.map(facultyId => {
+        const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+        return updateDoc(facultyRef, {
           assignedCourses: arrayRemove(courseId)
         });
-      }
-      
-      // Add course to new faculty's assignments if necessary
-      if (newFacultyId) {
-        const newFacultyRef = doc(db, FACULTY_COLLECTION, newFacultyId);
-        await updateDoc(newFacultyRef, {
+      });
+      await Promise.all(removePromises);
+    }
+    
+    // Add course to newly assigned faculty
+    if (facultyToAdd.length > 0) {
+      const addPromises = facultyToAdd.map(facultyId => {
+        const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+        return updateDoc(facultyRef, {
           assignedCourses: arrayUnion(courseId)
         });
-      }
+      });
+      await Promise.all(addPromises);
     }
     
     // Log activity
     await logActivity(
       departmentId,
       'course',
-      `Updated course: ${formData.code} - ${formData.title}`
+      `Updated course: ${formData.code} - ${formData.title} with ${newFacultyIds.length} faculty assigned`
     );
+    
+    // Prepare faculty data for UI
+    const facultyList = newFacultyIds.map(id => 
+      faculty.find(f => f.id.toString() === id)
+    ).filter(Boolean);
     
     // Create updated course object for UI
     const updatedCourse = {
       ...existingCourse,
       code: formData.code,
       title: formData.title,
-      faculty: formData.faculty 
-        ? faculty.find(f => f.id.toString() === formData.faculty)
-        : null,
+      faculty: facultyList.length > 0 ? facultyList[0] : null, // Primary faculty
+      facultyList: facultyList, // All assigned faculty
       semester: formData.semester,
       weeklyHours: formData.weeklyHours
     };
@@ -392,7 +498,7 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
 };
 
 /**
- * Delete a course from Firebase
+ * Delete a course from Firebase and remove from all assigned faculty
  * @param {Array} courses - Current courses array
  * @param {number} courseId - Course ID to delete
  * @param {string} departmentId - Department ID
@@ -406,23 +512,43 @@ export const deleteCourse = async (courses, courseId, departmentId) => {
       throw new Error('Course not found');
     }
     
+    // Get all faculty assigned to this course
+    const assignedFacultyIds = [];
+    
+    // Add primary faculty if exists
+    if (courseToDelete.faculty && courseToDelete.faculty.id) {
+      assignedFacultyIds.push(courseToDelete.faculty.id);
+    }
+    
+    // Add all faculty from facultyList if exists
+    if (courseToDelete.facultyList && Array.isArray(courseToDelete.facultyList)) {
+      courseToDelete.facultyList.forEach(faculty => {
+        if (faculty.id && !assignedFacultyIds.includes(faculty.id)) {
+          assignedFacultyIds.push(faculty.id);
+        }
+      });
+    }
+    
     // Delete the course from Firebase
     const courseRef = doc(db, COURSES_COLLECTION, courseId);
     await deleteDoc(courseRef);
     
-    // If the course had a faculty assigned, update their assignments
-    if (courseToDelete.faculty && courseToDelete.faculty.id) {
-      const facultyRef = doc(db, FACULTY_COLLECTION, courseToDelete.faculty.id);
-      await updateDoc(facultyRef, {
-        assignedCourses: arrayRemove(courseId)
+    // Remove course from all assigned faculty's course lists
+    if (assignedFacultyIds.length > 0) {
+      const updatePromises = assignedFacultyIds.map(facultyId => {
+        const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+        return updateDoc(facultyRef, {
+          assignedCourses: arrayRemove(courseId)
+        });
       });
+      await Promise.all(updatePromises);
     }
     
     // Log activity
     await logActivity(
       departmentId,
       'course',
-      `Deleted course: ${courseToDelete.code} - ${courseToDelete.title}`
+      `Deleted course: ${courseToDelete.code} - ${courseToDelete.title} (removed from ${assignedFacultyIds.length} faculty)`
     );
     
     // Return updated courses array
@@ -675,6 +801,61 @@ export const getExampleCourseData = () => {
   ];
 };
 
+/**
+ * Helper function to normalize faculty data for consistency
+ * @param {Object} course - Course object
+ * @returns {Object} - Normalized course object
+ */
+export const normalizeCourseData = (course) => {
+  const facultyIds = [];
+  
+  // Collect all faculty IDs from both faculty and facultyList
+  if (course.faculty) {
+    if (typeof course.faculty === 'string') {
+      facultyIds.push(course.faculty);
+    } else if (course.faculty.id) {
+      facultyIds.push(course.faculty.id);
+    }
+  }
+  
+  if (course.facultyList && Array.isArray(course.facultyList)) {
+    course.facultyList.forEach(faculty => {
+      const id = typeof faculty === 'string' ? faculty : faculty.id;
+      if (id && !facultyIds.includes(id)) {
+        facultyIds.push(id);
+      }
+    });
+  }
+  
+  return {
+    ...course,
+    facultyIds: facultyIds, // Normalized array of faculty IDs
+    hasMutlipleFaculty: facultyIds.length > 1
+  };
+};
+
+/**
+ * Get all courses assigned to a specific faculty member
+ * @param {Array} courses - Array of courses
+ * @param {string} facultyId - Faculty ID
+ * @returns {Array} - Array of courses assigned to the faculty
+ */
+export const getCoursesByFaculty = (courses, facultyId) => {
+  return courses.filter(course => {
+    // Check primary faculty
+    if (course.faculty && course.faculty.id === facultyId) {
+      return true;
+    }
+    
+    // Check facultyList
+    if (course.facultyList && Array.isArray(course.facultyList)) {
+      return course.facultyList.some(faculty => faculty.id === facultyId);
+    }
+    
+    return false;
+  });
+};
+
 // Export functions for use in the component
 const CourseManagementService = {
   fetchCourses,
@@ -690,7 +871,9 @@ const CourseManagementService = {
   formatWeeklyHours,
   processUploadedCourses,
   processSingleCourseImport,
-  getExampleCourseData
+  getExampleCourseData,
+  normalizeCourseData,
+  getCoursesByFaculty
 };
 
 export default CourseManagementService;
