@@ -1,3 +1,15 @@
+/**
+ * DepartmentManagement.js - Firebase Integration
+ * 
+ * This service now provides real-time course counting from the Firebase 'courses' collection.
+ * 
+ * Usage examples:
+ * - getCoursesCountForDepartment('dept-id') returns count of active courses
+ * - getCourseStatisticsForDepartment('dept-id') returns detailed statistics
+ * 
+ * The totalCourses field in department objects now reflects actual course data from Firebase.
+ */
+
 // DepartmentManagement.js - Firebase Integration
 import {
   db,
@@ -18,6 +30,7 @@ import {
 const DEPARTMENTS_COLLECTION = 'departments';
 const TEACHERS_COLLECTION = 'teachers';
 const PROFILES_COLLECTION = 'profiles';
+const COURSES_COLLECTION = 'courses';
 
 // Available department categories
 export const departmentCategories = [
@@ -75,18 +88,85 @@ export const getAllDepartments = async () => {
 };
 
 /**
- * Get count of courses for a given department
+ * Get count of active courses for a given department
  * @param {string} departmentId Department ID
- * @returns {Promise<number>} Course count
+ * @returns {Promise<number>} Count of active courses only
  */
-const getCoursesCountForDepartment = async (departmentId) => {
+export const getCoursesCountForDepartment = async (departmentId) => {
   try {
-    // In a real application, you would query a courses collection
-    // For this example, we'll generate a random number
-    return Math.floor(Math.random() * 30) + 10;
+    // Query the courses collection for active courses belonging to this department
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    const q = query(
+      coursesRef, 
+      where('department', '==', departmentId),
+      where('active', '==', true)
+    );
+    const querySnapshot = await getDocs(q);
+    
+    // Return the count of matching documents
+    return querySnapshot.size;
   } catch (error) {
     console.error('Error getting courses count:', error);
     return 0;
+  }
+};
+
+/**
+ * Get detailed course statistics for a given department
+ * @param {string} departmentId Department ID
+ * @returns {Promise<Object>} Course statistics
+ */
+export const getCourseStatisticsForDepartment = async (departmentId) => {
+  try {
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    const allCoursesQuery = query(coursesRef, where('department', '==', departmentId));
+    const querySnapshot = await getDocs(allCoursesQuery);
+    
+    let activeCourses = 0;
+    let inactiveCourses = 0;
+    let totalCredits = 0;
+    const courseTypes = {
+      'Core': 0,
+      'Elective': 0,
+      'Laboratory': 0,
+      'Other': 0
+    };
+    
+    querySnapshot.docs.forEach(doc => {
+      const courseData = doc.data();
+      const isActive = courseData.active !== false;
+      
+      if (isActive) {
+        activeCourses++;
+        totalCredits += courseData.credits || 0;
+      } else {
+        inactiveCourses++;
+      }
+      
+      const courseType = courseData.type || 'Other';
+      if (courseTypes.hasOwnProperty(courseType)) {
+        courseTypes[courseType]++;
+      } else {
+        courseTypes['Other']++;
+      }
+    });
+    
+    return {
+      totalCourses: querySnapshot.size,
+      activeCourses,
+      inactiveCourses,
+      totalCredits,
+      courseTypes
+    };
+  } catch (error) {
+    console.error('Error getting course statistics:', error);
+    return {
+      totalCourses: 0,
+      activeCourses: 0,
+      inactiveCourses: 0,
+      totalCredits: 0,
+      courseTypes: { 'Core': 0, 'Elective': 0, 'Laboratory': 0, 'Other': 0 }
+    };
   }
 };
 
@@ -127,7 +207,7 @@ export const getHODOptions = async () => {
 /**
  * Search departments by name, type, or HOD
  * @param {string} searchTerm Search term
- * @returns {Promise<Array>} Filtered departments
+ * @returns {Promise<Array} Filtered departments
  */
 export const searchDepartments = async (searchTerm) => {
   try {
@@ -439,7 +519,9 @@ const DepartmentManagementService = {
   updateDepartment,
   deleteDepartment,
   departmentCategories,
-  getHODOptions
+  getHODOptions,
+  getCoursesCountForDepartment,
+  getCourseStatisticsForDepartment
 };
 
 export default DepartmentManagementService;
