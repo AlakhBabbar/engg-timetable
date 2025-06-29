@@ -62,6 +62,8 @@ export const useTTInchargeLayout = (setUser) => {
       setActiveSidebarItem('Rooms');
     } else if (path.includes('/tt/faculty-timetable')) {
       setActiveSidebarItem('Faculty View');
+    } else if (path.includes('/tt/batch-management')) {
+      setActiveSidebarItem('Batch Management');
     }
   }, [location]);
   
@@ -71,6 +73,7 @@ export const useTTInchargeLayout = (setUser) => {
   
   const sidebarItems = [
     { label: 'Dashboard', icon: 'FiGrid', path: '/tt/dashboard' },
+    { label: 'Batch Management', icon: 'FiUsers', path: '/tt/batch-management' },
     { label: 'Timetable Builder', icon: 'FiCalendar', path: '/tt/timetable-builder' },
     { label: 'Conflicts', icon: 'FiAlertCircle', path: '/tt/conflicts' },
     { label: 'Rooms', icon: 'FiHome', path: '/tt/rooms' },

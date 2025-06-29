@@ -24,6 +24,7 @@ import TimetableBuilder from './components/TTIncharge/TimetableBuilder'
 import Conflicts from './components/TTIncharge/Conflicts'
 import RoomAvailability from './components/TTIncharge/RoomAvailability'
 import FacultyTimetable from './components/TTIncharge/FacultyTimetable'
+import BatchManagement from './components/TTIncharge/BatchManagement'
 // Import authentication functions
 import { getCurrentUser, checkSession, initializeAuth } from './components/Auth/services/Login'
 // Import Firebase auth for auth state changes
@@ -171,6 +172,7 @@ function App() {
             <Route path="rooms" element={<RoomAvailability />} />
             <Route path="room-availability" element={<RoomAvailability />} />
             <Route path="faculty-timetable" element={<FacultyTimetable />} />
+            <Route path="batch-management" element={<BatchManagement />} />
           </Route>
 
           {/* SuperAdmin Routes with /admin/* path prefix */}

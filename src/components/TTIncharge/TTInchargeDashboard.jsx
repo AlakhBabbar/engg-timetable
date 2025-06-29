@@ -13,7 +13,8 @@ import {
   FiGrid,
   FiTool,
   FiFileText,
-  FiHome
+  FiHome,
+  FiUsers
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -68,6 +69,10 @@ export default function TTInchargeDashboard() {
   
   const navigateToFacultyTimetable = () => {
     navigate(navigationPaths.facultyTimetable);
+  };
+  
+  const navigateToBatchManagement = () => {
+    navigate(navigationPaths.batchManagement);
   };
   
   // Handle publish timetable using service function
@@ -266,6 +271,28 @@ export default function TTInchargeDashboard() {
           <button className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-purple-500 to-pink-500 text-white font-medium shadow hover:shadow-lg transition flex items-center justify-center gap-2 mt-2">
             <FiLayers size={18} />
             <span>View Faculty Timetables</span>
+          </button>
+        </motion.div>
+
+        {/* Batch Management */}
+        <motion.div 
+          className="rounded-2xl p-6 bg-gradient-to-br from-violet-50 to-purple-50 shadow-md hover:shadow-lg cursor-pointer"
+          onClick={navigateToBatchManagement}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="bg-violet-100 p-3 rounded-full">
+              <FiUsers size={24} className="text-violet-600" />
+            </div>
+            <h2 className="text-xl font-semibold text-violet-800">👥 Batch Managementt</h2>
+          </div>
+          <p className="text-gray-600 mb-4">
+            Create and manage student batches for different branches and semesters to organize your timetable efficiently.
+          </p>
+          <button className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-medium shadow hover:shadow-lg transition flex items-center justify-center gap-2 mt-2">
+            <FiUsers size={18} />
+            <span>Manage Batches</span>
           </button>
         </motion.div>
 

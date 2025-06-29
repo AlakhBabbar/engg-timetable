@@ -47,7 +47,8 @@ export const getNavigationPaths = () => {
     builder: '/tt/timetable-builder',
     conflicts: '/tt/conflicts',
     rooms: '/tt/rooms',
-    facultyTimetable: '/tt/faculty-timetable'
+    facultyTimetable: '/tt/faculty-timetable',
+    batchManagement: '/tt/batch-management'
   };
 };
 
