@@ -6,7 +6,7 @@ import {
   FiList, FiArrowLeft, FiArrowRight, FiRefreshCw,
   FiChevronLeft, FiChevronRight, FiPlus, FiEdit2, FiMaximize2, FiMinimize2
 } from 'react-icons/fi';
-import { db, collection, getDocs } from '../../firebase/config';
+import { db, collection, doc, setDoc, getDoc, getDocs, onSnapshot, query, where } from '../../firebase/config';
 
 // Import services and data
 import { 
@@ -85,50 +85,85 @@ export default function TimetableBuilder() {
   const courseColorMap = {};
   let colorIndex = 0;
 
-  // Fetch and process courses from Firestore
+
+  const branch=['Electrical', 'Mechanical', 'Civil', 'Footwear', 'Agriculture']
+  const type=['Full-Time', 'Part-Time']
+  const batch=['A', 'B', 'C', 'Boys', 'Girls']
+
+  // State for all teachers (id -> name)
+  const [teacherMap, setTeacherMap] = useState({});
+  // State for all fetched courses
+  const [allCourses, setAllCourses] = useState([]);
+
+  // Fetch all teachers and build a map (id -> name)
   useEffect(() => {
-    async function fetchCourses() {
-      const snap = await getDocs(collection(db, 'courses'));
-      const allCourses = snap.docs.map(doc => doc.data());
-      // Assign unique color per course code
-      allCourses.forEach(course => {
-        if (!courseColorMap[course.code]) {
-          courseColorMap[course.code] = courseColors[colorIndex % courseColors.length];
-          colorIndex++;
-        }
+    async function fetchTeachers() {
+      const snap = await getDocs(collection(db, 'teachers'));
+      const map = {};
+      snap.docs.forEach(doc => {
+        const data = doc.data();
+        map[data.id || doc.id] = data.name;
       });
-      // Flatten courses by teacher
-      const blocks = [];
-      allCourses.forEach(course => {
-        const color = courseColorMap[course.code];
-        if (Array.isArray(course.teacher)) {
-          course.teacher.forEach(teacherObj => {
-            blocks.push({
-              code: course.code,
-              title: course.title,
-              weeklyHours: course.weeklyHours,
-              teacher: teacherObj,
-              color,
-              id: `${course.code}-${teacherObj.id}`,
-              duration: course.duration || ''
-            });
-          });
-        } else {
+      setTeacherMap(map);
+    }
+    fetchTeachers();
+  }, []);
+
+  // Fetch all courses from Firestore (store raw)
+  useEffect(() => {
+    if (!selectedSemester) {
+      setAllCourses([]);
+      return;
+    }
+    async function fetchCourses() {
+      const q = query(collection(db, 'courses'), where('semester', '==', selectedSemester));
+      const snap = await getDocs(q);
+      setAllCourses(snap.docs.map(doc => doc.data()));
+    }
+    fetchCourses();
+  }, [selectedSemester]);
+
+  // Map courses to courseBlocks whenever teacherMap or allCourses changes
+  useEffect(() => {
+    // Assign unique color per course code
+    allCourses.forEach(course => {
+      if (!courseColorMap[course.code]) {
+        courseColorMap[course.code] = courseColors[colorIndex % courseColors.length];
+        colorIndex++;
+      }
+    });
+    // Flatten courses by teacher (facultyList is array of teacher IDs)
+    const blocks = [];
+    allCourses.forEach(course => {
+      const color = courseColorMap[course.code];
+      if (Array.isArray(course.facultyList)) {
+        course.facultyList.forEach(teacherId => {
           blocks.push({
             code: course.code,
             title: course.title,
             weeklyHours: course.weeklyHours,
-            teacher: course.teacher,
+            teacherId,
+            teacherName: teacherMap[teacherId] || teacherId,
             color,
-            id: `${course.code}-${course.teacher?.id || 'none'}`,
+            id: `${course.code}-${teacherId}`,
             duration: course.duration || ''
           });
-        }
-      });
-      setCourseBlocks(blocks);
-    }
-    fetchCourses();
-  }, []);
+        });
+      } else if (course.facultyList) {
+        blocks.push({
+          code: course.code,
+          title: course.title,
+          weeklyHours: course.weeklyHours,
+          teacherId: course.facultyList,
+          teacherName: teacherMap[course.facultyList] || course.facultyList,
+          color,
+          id: `${course.code}-${course.facultyList}`,
+          duration: course.duration || ''
+        });
+      }
+    });
+    setCourseBlocks(blocks);
+  }, [allCourses, teacherMap]);
 
   // Initialize empty timetable data and check screen size on component mount
   useEffect(() => {
@@ -181,6 +216,89 @@ export default function TimetableBuilder() {
     }
   }, [rooms]);
 
+  // Selected values for normalized timetable
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedBatch, setSelectedBatch] = useState('');
+  const [selectedType, setSelectedType] = useState('');
+
+  // Firestore real-time listener for timetable (per tab)
+  useEffect(() => {
+    if (!selectedSemester || !selectedBranch || !selectedBatch || !selectedType) return;
+    const timetableQuery = query(
+      collection(db, 'timetables'),
+      where('semester', '==', selectedSemester),
+      where('branch', '==', selectedBranch),
+      where('batch', '==', selectedBatch),
+      where('type', '==', selectedType)
+    );
+    const unsub = onSnapshot(timetableQuery, (snapshot) => {
+      if (!snapshot.empty) {
+        const docData = snapshot.docs[0].data();
+        setTimetablesData(prev => ({ ...prev, [activeTabId]: docData.schedule || initializeEmptyTimetable() }));
+      } else {
+        // If not found, initialize empty
+        setTimetablesData(prev => ({ ...prev, [activeTabId]: initializeEmptyTimetable() }));
+      }
+    });
+    return () => unsub();
+  }, [selectedSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
+
+  // Utility to deeply replace undefined with null in an object
+  function replaceUndefinedWithNull(obj) {
+    if (Array.isArray(obj)) return obj.map(replaceUndefinedWithNull);
+    if (obj && typeof obj === 'object') {
+      const newObj = {};
+      for (const key in obj) {
+        const value = obj[key];
+        newObj[key] = value === undefined ? null : replaceUndefinedWithNull(value);
+      }
+      return newObj;
+    }
+    return obj;
+  }
+
+  // Write timetable changes to Firestore
+  useEffect(() => {
+    if (!selectedSemester || !selectedBranch || !selectedBatch || !selectedType) return;
+    const currentSchedule = timetablesData[activeTabId];
+    if (!currentSchedule) return;
+    const timetableDocId = `${selectedSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
+    // Replace undefined with null before saving
+    const safeSchedule = replaceUndefinedWithNull(currentSchedule);
+    setDoc(doc(db, 'timetables', timetableDocId), {
+      semester: selectedSemester,
+      branch: selectedBranch,
+      batch: selectedBatch,
+      type: selectedType,
+      schedule: safeSchedule
+    }, { merge: true });
+  }, [timetablesData, selectedSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
+
+  // Initialize empty timetable data and check screen size on component mount
+  useEffect(() => {
+    const initialData = initializeEmptyTimetable();
+    
+    // Initialize data for the first tab
+    setTimetablesData({ 1: initialData });
+    setConflictsData({ 1: [] });
+    
+    // Initialize history for the first tab
+    addToHistory(1, initialData);
+    
+    // Check screen size
+    const checkScreenSize = () => {
+      setIsMobile(window.innerWidth < 768);
+      setIsCompactView(window.innerWidth < 1280);
+    };
+    
+    checkScreenSize();
+    window.addEventListener('resize', checkScreenSize);
+    
+    return () => {
+      window.removeEventListener('resize', checkScreenSize);
+    };
+  }, []);
+
   // Add a new tab
   const addNewTab = () => {
     const newTabId = nextTabId;
@@ -201,6 +319,12 @@ export default function TimetableBuilder() {
     
     // Initialize history for the new tab
     addToHistory(newTabId, initialData);
+    
+    // Reset fields
+    setSelectedSemester('');
+    setSelectedBranch('');
+    setSelectedBatch('');
+    setSelectedType('');
     
     // Increment next tab id
     setNextTabId(prevId => prevId + 1);
@@ -444,6 +568,32 @@ export default function TimetableBuilder() {
     };
   }, [isEditingTab, editTabName]);
 
+  // Grouped course blocks by course
+  const groupedCourseBlocks = allCourses.map(course => {
+    const color = courseColorMap[course.code] || courseColors[colorIndex++ % courseColors.length];
+    return {
+      code: course.code,
+      title: course.title,
+      weeklyHours: course.weeklyHours,
+      duration: course.duration || '',
+      blocks: Array.isArray(course.facultyList)
+        ? course.facultyList.map(teacherId => ({
+            teacherId,
+            teacherName: teacherMap[teacherId] || null,
+            color,
+            id: `${course.code}-${teacherId}`
+          }))
+        : course.facultyList
+          ? [{
+              teacherId: course.facultyList,
+              teacherName: teacherMap[course.facultyList] || null,
+              color,
+              id: `${course.code}-${course.facultyList}`
+            }]
+          : []
+    };
+  });
+
   return (
     <div className={`space-y-4 ${isZoomed ? 'scale-90 origin-top transition-all duration-300' : ''}`}>
       <div className="flex items-center justify-between">
@@ -498,26 +648,41 @@ export default function TimetableBuilder() {
           
           {/* Department Filter */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Branch/Batch</label>
-            <input
-              type="text"
-              value={selectedDepartment || ''}
-              onChange={e => setSelectedDepartment(e.target.value)}
+            <label className="block text-xs font-medium text-gray-700 mb-1">Branch/Section</label>
+            <select
+              value={selectedBranch}
+              onChange={e => setSelectedBranch(e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 px-2 py-1 text-xs"
-              placeholder="Enter branch or batch"
-            />
+            >
+              <option value="">Select branch</option>
+              {branch.map(branchItem => <option key={branchItem} value={branchItem}>{branchItem}</option>)}
+            </select>
           </div>
           
-          {/* Faculty Filter */}
-          <div className="hidden md:block">
-            <label className="block text-xs font-medium text-gray-700 mb-1">Year</label>
-            <input
-              type="text"
-              value={selectedFaculty || ''}
-              onChange={e => setSelectedFaculty(e.target.value)}
+          {/* Batch Filter */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Batch</label>
+            <select
+              value={selectedBatch}
+              onChange={e => setSelectedBatch(e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 px-2 py-1 text-xs"
-              placeholder="Enter year"
-            />
+            >
+              <option value="">Select batch</option>
+              {batch.map(batchItem => <option key={batchItem} value={batchItem}>{batchItem}</option>)}
+            </select>
+          </div>
+          
+          {/* Type Filter */}
+          <div>
+            <label className="block text-xs font-medium text-gray-700 mb-1">Type</label>
+            <select
+              value={selectedType}
+              onChange={e => setSelectedType(e.target.value)}
+              className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 px-2 py-1 text-xs"
+            >
+              <option value="">Select type</option>
+              {type.map(typeItem => <option key={typeItem} value={typeItem}>{typeItem}</option>)}
+            </select>
           </div>
           
           {/* View Toggle */}
@@ -549,35 +714,35 @@ export default function TimetableBuilder() {
         <div className={`${responsive.courseBlockWidth} flex-shrink-0 bg-white rounded-xl shadow-sm p-3 overflow-y-auto max-h-[calc(100vh-220px)]`}>
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Course Blocks</h2>
           <div className="space-y-1">
-            {courseBlocks.map((block) => (
-              <motion.div
-                key={block.id}
-                className={`p-2 rounded-lg border ${getCourseColorClass(block)} cursor-grab hover:shadow-sm transition`}
-                draggable
-                onDragStart={() => handleDragStart(block)}
-                whileHover={{ scale: 1.01 }}
-              >
-                <div className="flex justify-between items-start">
-                  <span className="font-semibold text-xs">{block.code}</span>
-                  <span className="text-xs px-1 py-0.5 rounded-full bg-white/50">
-                    {block.duration || ''}h
-                  </span>
-                </div>
-                <h3 className="text-xs mt-0.5 font-medium line-clamp-1">{isCompactView ? '' : block.title}</h3>
-                <div className="text-xs mt-1 flex justify-between items-center">
-                  <span className="truncate text-xs" title={block.teacher?.name || ''}>
-                    {isCompactView
-                      ? (block.teacher?.name ? (block.teacher.name.split(' ')[1] || block.teacher.name) : '')
-                      : (block.teacher?.name || '')}
-                  </span>
-                  <span className="font-mono text-xs">{block.weeklyHours}</span>
-                </div>
-              </motion.div>
+            {groupedCourseBlocks.map(course => (
+              <div key={course.code} className="mb-2">
+                <div className="font-semibold text-xs text-gray-700 mb-1">{course.title} ({course.code})</div>
+                {course.blocks.length > 0 ? course.blocks.map(block => (
+                  <motion.div
+                    key={block.id}
+                    className={`p-2 rounded-lg border ${getCourseColorClass(block)} cursor-grab hover:shadow-sm transition mb-1`}
+                    draggable
+                    onDragStart={() => handleDragStart({ ...course, teacherId: block.teacherId, teacherName: block.teacherName })}
+                    whileHover={{ scale: 1.01 }}
+                  >
+                    <div className="flex justify-between items-start">
+                      <span className="font-semibold text-xs">{course.code}</span>
+                      <span className="text-xs px-1 py-0.5 rounded-full bg-white/50">{course.duration || ''}h</span>
+                    </div>
+                    <div className="text-xs mt-1 flex justify-between items-center">
+                      <span className="truncate text-xs" title={block.teacherName || ''}>{block.teacherName || 'null'}</span>
+                      <span className="font-mono text-xs">{course.weeklyHours}</span>
+                    </div>
+                  </motion.div>
+                )) : (
+                  <div className="text-xs text-gray-400 mb-2">No teachers assigned</div>
+                )}
+              </div>
             ))}
             
-            {courseBlocks.length === 0 && (
+            {groupedCourseBlocks.length === 0 && (
               <div className="text-center py-3 text-gray-500 text-xs">
-                No courses match filters
+                No courses found
               </div>
             )}
           </div>
@@ -727,12 +892,7 @@ export default function TimetableBuilder() {
                           c => c.day === day && c.slot === slot
                         );
                         return (
-                          <td 
-                            key={`${day}-${slot}`} 
-                            className="py-1 px-1 border-b border-gray-100 text-center relative"
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={() => handleDrop(day, slot)}
-                          >
+                          <td key={`${day}-${slot}`} className="py-1 px-1 border-b border-gray-100 text-center relative" onDragOver={(e) => e.preventDefault()} onDrop={() => handleDrop(day, slot)}>
                             {courseInSlot && courseInSlot.code ? (
                               <div 
                                 className={`p-1 rounded-lg ${getCourseColorClass(courseInSlot)} border cursor-grab relative 
@@ -787,11 +947,7 @@ export default function TimetableBuilder() {
                         );
                         
                         return (
-                          <td 
-                            className="py-1 px-2 border-b border-gray-100 text-center relative"
-                            onDragOver={(e) => e.preventDefault()}
-                            onDrop={() => handleDrop(currentDay, slot)}
-                          >
+                          <td className="py-1 px-2 border-b border-gray-100 text-center relative" onDragOver={(e) => e.preventDefault()} onDrop={() => handleDrop(currentDay, slot)}>
                             {courseInSlot ? (
                               <div 
                                 className={`p-2 rounded-lg ${getCourseColorClass(courseInSlot)} border cursor-grab relative max-w-[280px] mx-auto group
