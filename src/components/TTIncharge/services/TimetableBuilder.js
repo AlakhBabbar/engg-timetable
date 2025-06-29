@@ -131,20 +131,23 @@ export const checkConflicts = (timetableData, day, slot, course, selectedRoom) =
   });
   
   // Check for faculty conflicts
-  const facultyId = course.faculty.id;
-  Object.keys(timetableData).forEach(d => {
-    Object.keys(timetableData[d]).forEach(s => {
-      const existingCourse = timetableData[d][s];
-      if (existingCourse && existingCourse.faculty.id === facultyId && d === day && s === slot) {
-        conflicts.push({
-          type: 'faculty',
-          message: `${course.faculty.name} already teaching ${existingCourse.id} at ${slot} on ${day}`,
-          day,
-          slot
-        });
-      }
+  const facultyId = (course.faculty && course.faculty.id) ? course.faculty.id : (course.teacher && course.teacher.id ? course.teacher.id : undefined);
+  if (facultyId) {
+    Object.keys(timetableData).forEach(d => {
+      Object.keys(timetableData[d]).forEach(s => {
+        const existingCourse = timetableData[d][s];
+        const existingFacultyId = existingCourse?.faculty?.id || existingCourse?.teacher?.id;
+        if (existingCourse && existingFacultyId === facultyId && d === day && s === slot) {
+          conflicts.push({
+            type: 'faculty',
+            message: `${existingCourse.faculty?.name || existingCourse.teacher?.name || 'Faculty'} already teaching ${existingCourse.id || existingCourse.code} at ${slot} on ${day}`,
+            day,
+            slot
+          });
+        }
+      });
     });
-  });
+  }
   
   return conflicts;
 };
@@ -275,18 +278,29 @@ export const deleteCourse = (timetableData, day, slot) => {
 // Update timetable on course drop
 export const updateTimetableOnDrop = (timetableData, day, slot, course, selectedRoom, dragSourceInfo) => {
   const newTimetable = JSON.parse(JSON.stringify(timetableData));
-  
+
   // If this is a re-drag from another cell, remove the course from its original position
   if (dragSourceInfo) {
     newTimetable[dragSourceInfo.day][dragSourceInfo.slot] = null;
   }
-  
-  // Add the course to the timetable
-  newTimetable[day][slot] = {
-    ...course,
-    room: selectedRoom.id
+
+  // Normalize course block structure for timetable grid
+  const normalizedCourse = {
+    id: course.id || course.code, // prefer id, fallback to code
+    code: course.code,
+    name: course.title || course.name || '',
+    faculty: course.faculty || course.teacher || {},
+    teacher: course.teacher || course.faculty || {},
+    color: course.color,
+    duration: course.duration,
+    weeklyHours: course.weeklyHours,
+    room: selectedRoom.id,
+    roomNumber: selectedRoom.number || '',
   };
-  
+
+  // Add the normalized course to the timetable
+  newTimetable[day][slot] = normalizedCourse;
+
   return newTimetable;
 };
 

@@ -27,7 +27,7 @@ export default function TimetableBuilder() {
   
   // State for multiple timetable tabs
   const [tabs, setTabs] = useState([
-    { id: 1, name: "CSE Timetable", isActive: true }
+    { id: 1, name: "New Tab", isActive: true }
   ]);
   const [activeTabId, setActiveTabId] = useState(1);
   const [nextTabId, setNextTabId] = useState(2);
@@ -759,7 +759,7 @@ export default function TimetableBuilder() {
                                 </div>
                                 {!isCompactView && (
                                   <div className="text-xs mt-0.5">
-                                    <span>{courseInSlot.room || ''}</span>
+                                    <span>{courseInSlot.roomNumber || courseInSlot.room || ''}</span>
                                   </div>
                                 )}
                               </div>

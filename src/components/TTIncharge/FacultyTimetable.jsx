@@ -577,7 +577,7 @@ export default function FacultyTimetable() {
                             {slot}
                           </td>
                           {weekDays.slice(0, 5).map(day => {
-                            const cellData = selectedFaculty.timetableGrid[day][slot];
+                            const cellData = selectedFaculty.timetableGrid?.[day]?.[slot];
                             return (
                               <td key={`${day}-${slot}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 border-r">
                                 {cellData ? (
