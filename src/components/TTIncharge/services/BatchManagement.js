@@ -104,20 +104,16 @@ export const getBranches = () => {
 };
 
 /**
- * Get list of available semesters
+ * Get list of available semesters using enhanced semester service
  * @returns {Array} Array of semester strings
  */
 export const getSemesters = () => {
-  return [
-    'Semester 1',
-    'Semester 2', 
-    'Semester 3',
-    'Semester 4',
-    'Semester 5',
-    'Semester 6',
-    'Semester 7',
-    'Semester 8'
-  ];
+  // Import the enhanced semester functions
+  const { getAllSemesterNumbers } = require('../../../services/SemesterService');
+  
+  // Get all semester numbers and format them consistently
+  const allNumbers = getAllSemesterNumbers();
+  return allNumbers.map(num => `Semester ${num}`);
 };
 
 /**

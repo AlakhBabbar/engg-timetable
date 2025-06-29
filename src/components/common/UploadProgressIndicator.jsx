@@ -105,24 +105,30 @@ const UploadProgressIndicator = ({
 
         {/* Rate Limiting Info */}
         {isUploading && (
-          <div className="mb-3 p-2 bg-white/70 rounded text-xs text-gray-600">
-            <div className="flex items-center gap-1 mb-1">
-              <FiClock size={12} />
-              <span>Rate Limited Upload (5 sec intervals)</span>
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+            <div className="flex items-center gap-2 mb-2">
+              <FiClock size={14} />
+              <span className="font-medium">Rate Limited Upload</span>
             </div>
-            {showQueueInfo && (
-              <div className="space-y-1">
-                {total > 0 && (
-                  <div>Remaining: {total - completed} of {total} items</div>
-                )}
-                {queueStatus && queueStatus.queueLength > 0 && (
-                  <div>Queued tasks: {queueStatus.queueLength}</div>
-                )}
-                <div className="text-amber-600 font-medium">
-                  You can cancel the upload at any time using the Cancel button above.
-                </div>
+            <div className="space-y-1 text-xs">
+              <div>• Processing 1 item every 5 seconds</div>
+              {total > 0 && completed < total && (
+                <div>• Estimated time remaining: ~{Math.max(0, (total - completed - 1) * 5)} seconds</div>
+              )}
+              {showQueueInfo && (
+                <>
+                  {total > 0 && (
+                    <div>• Remaining: {total - completed} of {total} items</div>
+                  )}
+                  {queueStatus && queueStatus.queueLength > 0 && (
+                    <div>• Queued tasks: {queueStatus.queueLength}</div>
+                  )}
+                </>
+              )}
+              <div className="text-amber-700 font-medium mt-2">
+                ⚠️ You can cancel the upload at any time using the Cancel button above.
               </div>
-            )}
+            </div>
           </div>
         )}
 

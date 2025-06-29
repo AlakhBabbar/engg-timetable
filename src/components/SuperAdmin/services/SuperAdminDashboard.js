@@ -159,48 +159,7 @@ export const getRecentActivities = async (limitCount = 5) => {
  * @returns {Array} Array of mock activity items
  */
 const getMockActivities = () => {
-  return [
-    {
-      id: '1',
-      type: 'user',
-      description: 'New HOD account created for Computer Science',
-      user: 'Admin',
-      timestamp: new Date(Date.now() - 1000 * 60 * 30), // 30 minutes ago
-      timeAgo: '30 minutes ago'
-    },
-    {
-      id: '2',
-      type: 'semester',
-      description: 'Fall 2025 semester activated',
-      user: 'System',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 2), // 2 hours ago
-      timeAgo: '2 hours ago'
-    },
-    {
-      id: '3',
-      type: 'department',
-      description: 'New department added: Civil Engineering',
-      user: 'Admin',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 5), // 5 hours ago
-      timeAgo: '5 hours ago'
-    },
-    {
-      id: '4',
-      type: 'room',
-      description: 'Room B201 added to inventory',
-      user: 'Admin',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 1), // 1 day ago
-      timeAgo: '1 day ago'
-    },
-    {
-      id: '5',
-      type: 'settings',
-      description: 'System settings updated',
-      user: 'Admin',
-      timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24 * 2), // 2 days ago
-      timeAgo: '2 days ago'
-    }
-  ];
+  return [];
 };
 
 /**
@@ -363,6 +322,32 @@ export const getRoomUtilization = async () => {
   }
 };
 
+/**
+ * Log a new activity to Firebase (SuperAdmin version)
+ * @param {string} contextId - Context ID (department ID or 'SUPERADMIN')
+ * @param {string} type - Activity type
+ * @param {string} description - Activity description
+ * @returns {Promise<string>} ID of the created activity log
+ */
+export const logActivity = async (contextId, type, description) => {
+  try {
+    const activityRef = collection(db, 'activityLogs');
+    const docRef = await addDoc(activityRef, {
+      context: contextId, // Can be department ID or 'SUPERADMIN'
+      type: type,
+      description: description,
+      timestamp: serverTimestamp(),
+      userRole: 'superadmin'
+    });
+    
+    return docRef.id;
+  } catch (error) {
+    console.error('Error logging SuperAdmin activity:', error);
+    throw error;
+  }
+};
+
+// Export all functions for use in components
 export default {
   getDashboardMetrics,
   fetchDashboardStats,
@@ -373,5 +358,6 @@ export default {
   generateReport,
   manageSemester,
   getDepartmentDistribution,
-  getRoomUtilization
+  getRoomUtilization,
+  logActivity
 };

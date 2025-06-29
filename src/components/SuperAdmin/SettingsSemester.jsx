@@ -12,7 +12,11 @@ import {
 import { 
   getCurrentSemesterPeriod,
   getSemesterNumbersForPeriod,
-  getCurrentSemesterNumbers
+  getCurrentSemesterNumbers,
+  getAllSemesterNumbers,
+  generateSemesterOptions,
+  parseSemesterString,
+  formatSemesterName
 } from '../../services/SemesterService';
 
 export default function SettingsSemester() {
@@ -29,6 +33,22 @@ export default function SettingsSemester() {
   // Get the current period and available semester numbers
   const currentPeriod = getCurrentSemesterPeriod();
   const availableSemesters = getSemesterNumbersForPeriod(currentPeriod);
+  const allSemesters = getAllSemesterNumbers();
+  
+  // Helper function to determine semester type (Odd/Even)
+  const getSemesterType = (semesterName) => {
+    const parsed = parseSemesterString(semesterName);
+    if (parsed.isValid) {
+      return parsed.type === 'odd' ? 'Odd' : 'Even';
+    }
+    // Fallback logic for non-standard formats
+    const numberMatch = semesterName.match(/(\d+)/);
+    if (numberMatch) {
+      const semesterNumber = parseInt(numberMatch[1]);
+      return (semesterNumber % 2 === 1) ? 'Odd' : 'Even';
+    }
+    return 'Unknown';
+  };
 
   // Fetch semesters on component mount
   useEffect(() => {
@@ -191,10 +211,13 @@ export default function SettingsSemester() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium text-gray-700">
-              Current Period: {currentPeriod === 'odd' ? 'July to December (Odd Semesters)' : 'January to May (Even Semesters)'}
+              Current Period: {currentPeriod === 'odd' ? 'July to December (Odd Semesters)' : 'January to June (Even Semesters)'}
             </h2>
             <p className="text-sm text-gray-600 mt-1">
               Available semester numbers for this period: {availableSemesters.join(', ')}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Standard format: "Semester 1" through "Semester 8"
             </p>
           </div>
           <button 
@@ -207,11 +230,13 @@ export default function SettingsSemester() {
         
         {showSemesterGuide && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
-            <p className="font-medium text-blue-700 mb-1">How semesters work:</p>
+            <p className="font-medium text-blue-700 mb-2">Semester System:</p>
             <ul className="list-disc pl-5 space-y-1 text-blue-700">
-              <li>From July to December: Odd semester period (1, 3, 5, 7)</li>
-              <li>From January to May: Even semester period (2, 4, 6, 8)</li>
-              <li>June is a transition period before the odd semester begins</li>
+              <li><strong>Format:</strong> Only "Semester 1" through "Semester 8" are supported</li>
+              <li><strong>Odd Semesters (1, 3, 5, 7):</strong> July to December</li>
+              <li><strong>Even Semesters (2, 4, 6, 8):</strong> January to June</li>
+              <li><strong>Current Period:</strong> Based on today's date, showing relevant semesters</li>
+              <li><strong>All Semesters:</strong> Complete 8-semester program structure</li>
             </ul>
           </div>
         )}
@@ -235,7 +260,7 @@ export default function SettingsSemester() {
       {/* Quick Add Current Period Semesters */}
       <div className="mb-6 bg-white p-5 rounded-lg shadow-sm">
         <h2 className="text-lg font-medium text-gray-700 mb-3">Quick Add Current Period Semesters</h2>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 mb-4">
           {availableSemesters.map(semNum => (
             <button
               key={semNum}
@@ -252,6 +277,33 @@ export default function SettingsSemester() {
               {isSemesterInList(semNum) && <span className="ml-1 text-xs">(exists)</span>}
             </button>
           ))}
+        </div>
+        
+        <div className="border-t pt-4">
+          <h3 className="text-md font-medium text-gray-600 mb-3">Add All Semesters (1-8)</h3>
+          <div className="flex flex-wrap gap-2">
+            {allSemesters.map(semNum => (
+              <button
+                key={`all-${semNum}`}
+                onClick={() => handleQuickAddSemester(semNum)}
+                disabled={isSemesterInList(semNum) || savingChanges}
+                className={`px-3 py-2 rounded-lg flex items-center text-sm ${
+                  isSemesterInList(semNum)
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : availableSemesters.includes(semNum)
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-2 border-blue-300'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-300'
+                }`}
+              >
+                <FiCalendar className="mr-1" size={14} />
+                Sem {semNum}
+                {isSemesterInList(semNum) && <span className="ml-1 text-xs">✓</span>}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-500 mt-2">
+            <strong>Bold bordered:</strong> Current period semesters • <strong>Regular:</strong> All other semesters
+          </p>
         </div>
       </div>
       
@@ -309,9 +361,8 @@ export default function SettingsSemester() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {semesters.map((semester) => {
-                  // Determine if semester is odd or even
-                  const semesterNumber = parseInt(semester.name.replace(/\D/g, ''));
-                  const semesterType = !isNaN(semesterNumber) && semesterNumber % 2 === 1 ? 'Odd' : 'Even';
+                  // Determine if semester is odd or even using enhanced parsing
+                  const semesterType = getSemesterType(semester.name);
                   
                   return (
                     <tr key={semester.id}>
@@ -325,7 +376,7 @@ export default function SettingsSemester() {
                             autoFocus
                           />
                         ) : (
-                          <span className="font-medium">{semester.name}</span>
+                          <span className="font-medium">{formatSemesterName(semester.name)}</span>
                         )}
                       </td>
                       <td className="py-3 px-4">
@@ -337,15 +388,16 @@ export default function SettingsSemester() {
                         </div>
                       </td>
                       <td className="py-3 px-4">
-                        {!isNaN(semesterNumber) ? (
+                        <div className="flex items-center">
                           <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
                             semesterType === 'Odd' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
                           }`}>
                             {semesterType}
                           </span>
-                        ) : (
-                          <span className="text-gray-500">-</span>
-                        )}
+                          <span className="ml-2 text-xs text-gray-500">
+                            {semesterType === 'Odd' ? '(Jul-Dec)' : '(Jan-Jun)'}
+                          </span>
+                        </div>
                       </td>
                       <td className="py-3 px-4">
                         <div className="flex items-center space-x-2">

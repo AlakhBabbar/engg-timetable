@@ -3,10 +3,10 @@ import { rateLimitedUpload, getUploadQueueStatus, cancelUpload } from '../utils/
 
 /**
  * Custom hook for rate-limited dataset uploads
- * @param {Function} processorFunction - Function to process the upload data
+ * @param {Function} defaultProcessorFunction - Optional default function to process the upload data
  * @returns {Object} Upload state and functions
  */
-export const useRateLimitedUpload = (processorFunction) => {
+export const useRateLimitedUpload = (defaultProcessorFunction = null) => {
   const [uploadState, setUploadState] = useState({
     isUploading: false,
     progress: 0,
@@ -30,8 +30,11 @@ export const useRateLimitedUpload = (processorFunction) => {
   }, []);
 
   const handleUpload = useCallback(async (data, options = {}) => {
+    // Get processor function from options or use default
+    const processorFunction = options.processor || defaultProcessorFunction;
+    
     if (!processorFunction) {
-      throw new Error('Processor function is required');
+      throw new Error('Processor function is required either during hook initialization or in options');
     }
 
     try {
@@ -92,7 +95,7 @@ export const useRateLimitedUpload = (processorFunction) => {
         queueStatus: getUploadQueueStatus()
       }));
     }
-  }, [processorFunction]);
+  }, [defaultProcessorFunction]);
 
   const handleCancel = useCallback(() => {
     cancelUpload();

@@ -27,7 +27,7 @@ export default function CourseManagement() {
     title: '',
     code: '',
     faculty: '',
-    semester: 'Fall 2024',
+    semester: 'Semester 1',
     weeklyHours: '',
     lectureHours: '3',
     tutorialHours: '1',
@@ -58,7 +58,7 @@ export default function CourseManagement() {
         setFaculty(facultyData);
         
         // Get semester options (this is static data)
-        setSemesterOptions(CourseManagementService.getSemesterOptions());
+        setSemesterOptions(CourseManagementService.getSemesterOptions({ includeAll: true }));
       } catch (error) {
         console.error('Error loading course data:', error);
         showError('Failed to load course data. Please refresh the page.', {
@@ -67,7 +67,7 @@ export default function CourseManagement() {
         // Fallback to cached/dummy data
         setCourses(CourseManagementService.getCourses());
         setFaculty(CourseManagementService.getFaculty());
-        setSemesterOptions(CourseManagementService.getSemesterOptions());
+        setSemesterOptions(CourseManagementService.getSemesterOptions({ includeAll: true }));
       } finally {
         setIsLoading(false);
       }
@@ -134,7 +134,7 @@ export default function CourseManagement() {
       title: '',
       code: '',
       faculty: '',
-      semester: 'Semester 6',
+      semester: 'Semester 1',
       weeklyHours: '',
       lectureHours: '3',
       tutorialHours: '1',
@@ -541,9 +541,10 @@ export default function CourseManagement() {
         errors.push(`${courseContext}: Missing or empty semester`);
       } else {
         const semester = course.semester.toString().trim();
-        const validSemesters = ['Fall 2024', 'Spring 2024', 'Summer 2024', 'Fall 2025', 'Spring 2025', 'Summer 2025'];
-        if (!validSemesters.some(validSem => semester.toLowerCase().includes(validSem.toLowerCase()))) {
-          warnings.push(`${courseContext}: Semester "${semester}" may not match expected format. Common formats: Fall 2024, Spring 2025, etc.`);
+        
+        // Validate semester format - only accept "Semester X" where X is 1-8
+        if (!/^Semester [1-8]$/.test(semester)) {
+          errors.push(`${courseContext}: Invalid semester format "${semester}". Use "Semester 1" through "Semester 8"`);
         }
       }
       
@@ -641,7 +642,15 @@ export default function CourseManagement() {
 
   return (
     <div className="p-6 relative bg-gray-50 min-h-screen">
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Course Management</h1>
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-gray-800">Course Management</h1>
+        <div className="mt-2 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-800">
+            <strong>Note:</strong> Common courses (highlighted with orange badge) are shared across all departments and can only be managed by SuperAdmin. 
+            These include general engineering courses like Mathematics, Physics, and Chemistry.
+          </p>
+        </div>
+      </div>
       
       {/* Filter and Search Bar */}
       <div className="bg-white rounded-2xl p-5 shadow-md mb-6">
@@ -798,8 +807,17 @@ export default function CourseManagement() {
             <tbody className="divide-y divide-gray-200 bg-white">
               {filteredCourses.length > 0 ? (
                 filteredCourses.map((course, index) => (
-                  <tr key={course.id} className={`hover:bg-gray-50 transition ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-teal-700">{course.code}</td>
+                  <tr key={course.id} className={`hover:bg-gray-50 transition ${index % 2 === 0 ? 'bg-white' : 'bg-gray-50'} ${course.isCommon ? 'border-l-4 border-l-orange-400' : ''}`}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-teal-700">{course.code}</span>
+                        {course.isCommon && (
+                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                            Common
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">{course.title}</td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       {course.facultyList && course.facultyList.length > 0 ? (
@@ -856,20 +874,29 @@ export default function CourseManagement() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end gap-3">
-                        <button 
-                          onClick={() => openEditCourseModal(course)}
-                          className="text-indigo-600 hover:text-indigo-900 transition"
-                          aria-label="Edit course"
-                        >
-                          <FiEdit size={18} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteCourse(course.id)}
-                          className="text-red-500 hover:text-red-700 transition"
-                          aria-label="Delete course"
-                        >
-                          <FiTrash2 size={18} />
-                        </button>
+                        {course.isCommon ? (
+                          <div className="flex items-center gap-2 text-gray-400">
+                            <span className="text-xs">Common Course</span>
+                            <span className="text-xs">(Read Only)</span>
+                          </div>
+                        ) : (
+                          <>
+                            <button 
+                              onClick={() => openEditCourseModal(course)}
+                              className="text-indigo-600 hover:text-indigo-900 transition"
+                              aria-label="Edit course"
+                            >
+                              <FiEdit size={18} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteCourse(course.id)}
+                              className="text-red-500 hover:text-red-700 transition"
+                              aria-label="Delete course"
+                            >
+                              <FiTrash2 size={18} />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </td>
                   </tr>
@@ -1016,7 +1043,7 @@ export default function CourseManagement() {
                     {formData.semester?.includes('1') || formData.semester?.includes('3') || 
                      formData.semester?.includes('5') || formData.semester?.includes('7') 
                       ? 'Odd semester (July - December)' 
-                      : 'Even semester (January - May)'}
+                      : 'Even semester (January - June)'}
                   </p>
                 </div>
                 

@@ -209,29 +209,28 @@ export const getActiveSemester = async () => {
 };
 
 /**
- * Format semester name for consistent display
+ * Format semester name to standard format only
  * @param {string} semesterName - Raw semester name
- * @returns {string} - Formatted semester name
+ * @returns {string} - Formatted semester name (always "Semester X" format)
  */
 export const formatSemesterName = (semesterName) => {
   if (!semesterName) return '';
   
-  // If it's already in a standard format, return as is
-  if (semesterName.startsWith('Semester ')) {
+  // If it's already in standard format, return as is
+  if (/^Semester [1-8]$/.test(semesterName)) {
     return semesterName;
   }
   
-  // If it's in a term-year format (Fall 2025), return as is
-  if (/^(Fall|Spring|Summer|Winter)\s\d{4}$/.test(semesterName)) {
-    return semesterName;
+  // Try to extract a semester number from any format
+  const numberMatch = semesterName.match(/(\d+)/);
+  if (numberMatch) {
+    const number = parseInt(numberMatch[1]);
+    if (number >= 1 && number <= 8) {
+      return `Semester ${number}`;
+    }
   }
   
-  // Otherwise, try to extract a semester number if present
-  const semesterMatch = semesterName.match(/(\d+)/);
-  if (semesterMatch) {
-    return `Semester ${semesterMatch[1]}`;
-  }
-  
-  // If all else fails, return original
+  // If can't parse to valid semester number, return warning format
+  console.warn(`Invalid semester format: "${semesterName}". Expected format: "Semester X" where X is 1-8`);
   return semesterName;
 };

@@ -17,9 +17,14 @@ import {
   arrayRemove
 } from '../../../firebase/config.js';
 import { logActivity } from './HODDashboard';
+// Import semester service functions
 import { 
   getCurrentSemesterPeriod,
-  getSemesterNumbersForPeriod 
+  getSemesterNumbersForPeriod,
+  getAllSemesterNumbers,
+  generateSemesterOptions,
+  parseSemesterString,
+  formatSemesterName as formatSemesterNameUtil
 } from '../../../services/SemesterService';
 
 // Collection references
@@ -34,24 +39,38 @@ const dummyFaculty = [];
 
 /**
  * Fetch courses from Firebase with support for multiple faculty assignments
+ * Includes both department-specific courses and common courses
  * @param {string} departmentId - Department ID 
  * @returns {Promise<Array>} - Array of courses
  */
 export const fetchCourses = async (departmentId) => {
   try {
     const coursesRef = collection(db, COURSES_COLLECTION);
-    const coursesQuery = query(coursesRef, where('department', '==', departmentId));
     
-    const snapshot = await getDocs(coursesQuery);
+    // Create queries for both department-specific and common courses
+    const departmentCoursesQuery = query(coursesRef, where('department', '==', departmentId));
+    const commonCoursesQuery = query(coursesRef, where('department', '==', 'common'));
     
-    if (snapshot.empty) {
+    // Execute both queries
+    const [departmentSnapshot, commonSnapshot] = await Promise.all([
+      getDocs(departmentCoursesQuery),
+      getDocs(commonCoursesQuery)
+    ]);
+    
+    // Combine all course documents
+    const allCourseDocs = [
+      ...departmentSnapshot.docs,
+      ...commonSnapshot.docs
+    ];
+    
+    if (allCourseDocs.length === 0) {
       console.log('No courses found, using dummy data');
       return dummyCourses;
     }
     
     const courses = [];
     
-    for (const courseDoc of snapshot.docs) {
+    for (const courseDoc of allCourseDocs) {
       const courseData = courseDoc.data();
       let facultyData = null;
       let facultyList = [];
@@ -101,7 +120,9 @@ export const fetchCourses = async (departmentId) => {
         faculty: facultyData, // Primary faculty (backward compatibility)
         facultyList: facultyList, // All assigned faculty
         semester: courseData.semester || '',
-        weeklyHours: courseData.weeklyHours || ''
+        weeklyHours: courseData.weeklyHours || '',
+        department: courseData.department || '',
+        isCommon: courseData.department === 'common' // Flag to identify common courses
       });
     }
     
@@ -165,17 +186,18 @@ export const getFaculty = () => {
 };
 
 /**
- * Get semester options based on the current period (odd/even)
+ * Get semester options in standard format only
+ * @param {Object} options - Configuration options
+ * @param {boolean} options.includeAll - Include all 8 semesters or just current period
  * @returns {Array} - Array of semester options
  */
-export const getSemesterOptions = () => {
-  const currentPeriod = getCurrentSemesterPeriod();
-  const semesterNumbers = getSemesterNumbersForPeriod(currentPeriod);
+export const getSemesterOptions = (options = {}) => {
+  const { includeAll = false } = options;
   
-  // Generate semester names like "Semester 1", "Semester 3", etc.
-  const semesterOptions = semesterNumbers.map(num => `Semester ${num}`);
+  // Generate semester options using the simplified service
+  const semesterOptions = generateSemesterOptions(includeAll);
   
-  // Always include "All Semesters" as first option
+  // Always include "All Semesters" as first option for filtering
   return ['All Semesters', ...semesterOptions];
 };
 
@@ -280,6 +302,11 @@ export const formatWeeklyHours = (lectureHours, tutorialHours, practicalHours) =
  */
 export const addCourse = async (courses, formData, faculty, departmentId) => {
   try {
+    // Prevent HODs from adding courses to the "common" department
+    if (departmentId === 'common') {
+      throw new Error('HODs cannot add courses to the common department. Please contact SuperAdmin.');
+    }
+    
     // Prepare faculty assignments
     const facultyIds = [];
     let primaryFacultyId = null;
@@ -380,6 +407,11 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
     }
     
     const existingCourse = courses[courseIndex];
+    
+    // Prevent HODs from updating common courses
+    if (existingCourse.department === 'common') {
+      throw new Error('HODs cannot modify common courses. Please contact SuperAdmin.');
+    }
     
     // Get previous faculty assignments
     const previousFacultyIds = [];
@@ -510,6 +542,11 @@ export const deleteCourse = async (courses, courseId, departmentId) => {
     const courseToDelete = courses.find(c => c.id === courseId);
     if (!courseToDelete) {
       throw new Error('Course not found');
+    }
+    
+    // Prevent HODs from deleting common courses
+    if (courseToDelete.department === 'common') {
+      throw new Error('HODs cannot delete common courses. Please contact SuperAdmin.');
     }
     
     // Get all faculty assigned to this course
@@ -685,6 +722,15 @@ export const processUploadedCourses = async (jsonData, courses, faculty, departm
  */
 export const processSingleCourseImport = async (courseData, faculty, departmentId) => {
   try {
+    // Prevent HODs from uploading courses to the "common" department
+    if (departmentId === 'common') {
+      return {
+        success: false,
+        error: 'HODs cannot upload courses to the common department. Please contact SuperAdmin.',
+        item: courseData
+      };
+    }
+    
     // Validate required fields
     if (!courseData.code || !courseData.title || !courseData.semester) {
       return {
@@ -775,6 +821,135 @@ export const processSingleCourseImport = async (courseData, faculty, departmentI
 };
 
 /**
+ * Process a single course import for SuperAdmin (allows department override)
+ * @param {Object} courseData - Single course data object
+ * @param {Array} faculty - Available faculty list
+ * @param {string} fallbackDepartmentId - Fallback department ID if not specified in course data
+ * @returns {Promise<Object>} Result object with success status
+ */
+export const processSuperAdminCourseImport = async (courseData, faculty, fallbackDepartmentId) => {
+  try {
+    // Validate required fields
+    if (!courseData.code || !courseData.title || !courseData.semester) {
+      return {
+        success: false,
+        error: 'Missing required fields (code, title, or semester)',
+        item: courseData
+      };
+    }
+
+    // For SuperAdmin: Use department from JSON if specified, otherwise use fallback
+    const departmentId = courseData.department || fallbackDepartmentId;
+    
+    if (!departmentId) {
+      return {
+        success: false,
+        error: 'No department specified and no fallback department provided',
+        item: courseData
+      };
+    }
+
+    // Format weekly hours
+    const lectureHours = parseInt(courseData.lectureHours) || 0;
+    const tutorialHours = parseInt(courseData.tutorialHours) || 0;
+    const practicalHours = parseInt(courseData.practicalHours) || 0;
+    const totalHours = lectureHours + tutorialHours + practicalHours;
+
+    // Find faculty member if specified (can be from any department for SuperAdmin)
+    let assignedFaculty = null;
+    if (courseData.faculty) {
+      assignedFaculty = faculty.find(f => 
+        f.name.toLowerCase().includes(courseData.faculty.toLowerCase()) ||
+        f.email.toLowerCase() === courseData.faculty.toLowerCase() ||
+        f.id === courseData.faculty
+      );
+    }
+
+    // Prepare course document
+    const courseDoc = {
+      code: courseData.code.toUpperCase(),
+      title: courseData.title,
+      semester: courseData.semester,
+      lectureHours,
+      tutorialHours,
+      practicalHours,
+      weeklyHours: totalHours,
+      faculty: assignedFaculty ? assignedFaculty.name : courseData.faculty || '',
+      facultyId: assignedFaculty ? assignedFaculty.id : null,
+      facultyList: assignedFaculty ? [assignedFaculty.id] : [],
+      credits: courseData.credits || Math.ceil(totalHours / 3),
+      department: departmentId, // Use specified department or fallback
+      type: courseData.type || 'Core',
+      description: courseData.description || '',
+      prerequisites: Array.isArray(courseData.prerequisites) ? courseData.prerequisites : [],
+      active: courseData.active !== false, // Default to true unless explicitly false
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Generate unique document ID with department to avoid conflicts
+    const docId = `${courseDoc.code}_${courseDoc.semester.replace(/\s+/g, '_')}_${departmentId}`;
+    
+    // Check if course already exists in Firebase
+    const courseRef = doc(db, COURSES_COLLECTION, docId);
+    const existingDoc = await getDoc(courseRef);
+    
+    if (existingDoc.exists()) {
+      // Update existing course
+      await updateDoc(courseRef, {
+        ...courseDoc,
+        createdAt: existingDoc.data().createdAt, // Keep original creation date
+      });
+      
+      // Update faculty assignment if applicable
+      if (assignedFaculty) {
+        const facultyRef = doc(db, FACULTY_COLLECTION, assignedFaculty.id);
+        await updateDoc(facultyRef, {
+          assignedCourses: arrayUnion(docId)
+        });
+      }
+      
+      return {
+        success: true,
+        action: 'updated',
+        code: courseData.code,
+        title: courseData.title,
+        department: departmentId,
+        item: courseData
+      };
+    } else {
+      // Create new course
+      await setDoc(courseRef, courseDoc);
+      
+      // Update faculty assignment if applicable
+      if (assignedFaculty) {
+        const facultyRef = doc(db, FACULTY_COLLECTION, assignedFaculty.id);
+        await updateDoc(facultyRef, {
+          assignedCourses: arrayUnion(docId)
+        });
+      }
+      
+      return {
+        success: true,
+        action: 'created',
+        code: courseData.code,
+        title: courseData.title,
+        department: departmentId,
+        item: courseData
+      };
+    }
+
+  } catch (error) {
+    console.error('Error processing SuperAdmin course import:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred',
+      item: courseData
+    };
+  }
+};
+
+/**
  * Get example course data in JSON format
  * @returns {Array} - Example course data
  */
@@ -784,7 +959,7 @@ export const getExampleCourseData = () => {
       code: "CS101",
       title: "Introduction to Computer Science",
       faculty: "Dr. Alex Johnson",
-      semester: "Fall 2024",
+      semester: "Semester 1",
       lectureHours: 3,
       tutorialHours: 1,
       practicalHours: 0
@@ -793,9 +968,27 @@ export const getExampleCourseData = () => {
       code: "CS202",
       title: "Data Structures and Algorithms",
       faculty: null,
-      semester: "Spring 2025",
+      semester: "Semester 2",
       lectureHours: 3,
       tutorialHours: 0,
+      practicalHours: 2
+    },
+    {
+      code: "MATH101",
+      title: "Engineering Mathematics I",
+      faculty: "Dr. Sarah Miller",
+      semester: "Semester 1",
+      lectureHours: 4,
+      tutorialHours: 1,
+      practicalHours: 0
+    },
+    {
+      code: "PHY101",
+      title: "Engineering Physics",
+      faculty: "Dr. John Smith",
+      semester: "Semester 1",
+      lectureHours: 3,
+      tutorialHours: 1,
       practicalHours: 2
     }
   ];
@@ -871,6 +1064,7 @@ const CourseManagementService = {
   formatWeeklyHours,
   processUploadedCourses,
   processSingleCourseImport,
+  processSuperAdminCourseImport,
   getExampleCourseData,
   normalizeCourseData,
   getCoursesByFaculty
