@@ -15,135 +15,45 @@ import {
 } from '../../../firebase/config.js';
 import { logActivity } from './HODDashboard';
 
+// Import centralized semester service
+import { 
+  getAllSemesters,
+  getDefaultSemesters,
+  getActiveSemester 
+} from '../../../services/SemesterService.js';
+
 // Collection references
-const FACULTY_COLLECTION = 'faculty';
+const FACULTY_COLLECTION = 'teachers';
 const COURSES_COLLECTION = 'courses';
 const SEMESTERS_COLLECTION = 'semesters';
 const REPORTS_COLLECTION = 'reports';
 
-// Fallback dummy data (will be used if Firebase data fetch fails)
-export const dummySemesters = ['Semester 7', 'Semester 6', 'Semester 5', 'Semester 4'];
-
-export const dummyCourses = [
-  { id: 1, code: 'CS101', title: 'Introduction to Computer Science', semester: 'Semester 6', weeklyHours: '3L+1T', faculty: 1, tags: ['programming', 'introductory'] },
-  { id: 2, code: 'CS202', title: 'Data Structures and Algorithms', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 1, tags: ['algorithms', 'data structures'] },
-  { id: 3, code: 'CS303', title: 'Database Systems', semester: 'Semester 6', weeklyHours: '3L+1T+2P', faculty: 7, tags: ['databases', 'SQL'] },
-  { id: 4, code: 'CS405', title: 'Artificial Intelligence', semester: 'Semester 7', weeklyHours: '4L+2P', faculty: 4, tags: ['AI', 'machine learning'] },
-  { id: 5, code: 'CS301', title: 'Software Engineering', semester: 'Semester 6', weeklyHours: '3L+1T', faculty: 3, tags: ['software', 'project management'] },
-  { id: 6, code: 'CS210', title: 'Computer Networks', semester: 'Semester 7', weeklyHours: '3L+1T+1P', faculty: 5, tags: ['networking', 'protocols'] },
-  { id: 7, code: 'CS450', title: 'Cloud Computing', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 7, tags: ['cloud', 'distributed systems'] },
-  { id: 8, code: 'CS320', title: 'Web Development', semester: 'Semester 6', weeklyHours: '2L+3P', faculty: 6, tags: ['web', 'javascript', 'html'] },
-  { id: 9, code: 'CS410', title: 'Machine Learning', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 4, tags: ['ML', 'statistics'] },
-  { id: 10, code: 'CS250', title: 'Computer Architecture', semester: 'Semester 6', weeklyHours: '4L+1T', faculty: 2, tags: ['hardware', 'systems'] },
-  { id: 11, code: 'CS350', title: 'Operating Systems', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 2, tags: ['OS', 'systems'] },
-  { id: 12, code: 'CS430', title: 'Cybersecurity', semester: 'Semester 6', weeklyHours: '3L+1T+1P', faculty: 5, tags: ['security', 'cryptography'] },
-  { id: 13, code: 'CS222', title: 'Advanced Programming', semester: 'Semester 7', weeklyHours: '2L+3P', faculty: 6, tags: ['programming', 'advanced'] },
-  { id: 14, code: 'CS401', title: 'Project Management', semester: 'Semester 6', weeklyHours: '2L+2T', faculty: 3, tags: ['project management', 'software'] },
-];
-
-export const dummyFaculty = [
-  { 
-    id: 1, 
-    name: 'Dr. Alex Johnson', 
-    avatar: 'https://i.pravatar.cc/150?img=11', 
-    department: 'Computer Science',
-    status: 'available', 
-    loadHours: 9,
-    maxHours: 18,
-    expertise: ['programming', 'algorithms', 'theory'],
-    assignedCourses: [1, 2]
-  },
-  { 
-    id: 2, 
-    name: 'Dr. Sarah Miller', 
-    avatar: 'https://i.pravatar.cc/150?img=5', 
-    department: 'Computer Science',
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['databases', 'data mining', 'systems'],
-    assignedCourses: [10, 11]
-  },
-  { 
-    id: 3, 
-    name: 'Prof. Robert Chen', 
-    avatar: 'https://i.pravatar.cc/150?img=12', 
-    department: 'Computer Science',
-    status: 'available', 
-    loadHours: 10,
-    maxHours: 20,
-    expertise: ['software engineering', 'project management'],
-    assignedCourses: [5, 14]
-  },
-  { 
-    id: 4, 
-    name: 'Dr. Emily Zhang', 
-    avatar: 'https://i.pravatar.cc/150?img=9', 
-    department: 'Computer Science',
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['AI', 'machine learning', 'neural networks'],
-    assignedCourses: [4, 9]
-  },
-  { 
-    id: 5, 
-    name: 'Prof. David Wilson', 
-    avatar: 'https://i.pravatar.cc/150?img=15',
-    department: 'Computer Science', 
-    status: 'overloaded', 
-    loadHours: 21,
-    maxHours: 20,
-    expertise: ['networking', 'security', 'protocols'],
-    assignedCourses: [6, 12]
-  },
-  { 
-    id: 6, 
-    name: 'Dr. Lisa Kumar', 
-    avatar: 'https://i.pravatar.cc/150?img=3',
-    department: 'Computer Science', 
-    status: 'available', 
-    loadHours: 12,
-    maxHours: 18,
-    expertise: ['theory', 'algorithms', 'computational logic'],
-    assignedCourses: [8, 13]
-  },
-  { 
-    id: 7, 
-    name: 'Prof. Michael Brown', 
-    avatar: 'https://i.pravatar.cc/150?img=13',
-    department: 'Computer Science', 
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['databases', 'cloud', 'data warehousing'],
-    assignedCourses: [3, 7]
-  },
-];
-
 /**
- * Fetch available semesters from Firebase
- * @param {string} departmentId - Department ID
+ * Fetch available semesters using centralized semester service
+ * @param {string} departmentId - Department ID (not used for semesters as they are global)
  * @returns {Promise<Array>} - Array of semester names
  */
 export const fetchSemesters = async (departmentId) => {
   try {
-    const semesterRef = collection(db, SEMESTERS_COLLECTION);
-    const semesterQuery = departmentId ? 
-      query(semesterRef, where('department', '==', departmentId)) : 
-      query(semesterRef);
-      
-    const snapshot = await getDocs(semesterQuery);
+    console.log('Fetching semesters using centralized service...');
     
-    if (snapshot.empty) {
-      console.log('No semesters found, using dummy data');
-      return dummySemesters;
+    // Use centralized semester service
+    const semestersData = await getAllSemesters();
+    
+    if (semestersData.length > 0) {
+      const semesterNames = semestersData.map(sem => sem.name);
+      console.log('Found semesters from Firebase:', semesterNames);
+      return semesterNames;
+    } else {
+      console.log('No semesters found in Firebase, using defaults');
+      const defaultSemesters = getDefaultSemesters();
+      return defaultSemesters;
     }
-    
-    return snapshot.docs.map(doc => doc.data().name);
   } catch (error) {
     console.error('Error fetching semesters:', error);
-    return dummySemesters;
+    console.log('Falling back to default semesters');
+    const defaultSemesters = getDefaultSemesters();
+    return defaultSemesters;
   }
 };
 
@@ -154,35 +64,51 @@ export const fetchSemesters = async (departmentId) => {
  */
 export const fetchFaculty = async (departmentId) => {
   try {
+    if (!departmentId) {
+      console.warn('No department ID provided');
+      return [];
+    }
+
     const facultyRef = collection(db, FACULTY_COLLECTION);
-    const facultyQuery = departmentId ? 
-      query(facultyRef, where('department', '==', departmentId)) : 
-      query(facultyRef);
+    const facultyQuery = query(facultyRef, where('department', '==', departmentId));
       
     const snapshot = await getDocs(facultyQuery);
     
     if (snapshot.empty) {
-      console.log('No faculty found, using dummy data');
-      return dummyFaculty;
+      console.log('No faculty found for department');
+      return [];
     }
     
-    return snapshot.docs.map(doc => {
+    const faculty = snapshot.docs.map(doc => {
       const data = doc.data();
+      
+      // Handle backward compatibility for assignedCourses
+      let assignedCourses = data.assignedCourses || [];
+      
+      // If assignedCourses is an array (old format), convert to semester-aware object
+      if (Array.isArray(assignedCourses)) {
+        console.log(`Converting faculty ${data.name} from old assignment format to semester-aware format`);
+        // For now, we'll put all old assignments in a "Legacy" semester
+        assignedCourses = assignedCourses.length > 0 ? { "Legacy": assignedCourses } : {};
+      }
+      
       return {
         id: doc.id,
-        name: data.name,
-        avatar: data.avatar || 'https://i.pravatar.cc/150?img=11',
-        department: data.department,
+        name: data.name || 'Unknown Faculty',
+        avatar: data.avatar || `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 20) + 1}`,
+        department: data.department || departmentId,
         status: data.status || 'available',
         loadHours: data.loadHours || 0,
         maxHours: data.maxHours || 18,
         expertise: data.expertise || [],
-        assignedCourses: data.assignedCourses || []
+        assignedCourses: assignedCourses // Now semester-aware object
       };
     });
+
+    return faculty;
   } catch (error) {
     console.error('Error fetching faculty:', error);
-    return dummyFaculty;
+    return [];
   }
 };
 
@@ -194,6 +120,11 @@ export const fetchFaculty = async (departmentId) => {
  */
 export const fetchCourses = async (departmentId, semester = null) => {
   try {
+    if (!departmentId) {
+      console.warn('No department ID provided');
+      return [];
+    }
+
     const coursesRef = collection(db, COURSES_COLLECTION);
     let coursesQuery;
     
@@ -210,25 +141,27 @@ export const fetchCourses = async (departmentId, semester = null) => {
     const snapshot = await getDocs(coursesQuery);
     
     if (snapshot.empty) {
-      console.log('No courses found, using dummy data');
-      return dummyCourses;
+      console.log('No courses found for department/semester');
+      return [];
     }
     
-    return snapshot.docs.map(doc => {
+    const courses = snapshot.docs.map(doc => {
       const data = doc.data();
       return {
         id: doc.id,
-        code: data.code,
-        title: data.title,
-        semester: data.semester,
-        weeklyHours: data.weeklyHours,
+        code: data.code || 'Unknown Code',
+        title: data.title || 'Unknown Course',
+        semester: data.semester || semester,
+        weeklyHours: data.weeklyHours || '3L',
         faculty: data.faculty,
         tags: data.tags || []
       };
     });
+
+    return courses;
   } catch (error) {
     console.error('Error fetching courses:', error);
-    return dummyCourses;
+    return [];
   }
 };
 
@@ -248,15 +181,83 @@ export const calculateHoursFromString = (hoursString) => {
 
 // Calculate the faculty load data with course information
 export const getFacultyWithLoadData = (faculty, courses, selectedSemester) => {
-  // Filter courses based on selected semester
-  const semesterCourses = courses.filter(course => course.semester === selectedSemester);
+  // Filter courses based on selected semester (with trim to handle whitespace)
+  const semesterCourses = courses.filter(course => 
+    course.semester && course.semester.trim() === selectedSemester.trim()
+  );
+  
+  console.log('Debug - getFacultyWithLoadData:', {
+    selectedSemester,
+    totalCourses: courses.length,
+    semesterCourses: semesterCourses.length,
+    facultyCount: faculty.length,
+    allCourses: courses.map(c => ({ id: c.id, code: c.code, semester: c.semester })),
+    semesterCoursesDetails: semesterCourses.map(c => ({ id: c.id, code: c.code, semester: c.semester }))
+  });
   
   // Enhance faculty data with detailed course information
   const enhancedFacultyData = faculty.map(f => {
+    console.log(`Debug - Faculty ${f.name}:`, {
+      assignedCourses: f.assignedCourses,
+      assignedCoursesType: typeof f.assignedCourses,
+      isArray: Array.isArray(f.assignedCourses),
+      isObject: typeof f.assignedCourses === 'object' && !Array.isArray(f.assignedCourses),
+      assignedCoursesContent: f.assignedCourses
+    });
+    
     // Get courses assigned to this faculty member for the selected semester
-    const facultyCourses = semesterCourses.filter(course => 
-      Array.isArray(f.assignedCourses) && f.assignedCourses.includes(course.id)
-    );
+    let facultyCourses = [];
+    
+    // Handle new semester-aware structure
+    if (f.assignedCourses && typeof f.assignedCourses === 'object' && !Array.isArray(f.assignedCourses)) {
+      // New format: { "Semester 1": ["course1", "course2"], "Semester 2": ["course3"] }
+      const semesterAssignments = f.assignedCourses[selectedSemester] || [];
+      
+      console.log(`Debug - Faculty ${f.name} semester assignments:`, {
+        selectedSemester,
+        semesterAssignments,
+        allSemesters: Object.keys(f.assignedCourses)
+      });
+      
+      if (Array.isArray(semesterAssignments)) {
+        // Find courses that match the assigned course IDs for this semester
+        facultyCourses = courses.filter(course => {
+          const courseIdStr = String(course.id).trim();
+          const assignedCourseIds = semesterAssignments.map(id => String(id).trim());
+          return assignedCourseIds.includes(courseIdStr);
+        });
+      }
+    } else if (Array.isArray(f.assignedCourses)) {
+      // Old format: ["course1", "course2", "course3"] - use fallback method
+      console.log(`Debug - Faculty ${f.name} using old format fallback`);
+      
+      // First, find all assigned courses from the full course list
+      const allAssignedCourses = courses.filter(course => {
+        const courseIdStr = String(course.id).trim();
+        const assignedCourseIds = f.assignedCourses.map(id => String(id).trim());
+        return assignedCourseIds.includes(courseIdStr);
+      });
+      
+      // Now filter by selected semester
+      facultyCourses = allAssignedCourses.filter(course => 
+        course.semester && course.semester.trim() === selectedSemester.trim()
+      );
+    }
+    
+    // Debug logging for the assignment results
+    console.log(`Debug - Faculty ${f.name} assignment results:`, {
+      facultyCoursesFound: facultyCourses.length,
+      facultyCoursesDetails: facultyCourses.map(c => ({ 
+        id: c.id, 
+        code: c.code, 
+        semester: c.semester 
+      }))
+    });
+    
+    console.log(`Debug - Faculty ${f.name} final result:`, {
+      facultyCoursesCount: facultyCourses.length,
+      facultyCourses: facultyCourses.map(c => ({ id: c.id, code: c.code }))
+    });
     
     // Calculate total load hours for this semester
     const semesterLoadHours = facultyCourses.reduce((total, course) => 

@@ -19,18 +19,34 @@ import {
   hasUnsavedChanges,
   getPendingChangesSummary
 } from './services/FacultyAssignment';
-import { initializeAllSampleData } from './services/SampleDataInitializer';
+import { initializeAllSampleData, initializeSampleCoursesForSemester } from './services/SampleDataInitializer';
 import { useToast } from '../../context/ToastContext';
+
+// Import semester service
+import { 
+  getAllSemesters,
+  getDefaultSemesters,
+  getActiveSemester 
+} from '../../services/SemesterService.js';
 
 // Component for displaying a faculty card
 const FacultyCard = ({ faculty, selectedCourse, onAssign, assignedCourses }) => {
   // Calculate load percentage
   const loadPercentage = Math.min(100, Math.round((faculty.loadHours / faculty.maxHours) * 100));
   
-  // Count how many hours this faculty is assigned in current selection
+  // Count how many hours this faculty is assigned in current selection (including co-faculty assignments)
   const currentAssignedHours = assignedCourses
-    .filter(course => course.faculty === faculty.id)
-    .reduce((total, course) => total + getTimeSlots(course.weeklyHours), 0);
+    .filter(course => {
+      const facultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+      return facultyList.includes(faculty.id);
+    })
+    .reduce((total, course) => {
+      const facultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+      const totalCourseHours = getTimeSlots(course.weeklyHours);
+      // Distribute hours proportionally among all assigned faculty
+      const hoursPerFaculty = Math.ceil(totalCourseHours / facultyList.length);
+      return total + hoursPerFaculty;
+    }, 0);
   
   // Determine if faculty is compatible with selected course
   const isCompatible = selectedCourse && (
@@ -274,6 +290,12 @@ export default function FacultyAssignment() {
   const [clearingAssignments, setClearingAssignments] = useState(false);
   const [discardingChanges, setDiscardingChanges] = useState(false);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
+  
+  // Semester-related state
+  const [availableSemesters, setAvailableSemesters] = useState([]);
+  const [selectedSemester, setSelectedSemester] = useState('');
+  const [loadingSemesters, setLoadingSemesters] = useState(true);
+  
   const { showSuccess, showError } = useToast();
   const { user } = useContext(AuthContext); // Get authenticated user data
   
@@ -329,6 +351,42 @@ export default function FacultyAssignment() {
     loadData();
   }, [departmentId, user?.department, showError]);
   
+  // Load available semesters
+  useEffect(() => {
+    const loadSemesters = async () => {
+      try {
+        setLoadingSemesters(true);
+        
+        // Try to get semesters from Firebase first
+        const semestersData = await getAllSemesters();
+        
+        if (semestersData.length > 0) {
+          const semesterNames = semestersData.map(sem => sem.name);
+          setAvailableSemesters(semesterNames);
+          
+          // Set the first semester as default, or active semester if available
+          const activeSemester = await getActiveSemester();
+          setSelectedSemester(activeSemester?.name || semesterNames[0]);
+        } else {
+          // Fallback to default semesters
+          const defaultSemesters = getDefaultSemesters();
+          setAvailableSemesters(defaultSemesters);
+          setSelectedSemester(defaultSemesters[0]);
+        }
+      } catch (error) {
+        console.error('Error loading semesters:', error);
+        // Fallback to default semesters
+        const defaultSemesters = getDefaultSemesters();
+        setAvailableSemesters(defaultSemesters);
+        setSelectedSemester(defaultSemesters[0]);
+      } finally {
+        setLoadingSemesters(false);
+      }
+    };
+    
+    loadSemesters();
+  }, []);
+  
   // Local function to calculate faculty load from courses
   const updateFacultyLoadFromCourses = (courses, facultyList) => {
     // Create a copy of the faculty array to avoid modifying the original
@@ -339,15 +397,21 @@ export default function FacultyAssignment() {
       f.loadHours = 0;
     });
     
-    // Calculate load hours based on assigned courses
+    // Calculate load hours based on assigned courses (including co-faculty)
     courses.forEach(course => {
-      if (course.faculty) {
-        const facultyMember = updatedFaculty.find(f => f.id === course.faculty);
-        if (facultyMember) {
-          // Add course hours to faculty's load
-          const courseHours = getTimeSlots(course.weeklyHours);
-          facultyMember.loadHours += courseHours;
-        }
+      const courseFacultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+      
+      if (courseFacultyList.length > 0) {
+        const totalCourseHours = getTimeSlots(course.weeklyHours);
+        // Distribute hours proportionally among all assigned faculty
+        const hoursPerFaculty = Math.ceil(totalCourseHours / courseFacultyList.length);
+        
+        courseFacultyList.forEach(facultyId => {
+          const facultyMember = updatedFaculty.find(f => f.id === facultyId);
+          if (facultyMember) {
+            facultyMember.loadHours += hoursPerFaculty;
+          }
+        });
       }
     });
     
@@ -380,6 +444,25 @@ export default function FacultyAssignment() {
     setFilteredFaculty(filtered);
   }, [searchTerm, faculty]);
 
+  // Monitor unsaved changes from the service
+  useEffect(() => {
+    const checkUnsavedChanges = () => {
+      const serviceHasChanges = hasUnsavedChanges();
+      if (serviceHasChanges !== unsavedChanges) {
+        console.log('Syncing unsaved changes state:', serviceHasChanges);
+        setUnsavedChanges(serviceHasChanges);
+      }
+    };
+
+    // Check immediately
+    checkUnsavedChanges();
+
+    // Set up an interval to check for changes
+    const interval = setInterval(checkUnsavedChanges, 500);
+
+    return () => clearInterval(interval);
+  }, [courses, faculty, unsavedChanges]); // Re-run when data changes
+
   const handleSelectCourse = (course) => {
     // If the course is already selected, deselect it by setting selectedCourse to null
     if (selectedCourse && selectedCourse.id === course.id) {
@@ -396,7 +479,7 @@ export default function FacultyAssignment() {
       const result = await assignFacultyToCourse(departmentId, selectedCourse.id, facultyId, replace);
       
       if (result.success) {
-        // Refresh the data to get updated assignments
+        // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
           fetchCourses(departmentId),
           fetchFaculty(departmentId)
@@ -408,8 +491,11 @@ export default function FacultyAssignment() {
         const updatedSelectedCourse = updatedCourses.find(c => c.id === selectedCourse.id);
         setSelectedCourse(updatedSelectedCourse);
         
+        // Sync unsaved changes state immediately
+        setUnsavedChanges(hasUnsavedChanges());
+        
         const assignmentType = replace ? 'Primary faculty assigned' : 'Co-faculty added';
-        showSuccess(`${assignmentType} successfully!`);
+        showSuccess(`${assignmentType} successfully! (Unsaved)`);
       } else {
         showError(result.message || 'Failed to assign faculty');
       }
@@ -424,7 +510,7 @@ export default function FacultyAssignment() {
       const result = await removeFacultyFromCourse(departmentId, courseId, facultyId);
       
       if (result.success) {
-        // Refresh the data to get updated assignments
+        // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
           fetchCourses(departmentId),
           fetchFaculty(departmentId)
@@ -438,7 +524,10 @@ export default function FacultyAssignment() {
           setSelectedCourse(updatedSelectedCourse);
         }
         
-        showSuccess(result.message);
+        // Sync unsaved changes state immediately
+        setUnsavedChanges(hasUnsavedChanges());
+        
+        showSuccess(`${result.message} (Unsaved)`);
       } else {
         showError(result.message || 'Failed to remove faculty assignment');
       }
@@ -452,10 +541,14 @@ export default function FacultyAssignment() {
   const handleAutoAssign = async () => {
     try {
       setAutoAssigning(true);
-      const result = await autoAssignFaculty(departmentId, courses, faculty);
+      
+      // Filter courses by selected semester for auto-assignment
+      const semesterCourses = selectedSemester ? courses.filter(c => c.semester === selectedSemester) : courses;
+      
+      const result = await autoAssignFaculty(departmentId, semesterCourses, faculty);
       
       if (result.success) {
-        // Refresh the data to get updated assignments
+        // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
           fetchCourses(departmentId),
           fetchFaculty(departmentId)
@@ -469,7 +562,10 @@ export default function FacultyAssignment() {
           setSelectedCourse(updatedSelectedCourse);
         }
         
-        showSuccess(result.message);
+        // Sync unsaved changes state immediately
+        setUnsavedChanges(hasUnsavedChanges());
+        
+        showSuccess(`${result.message} (for ${selectedSemester || 'all semesters'}) - Unsaved changes`);
       } else {
         showError(result.message || 'Auto-assignment failed');
       }
@@ -490,6 +586,8 @@ export default function FacultyAssignment() {
       if (result.success) {
         setShowSavedMessage(true);
         setTimeout(() => setShowSavedMessage(false), 3000);
+        // Sync with service state after save
+        setUnsavedChanges(hasUnsavedChanges());
         showSuccess(result.message);
       } else {
         showError(result.message || 'Failed to save assignments');
@@ -524,6 +622,38 @@ export default function FacultyAssignment() {
     } catch (error) {
       console.error('Error initializing sample data:', error);
       showError('Error initializing sample data. Please try again.');
+    } finally {
+      setInitializingData(false);
+    }
+  };
+
+  // Semester-specific sample course initialization
+  const handleInitializeSampleCoursesForSemester = async () => {
+    if (!selectedSemester) {
+      showError('Please select a semester first');
+      return;
+    }
+    
+    try {
+      setInitializingData(true);
+      const initSuccess = await initializeSampleCoursesForSemester(departmentId, selectedSemester);
+      
+      if (initSuccess) {
+        // Refetch data after initialization
+        const [coursesData, facultyData] = await Promise.all([
+          fetchCourses(departmentId),
+          fetchFaculty(departmentId)
+        ]);
+        setCourses(coursesData);
+        setFaculty(facultyData);
+        setFilteredFaculty(facultyData);
+        showSuccess(`Sample courses initialized for ${selectedSemester}!`);
+      } else {
+        showError('Failed to initialize sample courses');
+      }
+    } catch (error) {
+      console.error('Error initializing sample courses:', error);
+      showError('Error initializing sample courses. Please try again.');
     } finally {
       setInitializingData(false);
     }
@@ -582,7 +712,7 @@ export default function FacultyAssignment() {
       const result = await clearAllAssignments(departmentId);
       
       if (result.success) {
-        // Refresh the data to get updated assignments
+        // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
           fetchCourses(departmentId),
           fetchFaculty(departmentId)
@@ -593,7 +723,10 @@ export default function FacultyAssignment() {
         // Clear selected course
         setSelectedCourse(null);
         
-        showSuccess(result.message);
+        // Sync unsaved changes state immediately
+        setUnsavedChanges(hasUnsavedChanges());
+        
+        showSuccess(`${result.message} (Unsaved)`);
       } else {
         showError(result.message || 'Failed to clear assignments');
       }
@@ -618,7 +751,7 @@ export default function FacultyAssignment() {
       setDiscardingChanges(true);
       await discardChanges(departmentId);
       
-      // Refresh the data to get original Firebase state
+      // Get reverted data from local state (service handles the revert to original Firebase state)
       const [originalCourses, originalFaculty] = await Promise.all([
         fetchCourses(departmentId),
         fetchFaculty(departmentId)
@@ -628,6 +761,8 @@ export default function FacultyAssignment() {
       
       // Clear selected course
       setSelectedCourse(null);
+      // Sync with service state after discarding
+      setUnsavedChanges(hasUnsavedChanges());
       
       showSuccess('All unsaved changes have been discarded');
     } catch (error) {
@@ -638,9 +773,42 @@ export default function FacultyAssignment() {
     }
   };
 
-  // Calculate statistics
-  const facultyStats = getFacultyWorkloadStats(faculty);
-  const courseStats = getCourseAssignmentStats(courses);
+  // Calculate statistics for the selected semester
+  const semesterCourses = selectedSemester ? courses.filter(c => c.semester === selectedSemester) : courses;
+  const courseStats = getCourseAssignmentStats(semesterCourses);
+  
+  // For faculty stats, use the actual faculty load hours from the service
+  // but filter the course assignments by semester for counting purposes
+  const semesterAwareFaculty = faculty.map(f => {
+    // Count courses assigned to this faculty in the selected semester
+    const semesterAssignedCount = semesterCourses.filter(course => {
+      const facultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+      return facultyList.includes(f.id);
+    }).length;
+    
+    // Calculate load hours for this semester only (for display purposes)
+    const semesterLoadHours = semesterCourses
+      .filter(course => {
+        const facultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+        return facultyList.includes(f.id);
+      })
+      .reduce((total, course) => {
+        const facultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+        const hoursPerFaculty = Math.ceil(getTimeSlots(course.weeklyHours) / facultyList.length);
+        return total + hoursPerFaculty;
+      }, 0);
+    
+    // Use the actual load hours from the service for overall stats
+    // but show semester-specific hours in the display
+    return {
+      ...f,
+      semesterLoadHours: semesterLoadHours, // Keep semester-specific for display
+      semesterAssignedCount: semesterAssignedCount
+      // Don't override loadHours - keep the actual hours from the service
+    };
+  });
+  
+  const facultyStats = getFacultyWorkloadStats(faculty); // Use actual faculty data, not modified
   
   // Show loading state
   if (loading) {
@@ -789,16 +957,16 @@ export default function FacultyAssignment() {
       <div className="mb-6 flex gap-4 flex-wrap items-center">
         <button
           onClick={handleAutoAssign}
-          disabled={autoAssigning || courses.length === 0 || faculty.length === 0}
+          disabled={autoAssigning || semesterCourses.length === 0 || faculty.length === 0}
           className="px-6 py-2 rounded-lg border border-teal-500 text-teal-600 hover:bg-teal-50 
                    transition flex items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <FiRefreshCw className={`${autoAssigning ? 'animate-spin' : 'group-hover:rotate-180'} transition-transform duration-500`} />
-          <span>{autoAssigning ? 'Auto Assigning...' : '🔄 Auto Assign'}</span>
+          <span>{autoAssigning ? 'Auto Assigning...' : `🔄 Auto Assign${selectedSemester ? ` (${selectedSemester})` : ''}`}</span>
         </button>
         
         {/* Clear All Assignments Button */}
-        {courses.some(course => course.faculty || (course.facultyList && course.facultyList.length > 0)) && (
+        {semesterCourses.some(course => course.faculty || (course.facultyList && course.facultyList.length > 0)) && (
           <button
             onClick={handleClearAllAssignments}
             disabled={clearingAssignments}
@@ -806,7 +974,7 @@ export default function FacultyAssignment() {
                      transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {clearingAssignments ? <FiLoader className="animate-spin" /> : <FiAlertCircle />}
-            <span>{clearingAssignments ? 'Clearing...' : '🗑️ Clear All Assignments'}</span>
+            <span>{clearingAssignments ? 'Clearing...' : `🗑️ Clear${selectedSemester ? ` ${selectedSemester}` : ' All'} Assignments`}</span>
           </button>
         )}
         
@@ -823,26 +991,26 @@ export default function FacultyAssignment() {
           </button>
         )}
         
-        {(courses.length === 0 || faculty.length === 0) && (
+        {(semesterCourses.length === 0 || faculty.length === 0) && (
           <button
-            onClick={handleInitializeSampleData}
+            onClick={semesterCourses.length === 0 ? handleInitializeSampleCoursesForSemester : handleInitializeSampleData}
             disabled={initializingData}
             className="px-6 py-2 rounded-lg border border-blue-500 text-blue-600 hover:bg-blue-50 
                      transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {initializingData ? <FiLoader className="animate-spin" /> : <FiDatabase />}
             <span>{initializingData ? 'Initializing...' : 
-              courses.length === 0 && faculty.length === 0 ? '📊 Initialize Sample Data' :
-              courses.length === 0 ? '📚 Add Sample Courses' : '👥 Add Sample Faculty'}</span>
+              semesterCourses.length === 0 && faculty.length === 0 ? '📊 Initialize Sample Data' :
+              semesterCourses.length === 0 ? `📚 Add Sample Courses (${selectedSemester})` : '👥 Add Sample Faculty'}</span>
           </button>
         )}
         
         <div className="flex items-center text-sm text-gray-500">
           <FiAlertCircle className="inline-block mr-1" />
           <span>
-            {courses.length === 0 || faculty.length === 0 
-              ? 'Both courses and faculty are required for auto-assignment'
-              : 'Auto-assign matches faculty to courses. Click a course, then use ★ Primary or + Co-Faculty buttons. Use ❌ to remove individual assignments. Changes are saved locally until you click Save.'
+            {semesterCourses.length === 0 || faculty.length === 0 
+              ? `Both courses and faculty are required for auto-assignment${selectedSemester ? ` (${selectedSemester})` : ''}`
+              : `Auto-assign matches faculty to ${selectedSemester ? `${selectedSemester} ` : ''}courses. Click a course, then use ★ Primary or + Co-Faculty buttons. Use ❌ to remove individual assignments. Changes are saved locally until you click Save.`
             }
           </span>
         </div>
@@ -933,19 +1101,65 @@ export default function FacultyAssignment() {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left Column: Courses */}
         <div>
-          <h2 className="text-lg font-medium text-gray-700 mb-4">
-            Courses ({courses.length})
-            {selectedCourse && (
-              <button
-                onClick={() => setSelectedCourse(null)}
-                className="ml-3 text-sm text-blue-600 hover:text-blue-800 font-normal"
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-3">
+            <h2 className="text-lg font-medium text-gray-700">
+              Courses ({selectedSemester ? courses.filter(c => c.semester === selectedSemester).length : courses.length})
+              {selectedCourse && (
+                <button
+                  onClick={() => setSelectedCourse(null)}
+                  className="ml-3 text-sm text-blue-600 hover:text-blue-800 font-normal"
+                >
+                  (Clear selection)
+                </button>
+              )}
+            </h2>
+            
+            {/* Semester Selector */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="semester-select" className="text-sm font-medium text-gray-600">
+                Semester:
+              </label>
+              <select
+                id="semester-select"
+                value={selectedSemester}
+                onChange={(e) => {
+                  setSelectedSemester(e.target.value);
+                  setSelectedCourse(null); // Clear course selection when semester changes
+                }}
+                disabled={loadingSemesters}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               >
-                (Clear selection)
-              </button>
-            )}
-          </h2>
+                {loadingSemesters ? (
+                  <option>Loading...</option>
+                ) : (
+                  availableSemesters.map(semester => (
+                    <option key={semester} value={semester}>
+                      {semester}
+                    </option>
+                  ))
+                )}
+              </select>
+            </div>
+          </div>
           
-          {courses.length === 0 ? (
+          {/* Show courses filtered by semester */}
+          {selectedSemester && courses.filter(c => c.semester === selectedSemester).length === 0 ? (
+            <div className="bg-white p-8 rounded-lg text-center border-2 border-dashed border-gray-300">
+              <FiDatabase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-700 mb-2">No Courses Found for {selectedSemester}</h3>
+              <p className="text-gray-500 mb-4">
+                No courses available for the selected semester
+              </p>
+              <button
+                onClick={handleInitializeSampleCoursesForSemester}
+                disabled={initializingData}
+                className="px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 
+                         transition disabled:opacity-50"
+              >
+                {initializingData ? 'Adding...' : `Add Sample Courses for ${selectedSemester}`}
+              </button>
+            </div>
+          ) : courses.length === 0 ? (
             <div className="bg-white p-8 rounded-lg text-center border-2 border-dashed border-gray-300">
               <FiDatabase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
               <h3 className="text-lg font-medium text-gray-700 mb-2">No Courses Found</h3>
@@ -963,18 +1177,20 @@ export default function FacultyAssignment() {
             </div>
           ) : (
             <div className="grid grid-cols-1 gap-4">
-              {courses.map(course => {
-                return (
-                  <CourseCard 
-                    key={course.id} 
-                    course={course} 
-                    isSelected={selectedCourse?.id === course.id}
-                    onClick={() => handleSelectCourse(course)}
-                    faculty={faculty} // Pass full faculty array for multiple faculty support
-                    onRemoveFaculty={handleRemoveFaculty}
-                  />
-                );
-              })}
+              {courses
+                .filter(course => !selectedSemester || course.semester === selectedSemester)
+                .map(course => {
+                  return (
+                    <CourseCard 
+                      key={course.id} 
+                      course={course} 
+                      isSelected={selectedCourse?.id === course.id}
+                      onClick={() => handleSelectCourse(course)}
+                      faculty={faculty} // Pass full faculty array for multiple faculty support
+                      onRemoveFaculty={handleRemoveFaculty}
+                    />
+                  );
+                })}
             </div>
           )}
         </div>
@@ -1083,8 +1299,8 @@ export default function FacultyAssignment() {
         </div>
       )}
       
-      {/* Floating Save Button - only show if there are assignments */}
-      {courses.some(course => course.faculty) && (
+      {/* Floating Save Button - only show if there are unsaved changes */}
+      {unsavedChanges && (
         <div className="fixed bottom-8 right-8">
           <motion.button
             whileHover={{ scale: 1.05 }}

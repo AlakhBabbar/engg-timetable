@@ -156,6 +156,18 @@ export const fetchFacultyFromFirebase = async (departmentId) => {
     
     return snapshot.docs.map(doc => {
       const data = doc.data();
+      
+      // Handle backward compatibility for assignedCourses
+      let assignedCourses = data.assignedCourses || [];
+      
+      // If assignedCourses is an array (old format), convert to semester-aware object
+      if (Array.isArray(assignedCourses)) {
+        console.log(`Converting faculty ${data.name} from old assignment format to semester-aware format`);
+        // For now, we'll put all old assignments in a "Legacy" semester
+        // In a real migration, you'd want to look up each course's actual semester
+        assignedCourses = assignedCourses.length > 0 ? { "Legacy": assignedCourses } : {};
+      }
+      
       return {
         id: doc.id,
         name: data.name || '',
@@ -165,7 +177,7 @@ export const fetchFacultyFromFirebase = async (departmentId) => {
         maxHours: data.maxHours || 40, // Updated default to match TeacherManagement
         expertise: data.expertise || [],
         preferredCourses: data.preferredCourses || [],
-        assignedCourses: data.assignedCourses || [],
+        assignedCourses: assignedCourses, // Now semester-aware object
         department: data.department || departmentId,
         // Additional fields from TeacherManagement
         email: data.email || '',
@@ -307,6 +319,12 @@ export const assignFacultyToCourse = async (departmentId, courseId, facultyId, r
       throw new Error(`Faculty with ID ${facultyId} not found in local state`);
     }
     
+    // Get the semester for this course
+    const courseSemester = course.semester;
+    if (!courseSemester) {
+      throw new Error(`Course ${course.code} does not have a semester assigned`);
+    }
+    
     const currentFacultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
     
     // Check if faculty is already assigned
@@ -330,8 +348,16 @@ export const assignFacultyToCourse = async (departmentId, courseId, facultyId, r
     for (const removedFacultyId of removedFaculty) {
       const removedFacultyData = localAssignmentState.faculty.get(removedFacultyId);
       if (removedFacultyData) {
-        // Remove course from assigned courses
-        const updatedAssignedCourses = removedFacultyData.assignedCourses.filter(id => id !== courseId);
+        // Remove course from assigned courses (semester-aware)
+        const updatedAssignedCourses = { ...removedFacultyData.assignedCourses };
+        if (updatedAssignedCourses[courseSemester]) {
+          updatedAssignedCourses[courseSemester] = updatedAssignedCourses[courseSemester].filter(id => id !== courseId);
+          // Remove semester key if no courses left
+          if (updatedAssignedCourses[courseSemester].length === 0) {
+            delete updatedAssignedCourses[courseSemester];
+          }
+        }
+        
         localAssignmentState.faculty.set(removedFacultyId, {
           ...removedFacultyData,
           assignedCourses: updatedAssignedCourses
@@ -351,11 +377,19 @@ export const assignFacultyToCourse = async (departmentId, courseId, facultyId, r
     };
     localAssignmentState.courses.set(courseId, updatedCourse);
     
-    // Add course to new faculty's assigned courses in local state
-    const updatedAssignedCourses = [...faculty.assignedCourses];
-    if (!updatedAssignedCourses.includes(courseId)) {
-      updatedAssignedCourses.push(courseId);
+    // Add course to new faculty's assigned courses in local state (semester-aware)
+    const updatedAssignedCourses = { ...faculty.assignedCourses };
+    
+    // Initialize semester array if it doesn't exist
+    if (!updatedAssignedCourses[courseSemester]) {
+      updatedAssignedCourses[courseSemester] = [];
     }
+    
+    // Add course if not already in the semester
+    if (!updatedAssignedCourses[courseSemester].includes(courseId)) {
+      updatedAssignedCourses[courseSemester].push(courseId);
+    }
+    
     localAssignmentState.faculty.set(facultyId, {
       ...faculty,
       assignedCourses: updatedAssignedCourses
@@ -433,6 +467,12 @@ export const removeFacultyFromCourse = async (departmentId, courseId, facultyId)
       throw new Error(`Faculty with ID ${facultyId} not found in local state`);
     }
     
+    // Get the semester for this course
+    const courseSemester = course.semester;
+    if (!courseSemester) {
+      throw new Error(`Course ${course.code} does not have a semester assigned`);
+    }
+    
     const currentFacultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
     
     // Check if faculty is assigned to this course
@@ -451,8 +491,16 @@ export const removeFacultyFromCourse = async (departmentId, courseId, facultyId)
     };
     localAssignmentState.courses.set(courseId, updatedCourse);
     
-    // Remove course from faculty's assigned courses in local state
-    const updatedAssignedCourses = faculty.assignedCourses.filter(id => id !== courseId);
+    // Remove course from faculty's assigned courses in local state (semester-aware)
+    const updatedAssignedCourses = { ...faculty.assignedCourses };
+    if (updatedAssignedCourses[courseSemester]) {
+      updatedAssignedCourses[courseSemester] = updatedAssignedCourses[courseSemester].filter(id => id !== courseId);
+      // Remove semester key if no courses left
+      if (updatedAssignedCourses[courseSemester].length === 0) {
+        delete updatedAssignedCourses[courseSemester];
+      }
+    }
+    
     localAssignmentState.faculty.set(facultyId, {
       ...faculty,
       assignedCourses: updatedAssignedCourses
@@ -704,7 +752,22 @@ export const saveAssignments = async (departmentId) => {
       // Check if faculty data has changed
       const hasLoadChanged = faculty.loadHours !== originalFaculty?.loadHours;
       const hasStatusChanged = faculty.status !== originalFaculty?.status;
-      const hasAssignedCoursesChanged = JSON.stringify(faculty.assignedCourses.sort()) !== JSON.stringify((originalFaculty?.assignedCourses || []).sort());
+      
+      // Handle semester-aware assignedCourses comparison
+      let hasAssignedCoursesChanged = false;
+      
+      // Convert both to strings for comparison, handling both object and array formats
+      const currentAssignments = JSON.stringify(faculty.assignedCourses || {});
+      const originalAssignments = JSON.stringify(originalFaculty?.assignedCourses || {});
+      hasAssignedCoursesChanged = currentAssignments !== originalAssignments;
+      
+      console.log(`Faculty ${faculty.name} change check:`, {
+        hasLoadChanged,
+        hasStatusChanged,
+        hasAssignedCoursesChanged,
+        currentAssignments: faculty.assignedCourses,
+        originalAssignments: originalFaculty?.assignedCourses
+      });
       
       if (hasLoadChanged || hasStatusChanged || hasAssignedCoursesChanged) {
         // Update faculty document
@@ -834,7 +897,7 @@ export const createFaculty = async (facultyData) => {
       loadHours: 0,
       maxHours: facultyData.maxHours || 40,
       preferredCourses: facultyData.preferredCourses || [],
-      assignedCourses: [],
+      assignedCourses: {}, // Initialize as empty object for semester-aware assignments
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp()
     };
@@ -1537,11 +1600,24 @@ export const clearAllAssignments = async (departmentId) => {
       const currentFacultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
       
       if (currentFacultyList.length > 0) {
-        // Remove course from all assigned faculty
+        // Remove course from all assigned faculty (semester-aware)
         for (const facultyId of currentFacultyList) {
           const faculty = localAssignmentState.faculty.get(facultyId);
           if (faculty) {
-            const updatedAssignedCourses = faculty.assignedCourses.filter(id => id !== courseId);
+            // Handle semester-aware assigned courses
+            const updatedAssignedCourses = { ...faculty.assignedCourses };
+            
+            // Remove the course from all semesters
+            Object.keys(updatedAssignedCourses).forEach(semester => {
+              if (Array.isArray(updatedAssignedCourses[semester])) {
+                updatedAssignedCourses[semester] = updatedAssignedCourses[semester].filter(id => id !== courseId);
+                // Remove semester key if no courses left
+                if (updatedAssignedCourses[semester].length === 0) {
+                  delete updatedAssignedCourses[semester];
+                }
+              }
+            });
+            
             localAssignmentState.faculty.set(facultyId, {
               ...faculty,
               assignedCourses: updatedAssignedCourses

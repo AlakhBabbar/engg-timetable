@@ -312,3 +312,99 @@ export const clearSampleData = async (departmentId = 'dept_computer_science') =>
     return false;
   }
 };
+
+/**
+ * Initialize sample courses for a specific semester
+ * @param {string} departmentId - Department ID to initialize data for
+ * @param {string} semester - Specific semester to create courses for
+ * @returns {Promise<boolean>} Success status
+ */
+export const initializeSampleCoursesForSemester = async (departmentId = 'dept_computer_science', semester = 'Semester 6') => {
+  try {
+    // Check if courses already exist for this semester and department
+    const coursesRef = collection(db, 'courses');
+    const existingCoursesQuery = query(
+      coursesRef, 
+      where('department', '==', departmentId),
+      where('semester', '==', semester)
+    );
+    const existingCoursesSnapshot = await getDocs(existingCoursesQuery);
+    
+    if (!existingCoursesSnapshot.empty) {
+      console.log(`Sample courses already exist for department: ${departmentId}, semester: ${semester}`);
+      return true;
+    }
+    
+    // Filter sample courses for the specified semester
+    const semesterCourses = sampleCourses.filter(course => course.semester === semester);
+    
+    if (semesterCourses.length === 0) {
+      // If no sample courses exist for this semester, create some generic ones
+      const genericCourses = [
+        {
+          id: `course_${semester.toLowerCase().replace(' ', '_')}_1`,
+          code: `${departmentId.split('_')[1]?.toUpperCase() || 'CS'}${Math.floor(Math.random() * 900) + 100}`,
+          title: `${semester} Course 1`,
+          semester: semester,
+          weeklyHours: '3L+1T',
+          department: departmentId,
+          faculty: null,
+          tags: ['core', 'theory'],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          id: `course_${semester.toLowerCase().replace(' ', '_')}_2`,
+          code: `${departmentId.split('_')[1]?.toUpperCase() || 'CS'}${Math.floor(Math.random() * 900) + 100}`,
+          title: `${semester} Course 2`,
+          semester: semester,
+          weeklyHours: '2L+2P',
+          department: departmentId,
+          faculty: null,
+          tags: ['practical', 'lab'],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        },
+        {
+          id: `course_${semester.toLowerCase().replace(' ', '_')}_3`,
+          code: `${departmentId.split('_')[1]?.toUpperCase() || 'CS'}${Math.floor(Math.random() * 900) + 100}`,
+          title: `${semester} Course 3`,
+          semester: semester,
+          weeklyHours: '3L+1T+2P',
+          department: departmentId,
+          faculty: null,
+          tags: ['core', 'combined'],
+          createdAt: new Date(),
+          updatedAt: new Date()
+        }
+      ];
+      
+      // Add generic courses for this semester
+      for (const course of genericCourses) {
+        const courseData = { ...course, department: departmentId };
+        delete courseData.id; // Remove id field, Firestore will generate it
+        
+        const courseDoc = doc(db, 'courses', course.id);
+        await setDoc(courseDoc, courseData);
+      }
+      
+      console.log(`Generic sample courses created for ${semester}`);
+    } else {
+      // Add existing sample courses for this semester
+      for (const course of semesterCourses) {
+        const courseData = { ...course, department: departmentId };
+        delete courseData.id; // Remove id field, Firestore will generate it
+        
+        const courseDoc = doc(db, 'courses', course.id);
+        await setDoc(courseDoc, courseData);
+      }
+      
+      console.log(`Sample courses initialized for ${semester}`);
+    }
+    
+    return true;
+  } catch (error) {
+    console.error(`Error initializing sample courses for ${semester}:`, error);
+    return false;
+  }
+};
