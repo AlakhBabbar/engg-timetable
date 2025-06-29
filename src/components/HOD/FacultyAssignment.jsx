@@ -1,18 +1,23 @@
 import { useState, useEffect, useContext } from 'react';
-import { FiAlertCircle, FiCheck, FiRefreshCw, FiStar, FiUsers, FiLoader, FiDatabase } from 'react-icons/fi';
+import { FiAlertCircle, FiCheck, FiRefreshCw, FiStar, FiUsers, FiLoader, FiDatabase, FiX } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import { AuthContext } from '../../App'; // Import AuthContext from App.jsx
 import { 
   fetchCourses,
   fetchFaculty,
   assignFacultyToCourse,
+  removeFacultyFromCourse,
   autoAssignFaculty,
   saveAssignments,
   getTimeSlots, 
   filterFacultyBySearch,
   getFacultyWorkloadStats,
   getCourseAssignmentStats,
-  checkFirebaseConnection
+  checkFirebaseConnection,
+  clearAllAssignments,
+  discardChanges,
+  hasUnsavedChanges,
+  getPendingChangesSummary
 } from './services/FacultyAssignment';
 import { initializeAllSampleData } from './services/SampleDataInitializer';
 import { useToast } from '../../context/ToastContext';
@@ -32,6 +37,15 @@ const FacultyCard = ({ faculty, selectedCourse, onAssign, assignedCourses }) => 
     faculty.expertise.some(exp => selectedCourse.tags.includes(exp)) ||
     faculty.preferredCourses.includes(selectedCourse.code)
   );
+
+  // Check if faculty is already assigned to the selected course
+  const isAssignedToCourse = selectedCourse && (
+    selectedCourse.faculty === faculty.id ||
+    (selectedCourse.facultyList && selectedCourse.facultyList.includes(faculty.id))
+  );
+
+  // Check if this is the primary faculty for the course
+  const isPrimaryFaculty = selectedCourse && selectedCourse.faculty === faculty.id;
   
   const statusColors = {
     available: 'bg-green-500',
@@ -92,19 +106,36 @@ const FacultyCard = ({ faculty, selectedCourse, onAssign, assignedCourses }) => 
       </div>
       
       {selectedCourse && (
-        <div className="mt-3">
+        <div className="mt-3 space-y-2">
+          {/* Primary Assignment Button */}
           <button
-            onClick={() => onAssign(faculty.id)}
-            disabled={faculty.status === 'overloaded' && selectedCourse.faculty !== faculty.id}
+            onClick={() => onAssign(faculty.id, true)} // true = replace/primary
+            disabled={faculty.status === 'overloaded' && !isAssignedToCourse}
             className={`w-full py-1.5 px-3 rounded-lg text-sm text-center transition
-                      ${selectedCourse.faculty === faculty.id 
-                        ? 'bg-teal-100 text-teal-700 border border-teal-200' 
+                      ${isPrimaryFaculty 
+                        ? 'bg-blue-100 text-blue-700 border border-blue-200 font-medium' 
                         : faculty.status === 'overloaded'
                           ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                          : 'bg-white border border-gray-200 hover:bg-teal-50 text-gray-700'}`}
+                          : 'bg-white border border-gray-200 hover:bg-blue-50 text-gray-700'}`}
           >
-            {selectedCourse.faculty === faculty.id ? 'Assigned' : 'Assign'}
+            {isPrimaryFaculty ? '★ Primary Faculty' : 'Set as Primary'}
           </button>
+
+          {/* Additional Assignment Button */}
+          {!isPrimaryFaculty && (
+            <button
+              onClick={() => onAssign(faculty.id, false)} // false = add additional
+              disabled={faculty.status === 'overloaded' && !isAssignedToCourse}
+              className={`w-full py-1.5 px-3 rounded-lg text-sm text-center transition
+                        ${isAssignedToCourse 
+                          ? 'bg-teal-100 text-teal-700 border border-teal-200' 
+                          : faculty.status === 'overloaded'
+                            ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                            : 'bg-white border border-gray-200 hover:bg-teal-50 text-gray-700'}`}
+            >
+              {isAssignedToCourse ? '+ Co-Faculty' : '+ Add as Co-Faculty'}
+            </button>
+          )}
         </div>
       )}
     </motion.div>
@@ -112,7 +143,19 @@ const FacultyCard = ({ faculty, selectedCourse, onAssign, assignedCourses }) => 
 };
 
 // Component for displaying a course card
-const CourseCard = ({ course, isSelected, onClick, faculty }) => {
+const CourseCard = ({ course, isSelected, onClick, faculty, onRemoveFaculty }) => {
+  const handleRemoveClick = (e, facultyId) => {
+    e.stopPropagation(); // Prevent triggering the card's onClick
+    if (onRemoveFaculty) {
+      onRemoveFaculty(course.id, facultyId);
+    }
+  };
+
+  // Get all faculty assigned to this course
+  const facultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
+  const assignedFaculty = faculty.filter(f => facultyList.includes(f.id));
+  const primaryFaculty = faculty.find(f => f.id === course.faculty);
+
   return (
     <motion.div 
       whileHover={{ scale: 1.02 }}
@@ -121,11 +164,21 @@ const CourseCard = ({ course, isSelected, onClick, faculty }) => {
       className={`p-4 border rounded-xl cursor-pointer transition-all duration-200
                  ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'bg-white hover:shadow-md'}`}
     >
-      <h3 className="text-blue-700 font-medium">{course.code}</h3>
-      <h4 className="font-medium text-gray-800 mt-1">{course.title}</h4>
-      <p className="text-sm text-gray-500 mt-1">
-        {course.semester} • {course.weeklyHours}
-      </p>
+      <div className="flex items-start justify-between">
+        <div className="flex-1">
+          <h3 className="text-blue-700 font-medium">{course.code}</h3>
+          <h4 className="font-medium text-gray-800 mt-1">{course.title}</h4>
+          <p className="text-sm text-gray-500 mt-1">
+            {course.semester} • {course.weeklyHours}
+          </p>
+        </div>
+        {facultyList.length > 1 && (
+          <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-full">
+            {facultyList.length} Faculty
+          </span>
+        )}
+      </div>
+
       <div className="mt-2 flex flex-wrap gap-1.5">
         {course.tags.map((tag, index) => (
           <span 
@@ -137,16 +190,69 @@ const CourseCard = ({ course, isSelected, onClick, faculty }) => {
         ))}
       </div>
       
-      {course.faculty && (
-        <div className="mt-3 flex items-center gap-2 border-t pt-2">
-          <img 
-            src={faculty?.avatar || 'https://via.placeholder.com/32'} 
-            alt={faculty?.name || 'Faculty'} 
-            className="w-6 h-6 rounded-full object-cover" 
-          />
-          <span className="text-sm text-gray-600 truncate">
-            {faculty?.name || 'Loading...'}
-          </span>
+      {facultyList.length > 0 && (
+        <div className="mt-3 border-t pt-2 space-y-2">
+          {/* Primary Faculty */}
+          {primaryFaculty && (
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <img 
+                  src={primaryFaculty.avatar || 'https://via.placeholder.com/32'} 
+                  alt={primaryFaculty.name} 
+                  className="w-6 h-6 rounded-full object-cover" 
+                />
+                <div className="flex items-center gap-1">
+                  <span className="text-sm text-gray-600 truncate">
+                    {primaryFaculty.name}
+                  </span>
+                  <span className="text-xs bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded">
+                    ★ Primary
+                  </span>
+                </div>
+              </div>
+              {onRemoveFaculty && (
+                <button
+                  onClick={(e) => handleRemoveClick(e, primaryFaculty.id)}
+                  className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                  title="Remove primary faculty"
+                >
+                  <FiX className="w-3 h-3" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Co-Faculty */}
+          {assignedFaculty
+            .filter(f => f.id !== course.faculty)
+            .map((coFaculty) => (
+              <div key={coFaculty.id} className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <img 
+                    src={coFaculty.avatar || 'https://via.placeholder.com/32'} 
+                    alt={coFaculty.name} 
+                    className="w-5 h-5 rounded-full object-cover" 
+                  />
+                  <div className="flex items-center gap-1">
+                    <span className="text-sm text-gray-600 truncate">
+                      {coFaculty.name}
+                    </span>
+                    <span className="text-xs bg-teal-100 text-teal-600 px-1.5 py-0.5 rounded">
+                      Co-Faculty
+                    </span>
+                  </div>
+                </div>
+                {onRemoveFaculty && (
+                  <button
+                    onClick={(e) => handleRemoveClick(e, coFaculty.id)}
+                    className="p-1 text-red-400 hover:text-red-600 hover:bg-red-50 rounded transition-all"
+                    title="Remove co-faculty"
+                  >
+                    <FiX className="w-3 h-3" />
+                  </button>
+                )}
+              </div>
+            ))}
         </div>
       )}
     </motion.div>
@@ -165,6 +271,9 @@ export default function FacultyAssignment() {
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [initializingData, setInitializingData] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
+  const [clearingAssignments, setClearingAssignments] = useState(false);
+  const [discardingChanges, setDiscardingChanges] = useState(false);
+  const [unsavedChanges, setUnsavedChanges] = useState(false);
   const { showSuccess, showError } = useToast();
   const { user } = useContext(AuthContext); // Get authenticated user data
   
@@ -280,32 +389,62 @@ export default function FacultyAssignment() {
     }
   };
 
-  const handleAssignFaculty = async (facultyId) => {
+  const handleAssignFaculty = async (facultyId, replace = true) => {
     if (!selectedCourse) return;
     
     try {
-      const result = await assignFacultyToCourse(departmentId, selectedCourse.id, facultyId);
+      const result = await assignFacultyToCourse(departmentId, selectedCourse.id, facultyId, replace);
       
       if (result.success) {
-        // Update local state
-        const updatedCourses = courses.map(course => 
-          course.id === selectedCourse.id 
-            ? { ...course, faculty: facultyId }
-            : course
-        );
+        // Refresh the data to get updated assignments
+        const [updatedCourses, updatedFaculty] = await Promise.all([
+          fetchCourses(departmentId),
+          fetchFaculty(departmentId)
+        ]);
         setCourses(updatedCourses);
+        setFaculty(updatedFaculty);
         
         // Update selected course
         const updatedSelectedCourse = updatedCourses.find(c => c.id === selectedCourse.id);
         setSelectedCourse(updatedSelectedCourse);
         
-        showSuccess('Faculty assigned successfully!');
+        const assignmentType = replace ? 'Primary faculty assigned' : 'Co-faculty added';
+        showSuccess(`${assignmentType} successfully!`);
       } else {
         showError(result.message || 'Failed to assign faculty');
       }
     } catch (error) {
       console.error('Error assigning faculty:', error);
       showError('Error assigning faculty. Please try again.');
+    }
+  };
+
+  const handleRemoveFaculty = async (courseId, facultyId) => {
+    try {
+      const result = await removeFacultyFromCourse(departmentId, courseId, facultyId);
+      
+      if (result.success) {
+        // Refresh the data to get updated assignments
+        const [updatedCourses, updatedFaculty] = await Promise.all([
+          fetchCourses(departmentId),
+          fetchFaculty(departmentId)
+        ]);
+        setCourses(updatedCourses);
+        setFaculty(updatedFaculty);
+        
+        // Update selected course if it was the one modified
+        if (selectedCourse && selectedCourse.id === courseId) {
+          const updatedSelectedCourse = updatedCourses.find(c => c.id === courseId);
+          setSelectedCourse(updatedSelectedCourse);
+        }
+        
+        showSuccess(result.message);
+      } else {
+        showError(result.message || 'Failed to remove faculty assignment');
+      }
+    } catch (error) {
+      console.error('Error removing faculty assignment:', error);
+      showError('Error removing faculty assignment. Please try again.');
     }
   };
 
@@ -429,6 +568,76 @@ export default function FacultyAssignment() {
     }
   };
   
+  // Clear all assignments
+  const handleClearAllAssignments = async () => {
+    // Confirm before clearing
+    const confirmClear = window.confirm(
+      'Are you sure you want to clear ALL faculty assignments? This will remove all faculty from all courses. This action can be undone by discarding changes if you haven\'t saved yet.'
+    );
+    
+    if (!confirmClear) return;
+    
+    try {
+      setClearingAssignments(true);
+      const result = await clearAllAssignments(departmentId);
+      
+      if (result.success) {
+        // Refresh the data to get updated assignments
+        const [updatedCourses, updatedFaculty] = await Promise.all([
+          fetchCourses(departmentId),
+          fetchFaculty(departmentId)
+        ]);
+        setCourses(updatedCourses);
+        setFaculty(updatedFaculty);
+        
+        // Clear selected course
+        setSelectedCourse(null);
+        
+        showSuccess(result.message);
+      } else {
+        showError(result.message || 'Failed to clear assignments');
+      }
+    } catch (error) {
+      console.error('Error clearing assignments:', error);
+      showError('Error clearing assignments. Please try again.');
+    } finally {
+      setClearingAssignments(false);
+    }
+  };
+
+  // Discard unsaved changes
+  const handleDiscardChanges = async () => {
+    // Confirm before discarding
+    const confirmDiscard = window.confirm(
+      'Are you sure you want to discard all unsaved changes? This will revert all assignments back to the last saved state. This action cannot be undone.'
+    );
+    
+    if (!confirmDiscard) return;
+    
+    try {
+      setDiscardingChanges(true);
+      await discardChanges(departmentId);
+      
+      // Refresh the data to get original Firebase state
+      const [originalCourses, originalFaculty] = await Promise.all([
+        fetchCourses(departmentId),
+        fetchFaculty(departmentId)
+      ]);
+      setCourses(originalCourses);
+      setFaculty(originalFaculty);
+      
+      // Clear selected course
+      setSelectedCourse(null);
+      
+      showSuccess('All unsaved changes have been discarded');
+    } catch (error) {
+      console.error('Error discarding changes:', error);
+      showError('Error discarding changes. Please try again.');
+    } finally {
+      setDiscardingChanges(false);
+    }
+  };
+
   // Calculate statistics
   const facultyStats = getFacultyWorkloadStats(faculty);
   const courseStats = getCourseAssignmentStats(courses);
@@ -508,9 +717,17 @@ export default function FacultyAssignment() {
 
   return (
     <div className="p-6 relative bg-gray-50 min-h-screen">
-      <h1 className="text-2xl font-bold text-gray-800 mb-2">
-        Faculty Assignment
-      </h1>
+      <div className="flex items-center gap-4 mb-2">
+        <h1 className="text-2xl font-bold text-gray-800">
+          Faculty Assignment
+        </h1>
+        {unsavedChanges && (
+          <div className="flex items-center gap-2 bg-orange-100 text-orange-700 px-3 py-1 rounded-lg">
+            <FiAlertCircle className="w-4 h-4" />
+            <span className="text-sm font-medium">Unsaved Changes</span>
+          </div>
+        )}
+      </div>
       
       {/* Data source indicator and stats */}
       <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
@@ -580,6 +797,32 @@ export default function FacultyAssignment() {
           <span>{autoAssigning ? 'Auto Assigning...' : '🔄 Auto Assign'}</span>
         </button>
         
+        {/* Clear All Assignments Button */}
+        {courses.some(course => course.faculty || (course.facultyList && course.facultyList.length > 0)) && (
+          <button
+            onClick={handleClearAllAssignments}
+            disabled={clearingAssignments}
+            className="px-6 py-2 rounded-lg border border-red-500 text-red-600 hover:bg-red-50 
+                     transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {clearingAssignments ? <FiLoader className="animate-spin" /> : <FiAlertCircle />}
+            <span>{clearingAssignments ? 'Clearing...' : '🗑️ Clear All Assignments'}</span>
+          </button>
+        )}
+        
+        {/* Discard Changes Button */}
+        {unsavedChanges && (
+          <button
+            onClick={handleDiscardChanges}
+            disabled={discardingChanges}
+            className="px-6 py-2 rounded-lg border border-orange-500 text-orange-600 hover:bg-orange-50 
+                     transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {discardingChanges ? <FiLoader className="animate-spin" /> : <FiRefreshCw />}
+            <span>{discardingChanges ? 'Discarding...' : '↶ Discard Changes'}</span>
+          </button>
+        )}
+        
         {(courses.length === 0 || faculty.length === 0) && (
           <button
             onClick={handleInitializeSampleData}
@@ -599,7 +842,7 @@ export default function FacultyAssignment() {
           <span>
             {courses.length === 0 || faculty.length === 0 
               ? 'Both courses and faculty are required for auto-assignment'
-              : 'Auto-assign will match faculty to compatible courses based on expertise and workload'
+              : 'Auto-assign matches faculty to courses. Click a course, then use ★ Primary or + Co-Faculty buttons. Use ❌ to remove individual assignments. Changes are saved locally until you click Save.'
             }
           </span>
         </div>
@@ -721,14 +964,14 @@ export default function FacultyAssignment() {
           ) : (
             <div className="grid grid-cols-1 gap-4">
               {courses.map(course => {
-                const assignedFaculty = faculty.find(f => f.id === course.faculty);
                 return (
                   <CourseCard 
                     key={course.id} 
                     course={course} 
                     isSelected={selectedCourse?.id === course.id}
                     onClick={() => handleSelectCourse(course)}
-                    faculty={assignedFaculty}
+                    faculty={faculty} // Pass full faculty array for multiple faculty support
+                    onRemoveFaculty={handleRemoveFaculty}
                   />
                 );
               })}
@@ -779,6 +1022,22 @@ export default function FacultyAssignment() {
                   <span className="text-xs text-gray-600">Overloaded</span>
                 </div>
               </div>
+
+              {selectedCourse && (
+                <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                  <div className="flex items-center gap-2 mb-2">
+                    <FiUsers className="text-blue-600" />
+                    <span className="text-sm font-medium text-blue-700">
+                      Multiple Faculty Assignment
+                    </span>
+                  </div>
+                  <p className="text-xs text-blue-600">
+                    • <strong>★ Primary Faculty:</strong> Sets the main instructor for the course<br/>
+                    • <strong>+ Co-Faculty:</strong> Adds additional faculty to share teaching load<br/>
+                    • Each faculty member gets a proportional share of course hours
+                  </p>
+                </div>
+              )}
               
               <div className="grid grid-cols-1 gap-4">
                 {filteredFaculty.map(f => (
