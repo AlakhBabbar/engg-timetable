@@ -34,17 +34,23 @@ export const loginUser = async (credentials) => {
     const userProfileSnap = await getDoc(userProfileRef);
     
     let role = 'faculty'; // Default role
+    let department = null;
+    let name = user.displayName || '';
     
     if (userProfileSnap.exists()) {
-      // If profile exists in Firestore, use role from there
-      role = userProfileSnap.data().role;
+      // If profile exists in Firestore, use data from there
+      const profileData = userProfileSnap.data();
+      role = profileData.role;
+      department = profileData.department;
+      name = profileData.name || name;
     }
     
     const userObject = {
       id: user.uid,
       email: user.email,
-      name: userProfileSnap.exists() ? userProfileSnap.data().name : user.displayName || '',
+      name: name,
       role: role,
+      department: department,
       isAuthenticated: true
     };
     
@@ -121,15 +127,22 @@ export const getCurrentUser = async () => {
           const userProfileSnap = await getDoc(userProfileRef);
           
           let role = 'faculty'; // Default role
+          let department = null;
+          let name = user.displayName || '';
+          
           if (userProfileSnap.exists()) {
-            role = userProfileSnap.data().role;
+            const profileData = userProfileSnap.data();
+            role = profileData.role;
+            department = profileData.department;
+            name = profileData.name || name;
           }
           
           const userObject = {
             id: user.uid,
             email: user.email,
-            name: userProfileSnap.exists() ? userProfileSnap.data().name : user.displayName || '',
+            name: name,
             role: role,
+            department: department,
             isAuthenticated: true
           };
           

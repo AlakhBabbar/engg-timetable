@@ -1,10 +1,18 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useContext } from 'react';
 import { FiEdit, FiTrash2, FiSearch, FiFilter, FiX, FiBook, FiUser, FiClock, FiCalendar, FiHash, FiUpload, FiInfo, FiDownload } from 'react-icons/fi';
 import CourseManagementService from './services/CourseManagement';
 import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
+import { useToast } from '../../context/ToastContext';
+import { AuthContext } from '../../App';
 
 export default function CourseManagement() {
+  // Authentication context
+  const { user } = useContext(AuthContext);
+  
+  // Toast notifications
+  const { showSuccess, showError, showWarning, showInfo } = useToast();
+  
   // State variables
   const [courses, setCourses] = useState([]);
   const [filteredCourses, setFilteredCourses] = useState([]);
@@ -25,39 +33,48 @@ export default function CourseManagement() {
     tutorialHours: '1',
     practicalHours: '0'
   });
-  const [error, setError] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
 
   // Rate-limited upload hook
-  const { uploadState, handleUpload, resetUploadState } = useRateLimitedUpload(
-    // Processor function for course imports
-    async (courseBatch) => {
-      const results = [];
-      for (const course of courseBatch) {
-        try {
-          const result = await CourseManagementService.processSingleCourseImport(course, faculty);
-          results.push(result);
-        } catch (error) {
-          results.push({
-            success: false,
-            error: error.message,
-            item: course
-          });
-        }
-      }
-      return results;
-    }
-  );
+  const { uploadState, handleUpload, handleCancel, resetUploadState } = useRateLimitedUpload();
 
   // Load initial data
   useEffect(() => {
-    setCourses(CourseManagementService.getCourses());
-    setFaculty(CourseManagementService.getFaculty());
-    setSemesterOptions(CourseManagementService.getSemesterOptions());
-  }, []);
+    const loadData = async () => {
+      if (!user?.department) return;
+      
+      try {
+        setIsLoading(true);
+        
+        // Fetch courses from Firebase using user's department
+        const coursesData = await CourseManagementService.fetchCourses(user.department);
+        setCourses(coursesData);
+        
+        // Fetch faculty from Firebase using user's department  
+        const facultyData = await CourseManagementService.fetchFaculty(user.department);
+        setFaculty(facultyData);
+        
+        // Get semester options (this is static data)
+        setSemesterOptions(CourseManagementService.getSemesterOptions());
+      } catch (error) {
+        console.error('Error loading course data:', error);
+        showError('Failed to load course data. Please refresh the page.', {
+          duration: 8000
+        });
+        // Fallback to cached/dummy data
+        setCourses(CourseManagementService.getCourses());
+        setFaculty(CourseManagementService.getFaculty());
+        setSemesterOptions(CourseManagementService.getSemesterOptions());
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    
+    loadData();
+  }, [user?.department, showError]);
 
   // Initial filtered courses setup
   useEffect(() => {
@@ -147,35 +164,79 @@ export default function CourseManagement() {
   };
 
   // Handle form submission
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     
-    if (editingCourse) {
-      // Update existing course
-      const updatedCourses = CourseManagementService.updateCourse(
-        courses,
-        editingCourse.id,
-        formData,
-        faculty
-      );
-      setCourses(updatedCourses);
-    } else {
-      // Add new course
-      const updatedCourses = CourseManagementService.addCourse(
-        courses,
-        formData,
-        faculty
-      );
-      setCourses(updatedCourses);
+    if (!user?.department) {
+      showError('Unable to save course: Department information not available', {
+        duration: 8000
+      });
+      return;
     }
     
-    setShowModal(false);
+    try {
+      setIsLoading(true);
+      
+      if (editingCourse) {
+        // Update existing course
+        const updatedCourses = await CourseManagementService.updateCourse(
+          courses,
+          editingCourse.id,
+          formData,
+          faculty,
+          user.department
+        );
+        setCourses(updatedCourses);
+        showSuccess(`Course ${formData.code} updated successfully`);
+      } else {
+        // Add new course
+        const updatedCourses = await CourseManagementService.addCourse(
+          courses,
+          formData,
+          faculty,
+          user.department
+        );
+        setCourses(updatedCourses);
+        showSuccess(`Course ${formData.code} created successfully`);
+      }
+      
+      setShowModal(false);
+    } catch (err) {
+      showError(`Failed to save course: ${err.message}`, {
+        duration: 8000
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Delete a course
-  const handleDeleteCourse = (id) => {
-    const updatedCourses = CourseManagementService.deleteCourse(courses, id);
-    setCourses(updatedCourses);
+  const handleDeleteCourse = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this course?')) {
+      return;
+    }
+
+    if (!user?.department) {
+      showError('Unable to delete course: Department information not available', {
+        duration: 8000
+      });
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const courseToDelete = courses.find(c => c.id === id);
+      
+      const updatedCourses = await CourseManagementService.deleteCourse(courses, id, user.department);
+      setCourses(updatedCourses);
+      showSuccess(`Course ${courseToDelete?.code || ''} deleted successfully`);
+    } catch (err) {
+      showError(`Failed to delete course: ${err.message}`, {
+        duration: 8000
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Reset all filters
@@ -197,9 +258,16 @@ export default function CourseManagement() {
     const file = e.target.files[0];
     if (!file) return;
     
+    // Validate file type
+    if (!file.name.toLowerCase().endsWith('.json')) {
+      showError('Please select a valid JSON file', {
+        duration: 5000
+      });
+      return;
+    }
+    
     try {
       setIsLoading(true);
-      setError(null);
       resetUploadState(); // Reset any previous upload state
       
       const reader = new FileReader();
@@ -214,51 +282,189 @@ export default function CourseManagement() {
             throw new Error('JSON data must be an array of courses or contain a "courses" array');
           }
 
-          // Start rate-limited upload
-          await handleUpload(coursesArray, {
-            batchSize: 1, // Process one course at a time
-            onComplete: (results) => {
-              const successful = results.filter(r => r.success).length;
-              const failed = results.filter(r => !r.success).length;
-              
-              if (failed === 0) {
-                alert(`✅ Successfully imported ${successful} courses.`);
-              } else {
-                alert(`⚠️ Import completed: ${successful} successful, ${failed} failed. Check the progress indicator for details.`);
-                console.table(results.filter(r => !r.success));
-              }
-              
-              // Refresh the courses list
-              loadCourses();
+          if (coursesArray.length === 0) {
+            showWarning('The selected file contains no courses to import');
+            setIsLoading(false);
+            return;
+          }
+
+          // Validate the course data structure and content
+          const validation = validateCourseData(coursesArray);
+          
+          if (!validation.isValid) {
+            // Critical errors found - cannot proceed
+            const errorDetails = validation.errors.slice(0, 10).join('\n') + 
+              (validation.errors.length > 10 ? `\n... and ${validation.errors.length - 10} more errors` : '');
+            
+            showError(`❌ Data validation failed - cannot import`, {
+              details: `Found ${validation.errors.length} error(s):\n\n${errorDetails}\n\nPlease fix these issues and try again.`,
+              duration: 25000
+            });
+            setIsLoading(false);
+            return;
+          }
+          
+          // Show warnings if any and ask user for confirmation
+          if (validation.warnings.length > 0) {
+            const warningDetails = validation.warnings.slice(0, 8).join('\n') + 
+              (validation.warnings.length > 8 ? `\n... and ${validation.warnings.length - 8} more warnings` : '');
+            
+            showWarning(`⚠️ Data validation completed with ${validation.warnings.length} warning(s)`, {
+              details: `${warningDetails}`,
+              duration: 15000
+            });
+
+            // Ask user for confirmation to proceed
+            const userConfirmed = window.confirm(
+              `⚠️ Data Validation Warnings Found\n\n` +
+              `Found ${validation.warnings.length} warning(s) in your course data:\n\n` +
+              `${validation.warnings.slice(0, 5).join('\n')}` +
+              `${validation.warnings.length > 5 ? `\n... and ${validation.warnings.length - 5} more warnings` : ''}\n\n` +
+              `These warnings won't prevent the upload, but you should review them.\n\n` +
+              `Do you want to proceed with the upload anyway?`
+            );
+
+            if (!userConfirmed) {
+              showInfo('Upload canceled by user due to data warnings.');
               setIsLoading(false);
-            },
-            onError: (error) => {
-              setError(`Upload failed: ${error}`);
-              setIsLoading(false);
+              return;
             }
-          });
+
+            showInfo('User confirmed to proceed despite warnings. Starting upload...');
+          } else {
+            // No errors or warnings
+            showSuccess(`✅ Data validation passed! Ready to import ${validation.courseCount} courses`, {
+              duration: 5000
+            });
+          }
+
+          // Brief delay to let user see validation results
+          setTimeout(() => {
+            showInfo(`🚀 Starting import of ${coursesArray.length} courses...`);
+
+            // Start rate-limited upload
+            handleUpload(coursesArray, {
+              batchSize: 1, // Process one course at a time
+              processor: async (courseBatch) => {
+                const results = [];
+                for (const course of courseBatch) {
+                  try {
+                    const result = await CourseManagementService.processSingleCourseImport(course, faculty, user.department);
+                    results.push(result);
+                  } catch (error) {
+                    results.push({
+                      success: false,
+                      error: error.message,
+                      item: course
+                    });
+                  }
+                }
+                return results;
+              },
+              onComplete: (results) => {
+                const successful = results.filter(r => r.success).length;
+                const failed = results.filter(r => !r.success).length;
+                const failedItems = results.filter(r => !r.success);
+                
+                // Show toasts immediately
+                if (failed === 0) {
+                  showSuccess(`✅ Successfully imported all ${successful} courses!`, {
+                    duration: 8000
+                  });
+                } else if (successful > 0) {
+                  // Format error details for display
+                  const errorSummary = failedItems.slice(0, 5).map(item => 
+                    `${item.item?.code || 'Unknown'}: ${item.error}`
+                  ).join('\n');
+                  const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
+                  
+                  showWarning(`⚠️ Import completed: ${successful} successful, ${failed} failed`, {
+                    details: errorSummary + moreErrors,
+                    duration: 15000
+                  });
+                } else {
+                  // Format error details for display
+                  const errorSummary = failedItems.slice(0, 5).map(item => 
+                    `${item.item?.code || 'Unknown'}: ${item.error}`
+                  ).join('\n');
+                  const moreErrors = failedItems.length > 5 ? `\n... and ${failedItems.length - 5} more errors` : '';
+                  
+                  showError(`❌ Import failed: All ${failed} courses failed to import`, {
+                    details: errorSummary + moreErrors,
+                    duration: 20000
+                  });
+                }
+                
+                // Refresh the courses list from Firebase after upload
+                const refreshData = async () => {
+                  try {
+                    const refreshedCourses = await CourseManagementService.fetchCourses(user.department);
+                    setCourses(refreshedCourses);
+                  } catch (error) {
+                    console.error('Error refreshing courses after upload:', error);
+                    // Fallback to existing method if refresh fails
+                    setCourses(CourseManagementService.getCourses());
+                  }
+                  setIsLoading(false);
+                };
+                
+                refreshData();
+                
+                // Auto-dismiss upload indicator after a delay for successful imports
+                if (failed === 0) {
+                  setTimeout(() => {
+                    resetUploadState();
+                  }, 3000);
+                }
+              },
+              onError: (error) => {
+                showError(`Upload failed: ${error}`, {
+                  duration: 10000
+                });
+                setIsLoading(false);
+              }
+            });
+          }, 1000); // Standard delay since user has already confirmed
           
         } catch (err) {
-          setError(`Error parsing JSON: ${err.message}`);
-          console.error(err);
+          if (err.name === 'SyntaxError') {
+            showError('Invalid JSON file format. Please check your file and try again.', {
+              details: err.message,
+              duration: 8000
+            });
+          } else {
+            showError(`Error processing file: ${err.message}`, {
+              duration: 8000
+            });
+          }
+          // Log errors in development for debugging
+          if (process.env.NODE_ENV === 'development') {
+            console.error(err);
+          }
           setIsLoading(false);
         }
       };
       
       reader.onerror = () => {
-        setError('Error reading the file');
+        showError('Error reading the file. Please try again.', {
+          duration: 6000
+        });
         setIsLoading(false);
       };
       
       reader.readAsText(file);
       
     } catch (err) {
-      setError(err.message || 'An error occurred during file upload');
+      showError(`An error occurred during file upload: ${err.message}`, {
+        duration: 8000
+      });
       setIsLoading(false);
     }
     
     // Reset the file input
-    e.target.value = '';
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
   };
 
   // Download example JSON dataset
@@ -275,6 +481,163 @@ export default function CourseManagement() {
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
+
+  // Comprehensive JSON validation function for courses
+  const validateCourseData = (coursesArray) => {
+    const errors = [];
+    const warnings = [];
+    const courseCodes = new Set();
+    
+    if (!Array.isArray(coursesArray)) {
+      errors.push('Data must be an array of courses');
+      return { errors, warnings, isValid: false };
+    }
+    
+    if (coursesArray.length === 0) {
+      errors.push('No courses found in the data');
+      return { errors, warnings, isValid: false };
+    }
+    
+    if (coursesArray.length > 300) {
+      warnings.push(`Large dataset detected (${coursesArray.length} courses). This may take a while to process.`);
+    }
+    
+    coursesArray.forEach((course, index) => {
+      const courseContext = `Course ${index + 1}${course.code ? ` (${course.code})` : ''}`;
+      
+      // Check if course is an object
+      if (typeof course !== 'object' || course === null) {
+        errors.push(`${courseContext}: Must be an object, found ${typeof course}`);
+        return;
+      }
+      
+      // Required field validation
+      if (!course.code || course.code.toString().trim() === '') {
+        errors.push(`${courseContext}: Missing or empty course code`);
+      } else {
+        const code = course.code.toString().trim().toUpperCase();
+        if (courseCodes.has(code)) {
+          errors.push(`${courseContext}: Duplicate course code "${code}"`);
+        } else {
+          courseCodes.add(code);
+        }
+        
+        // Course code format validation
+        if (code.length > 20) {
+          warnings.push(`${courseContext}: Course code is very long (${code.length} characters)`);
+        }
+      }
+      
+      if (!course.title || course.title.toString().trim() === '') {
+        errors.push(`${courseContext}: Missing or empty course title`);
+      } else {
+        const title = course.title.toString().trim();
+        if (title.length > 200) {
+          warnings.push(`${courseContext}: Course title is very long (${title.length} characters)`);
+        }
+      }
+      
+      if (!course.semester || course.semester.toString().trim() === '') {
+        errors.push(`${courseContext}: Missing or empty semester`);
+      } else {
+        const semester = course.semester.toString().trim();
+        const validSemesters = ['Fall 2024', 'Spring 2024', 'Summer 2024', 'Fall 2025', 'Spring 2025', 'Summer 2025'];
+        if (!validSemesters.some(validSem => semester.toLowerCase().includes(validSem.toLowerCase()))) {
+          warnings.push(`${courseContext}: Semester "${semester}" may not match expected format. Common formats: Fall 2024, Spring 2025, etc.`);
+        }
+      }
+      
+      // Hours validation
+      const validateHours = (field, value, maxHours = 10) => {
+        if (value !== undefined && value !== null && value !== '') {
+          const hours = parseInt(value);
+          if (isNaN(hours)) {
+            warnings.push(`${courseContext}: ${field} should be a number, found "${value}". Will default to 0.`);
+          } else if (hours < 0) {
+            warnings.push(`${courseContext}: ${field} cannot be negative (${hours}). Will default to 0.`);
+          } else if (hours > maxHours) {
+            warnings.push(`${courseContext}: ${field} seems high (${hours} hours) - please verify`);
+          }
+        }
+      };
+      
+      validateHours('Lecture hours', course.lectureHours);
+      validateHours('Tutorial hours', course.tutorialHours);
+      validateHours('Practical hours', course.practicalHours);
+      
+      // Credits validation
+      if (course.credits !== undefined && course.credits !== null) {
+        const credits = parseInt(course.credits);
+        if (isNaN(credits)) {
+          warnings.push(`${courseContext}: Credits should be a number, found "${course.credits}". Will be auto-calculated.`);
+        } else if (credits < 0) {
+          warnings.push(`${courseContext}: Credits cannot be negative (${credits}). Will be auto-calculated.`);
+        } else if (credits > 20) {
+          warnings.push(`${courseContext}: Very high credits (${credits}) - please verify`);
+        }
+      }
+      
+      // Department validation
+      if (course.department) {
+        const validDepts = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Chemical Engineering'];
+        const dept = course.department.toString().trim();
+        if (!validDepts.some(validDept => validDept.toLowerCase().includes(dept.toLowerCase()))) {
+          warnings.push(`${courseContext}: Unknown department "${dept}". Common departments: ${validDepts.slice(0, 3).join(', ')}, etc.`);
+        }
+      }
+      
+      // Course type validation
+      if (course.type) {
+        const validTypes = ['Core', 'Elective', 'Lab', 'Project', 'Seminar'];
+        const type = course.type.toString().trim();
+        if (!validTypes.includes(type)) {
+          warnings.push(`${courseContext}: Unknown course type "${type}". Valid types: ${validTypes.join(', ')}`);
+        }
+      }
+      
+      // Prerequisites validation
+      if (course.prerequisites !== undefined && !Array.isArray(course.prerequisites)) {
+        warnings.push(`${courseContext}: Prerequisites should be an array, found ${typeof course.prerequisites}. Will be converted to empty array.`);
+      }
+      
+      // Check for unexpected fields
+      const expectedFields = ['code', 'title', 'semester', 'lectureHours', 'tutorialHours', 'practicalHours', 'weeklyHours', 'faculty', 'facultyId', 'credits', 'department', 'type', 'description', 'prerequisites', 'active'];
+      const actualFields = Object.keys(course);
+      const unexpectedFields = actualFields.filter(field => !expectedFields.includes(field));
+      
+      if (unexpectedFields.length > 0) {
+        warnings.push(`${courseContext}: Unexpected fields found: ${unexpectedFields.join(', ')}. These will be ignored.`);
+      }
+    });
+    
+    return {
+      errors,
+      warnings,
+      isValid: errors.length === 0,
+      courseCount: coursesArray.length,
+      duplicateCount: coursesArray.length - courseCodes.size
+    };
+  };
+
+  // Early return if user is not authenticated or doesn't have department info
+  if (!user) {
+    return (
+      <div className="p-6 text-center">
+        <div className="text-gray-500">Please log in to access course management.</div>
+      </div>
+    );
+  }
+  
+  if (!user.department) {
+    return (
+      <div className="p-6 text-center">
+        <div className="text-red-500">
+          <p className="text-lg font-semibold mb-2">Department Access Required</p>
+          <p>Your account is not associated with a department. Please contact an administrator to assign your account to a department.</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 relative bg-gray-50 min-h-screen">
@@ -417,13 +780,6 @@ export default function CourseManagement() {
         onChange={handleFileUpload}
         className="hidden"
       />
-      
-      {/* Display error message if any */}
-      {error && (
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
-          <span>{error}</span>
-        </div>
-      )}
       
       {/* Courses Table */}
       <div className="bg-white rounded-2xl shadow-md overflow-hidden">
@@ -712,6 +1068,7 @@ export default function CourseManagement() {
       <UploadProgressIndicator 
         uploadState={uploadState}
         onDismiss={resetUploadState}
+        onCancel={handleCancel}
         showQueueInfo={true}
       />
     </div>

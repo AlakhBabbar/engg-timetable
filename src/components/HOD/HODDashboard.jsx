@@ -1,9 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { FiBell, FiSearch, FiChevronDown, FiUsers, FiBook, FiCalendar } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
 import { getSidebarItems, getDashboardMetrics, getRecentActivities, handleSidebarNavigation } from './services/HODDashboard';
+import { AuthContext } from '../../App';
 
 export default function HODDashboard() {
+  // Authentication context
+  const { user } = useContext(AuthContext);
+  
   const [activeSidebarItem, setActiveSidebarItem] = useState('Dashboard');
   const navigate = useNavigate();
   
@@ -18,20 +22,29 @@ export default function HODDashboard() {
   
   // Get data from services
   const sidebarItems = getSidebarItems();
-  
-  // Use a fixed departmentId for now - in a real app, this would come from context/user authentication
-  const departmentId = "CS001";  // Computer Science department ID
+
+  // Early return if user is not authenticated or doesn't have department info
+  if (!user?.department) {
+    return (
+      <div className="p-6 text-center">
+        <div className="text-red-500">
+          <p className="text-lg font-semibold mb-2">Department Access Required</p>
+          <p>Please ensure you are logged in with a department-associated account.</p>
+        </div>
+      </div>
+    );
+  }
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         setLoading(true);
-        // Fetch metrics
-        const metricsData = await getDashboardMetrics(departmentId);
+        // Fetch metrics using user's department
+        const metricsData = await getDashboardMetrics(user.department);
         setMetrics(metricsData);
         
-        // Fetch activities
-        const activitiesData = await getRecentActivities(departmentId);
+        // Fetch activities using user's department
+        const activitiesData = await getRecentActivities(user.department);
         setRecentActivities(activitiesData);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
@@ -41,7 +54,7 @@ export default function HODDashboard() {
     };
     
     fetchDashboardData();
-  }, [departmentId]);
+  }, [user.department]);
 
   const handleNavigation = (path, label) => {
     handleSidebarNavigation(navigate, path, label, setActiveSidebarItem);

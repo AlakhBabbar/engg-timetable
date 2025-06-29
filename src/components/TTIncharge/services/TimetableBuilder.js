@@ -69,7 +69,7 @@ export const facultyData = [
   { id: 3, name: 'Prof. Robert Chen', department: 'Computer Science', availableSlots: ['Monday-14:00', 'Thursday-11:00'] },
   { id: 4, name: 'Dr. Emily Zhang', department: 'Computer Science', availableSlots: ['Tuesday-09:00', 'Friday-14:00'] },
   { id: 5, name: 'Prof. Maria Garcia', department: 'Electrical Engineering', availableSlots: ['Wednesday-14:00', 'Thursday-09:00'] },
-  { id: 6, name: 'Dr. John Smith', department: 'Mechanical Engineering', availableSlots: ['Monday-11:00', 'Thursday-14:00'] },
+  { id: 6, name: 'Dr. John Smith', department: 'Mechanical Engineering', availableSlots: ['Monday-11:00', 'Thursday-14:00'] }
 ];
 
 // Room data
@@ -84,9 +84,16 @@ export const roomsData = [
 
 // Time slots (reduced for better fit)
 export const timeSlots = [
-  '09:00 - 10:00', '10:00 - 11:00', '11:00 - 12:00',
-  '12:00 - 13:00', '13:00 - 14:00', '14:00 - 15:00', 
-  '15:00 - 16:00', '16:00 - 17:00'
+  '7:00-7:55',
+  '7:55-8:50',
+  '8:50-9:45',
+  '10:30-11:25',
+  '11:25-12:20',
+  '12:20-1:15',
+  '1:15-2:10',
+  '2:10-3:05',
+  '3:05-4:00',
+  '4:00-5:00'
 ];
 
 // Days of the week (reduced for better fit)
