@@ -17,92 +17,11 @@ import {
 } from '../../../firebase/config.js';
 import { logActivity } from './HODDashboard';
 
-// Collection references
-const FACULTY_COLLECTION = 'faculty';
+// Collection references - aligned with TeacherManagement
+const FACULTY_COLLECTION = 'teachers'; // Changed from 'faculty' to 'teachers' to match TeacherManagement
 const COURSES_COLLECTION = 'courses';
 
-// Keeping dummy data for fallback
-export const dummyCourses = [
-  { id: 1, code: 'CS101', title: 'Introduction to Computer Science', semester: 'Semester 6', weeklyHours: '3L+1T', faculty: null, tags: ['programming', 'introductory'] },
-  { id: 2, code: 'CS202', title: 'Data Structures and Algorithms', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: null, tags: ['algorithms', 'data structures'] },
-  { id: 3, code: 'CS303', title: 'Database Systems', semester: 'Semester 6', weeklyHours: '3L+1T+2P', faculty: 7, tags: ['databases', 'SQL'] },
-  { id: 4, code: 'CS405', title: 'Artificial Intelligence', semester: 'Semester 7', weeklyHours: '4L+2P', faculty: null, tags: ['AI', 'machine learning'] },
-  { id: 5, code: 'CS301', title: 'Software Engineering', semester: 'Semester 6', weeklyHours: '3L+1T', faculty: 3, tags: ['software', 'project management'] },
-  { id: 6, code: 'CS210', title: 'Computer Networks', semester: 'Semester 7', weeklyHours: '3L+1T+1P', faculty: 5, tags: ['networking', 'protocols'] },
-];
-
-export const dummyFaculty = [
-  { 
-    id: 1, 
-    name: 'Dr. Alex Johnson', 
-    avatar: 'https://i.pravatar.cc/150?img=11', 
-    status: 'available', 
-    loadHours: 6,
-    maxHours: 18,
-    expertise: ['programming', 'algorithms', 'theory'],
-    preferredCourses: ['CS101', 'CS202']
-  },
-  { 
-    id: 2, 
-    name: 'Dr. Sarah Miller', 
-    avatar: 'https://i.pravatar.cc/150?img=5', 
-    status: 'nearlyFull', 
-    loadHours: 14,
-    maxHours: 18,
-    expertise: ['databases', 'data mining', 'big data'],
-    preferredCourses: ['CS303']
-  },
-  { 
-    id: 3, 
-    name: 'Prof. Robert Chen', 
-    avatar: 'https://i.pravatar.cc/150?img=12', 
-    status: 'available', 
-    loadHours: 10,
-    maxHours: 20,
-    expertise: ['software engineering', 'project management'],
-    preferredCourses: ['CS301']
-  },
-  { 
-    id: 4, 
-    name: 'Dr. Emily Zhang', 
-    avatar: 'https://i.pravatar.cc/150?img=9', 
-    status: 'available', 
-    loadHours: 8,
-    maxHours: 18,
-    expertise: ['AI', 'machine learning', 'neural networks'],
-    preferredCourses: ['CS405']
-  },
-  { 
-    id: 5, 
-    name: 'Prof. David Wilson', 
-    avatar: 'https://i.pravatar.cc/150?img=15', 
-    status: 'overloaded', 
-    loadHours: 21,
-    maxHours: 20,
-    expertise: ['networking', 'security', 'protocols'],
-    preferredCourses: ['CS210']
-  },
-  { 
-    id: 6, 
-    name: 'Dr. Lisa Kumar', 
-    avatar: 'https://i.pravatar.cc/150?img=3', 
-    status: 'available', 
-    loadHours: 12,
-    maxHours: 18,
-    expertise: ['theory', 'algorithms', 'computational logic'],
-    preferredCourses: ['CS202'] 
-  },
-  { 
-    id: 7, 
-    name: 'Prof. Michael Brown', 
-    avatar: 'https://i.pravatar.cc/150?img=13', 
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['databases', 'SQL', 'data warehousing'],
-    preferredCourses: ['CS303']
-  },
-];
+// No dummy data - fully dynamic Firebase integration
 
 /**
  * Fetch courses from Firebase with optional semester filter
@@ -111,7 +30,7 @@ export const dummyFaculty = [
  * @returns {Promise<Array>} - Array of courses
  */
 export const fetchCourses = async (departmentId, semester = null) => {
-  try {
+  return retryOperation(async () => {
     const coursesRef = collection(db, COURSES_COLLECTION);
     let coursesQuery;
     
@@ -119,18 +38,18 @@ export const fetchCourses = async (departmentId, semester = null) => {
       coursesQuery = query(
         coursesRef, 
         where('department', '==', departmentId),
-        where('semester', '==', semester)
+        where('semester', '==', semester),
+        orderBy('code')
       );
     } else {
-      coursesQuery = query(coursesRef, where('department', '==', departmentId));
+      coursesQuery = query(
+        coursesRef, 
+        where('department', '==', departmentId),
+        orderBy('code')
+      );
     }
     
     const snapshot = await getDocs(coursesQuery);
-    
-    if (snapshot.empty) {
-      console.log('No courses found, using dummy data');
-      return dummyCourses;
-    }
     
     return snapshot.docs.map(doc => {
       const data = doc.data();
@@ -141,13 +60,13 @@ export const fetchCourses = async (departmentId, semester = null) => {
         semester: data.semester || '',
         weeklyHours: data.weeklyHours || '',
         faculty: data.faculty || null,
-        tags: data.tags || []
+        tags: data.tags || [],
+        department: data.department || departmentId,
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
       };
     });
-  } catch (error) {
-    console.error('Error fetching courses:', error);
-    return dummyCourses;
-  }
+  });
 };
 
 /**
@@ -156,15 +75,51 @@ export const fetchCourses = async (departmentId, semester = null) => {
  * @returns {Promise<Array>} - Array of faculty members
  */
 export const fetchFaculty = async (departmentId) => {
-  try {
+  return retryOperation(async () => {
     const facultyRef = collection(db, FACULTY_COLLECTION);
-    const facultyQuery = query(facultyRef, where('department', '==', departmentId));
     
-    const snapshot = await getDocs(facultyQuery);
+    // Get both department ID and full name for flexible filtering
+    const fullDepartmentName = getDepartmentName(departmentId);
     
-    if (snapshot.empty) {
-      console.log('No faculty found, using dummy data');
-      return dummyFaculty;
+    // Try to query with both department formats
+    let snapshot;
+    try {
+      // First try with full department name (TeacherManagement format)
+      const facultyQuery = query(
+        facultyRef, 
+        where('department', '==', fullDepartmentName),
+        orderBy('name')
+      );
+      snapshot = await getDocs(facultyQuery);
+      
+      // If no results, try with department ID
+      if (snapshot.empty && fullDepartmentName !== departmentId) {
+        const facultyQueryById = query(
+          facultyRef, 
+          where('department', '==', departmentId),
+          orderBy('name')
+        );
+        snapshot = await getDocs(facultyQueryById);
+      }
+    } catch (error) {
+      // If orderBy fails (no index), fetch all and filter client-side
+      console.warn('Firestore index missing, falling back to client-side filtering');
+      const allFacultyQuery = query(facultyRef);
+      const allSnapshot = await getDocs(allFacultyQuery);
+      
+      const filteredDocs = allSnapshot.docs.filter(doc => {
+        const data = doc.data();
+        return data.department === fullDepartmentName || data.department === departmentId;
+      });
+      
+      // Sort client-side
+      filteredDocs.sort((a, b) => {
+        const nameA = a.data().name || '';
+        const nameB = b.data().name || '';
+        return nameA.localeCompare(nameB);
+      });
+      
+      snapshot = { docs: filteredDocs };
     }
     
     return snapshot.docs.map(doc => {
@@ -175,15 +130,22 @@ export const fetchFaculty = async (departmentId) => {
         avatar: data.avatar || 'https://i.pravatar.cc/150?img=11',
         status: data.status || 'available',
         loadHours: data.loadHours || 0,
-        maxHours: data.maxHours || 18,
+        maxHours: data.maxHours || 40, // Updated default to match TeacherManagement
         expertise: data.expertise || [],
-        preferredCourses: data.preferredCourses || []
+        preferredCourses: data.preferredCourses || [],
+        assignedCourses: data.assignedCourses || [],
+        department: data.department || departmentId,
+        // Additional fields from TeacherManagement
+        email: data.email || '',
+        qualification: data.qualification || '',
+        experience: data.experience || 0,
+        active: data.active !== false,
+        role: data.role || 'Faculty',
+        createdAt: data.createdAt,
+        updatedAt: data.updatedAt
       };
     });
-  } catch (error) {
-    console.error('Error fetching faculty:', error);
-    return dummyFaculty;
-  }
+  });
 };
 
 /**
@@ -505,4 +467,315 @@ export const saveAssignments = async (departmentId) => {
       message: 'Error saving assignments: ' + error.message
     };
   }
+};
+
+/**
+ * Create a new course in Firebase
+ * @param {Object} courseData - Course data
+ * @returns {Promise<Object>} - Created course
+ */
+export const createCourse = async (courseData) => {
+  try {
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    const docRef = await addDoc(coursesRef, {
+      ...courseData,
+      faculty: null,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+    
+    return {
+      id: docRef.id,
+      ...courseData,
+      faculty: null
+    };
+  } catch (error) {
+    console.error('Error creating course:', error);
+    throw new Error('Failed to create course');
+  }
+};
+
+/**
+ * Create a new faculty member in Firebase (compatible with TeacherManagement structure)
+ * @param {Object} facultyData - Faculty data
+ * @returns {Promise<Object>} - Created faculty member
+ */
+export const createFaculty = async (facultyData) => {
+  try {
+    const facultyRef = collection(db, FACULTY_COLLECTION);
+    
+    // Create faculty data compatible with TeacherManagement structure
+    const teacherData = {
+      name: facultyData.name || '',
+      email: facultyData.email || '',
+      department: facultyData.department || '',
+      expertise: facultyData.expertise || [],
+      qualification: facultyData.qualification || '',
+      experience: facultyData.experience || 0,
+      active: facultyData.active !== false,
+      role: 'Faculty',
+      // Faculty Assignment specific fields
+      status: 'available',
+      loadHours: 0,
+      maxHours: facultyData.maxHours || 40,
+      preferredCourses: facultyData.preferredCourses || [],
+      assignedCourses: [],
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    };
+    
+    const docRef = await addDoc(facultyRef, teacherData);
+    
+    return {
+      id: docRef.id,
+      ...teacherData,
+    };
+  } catch (error) {
+    console.error('Error creating faculty:', error);
+    throw new Error('Failed to create faculty member');
+  }
+};
+
+/**
+ * Delete a course from Firebase
+ * @param {string} courseId - Course ID to delete
+ * @returns {Promise<boolean>} - Success status
+ */
+export const deleteCourse = async (courseId) => {
+  try {
+    const courseRef = doc(db, COURSES_COLLECTION, courseId);
+    await updateDoc(courseRef, {
+      deletedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error deleting course:', error);
+    throw new Error('Failed to delete course');
+  }
+};
+
+/**
+ * Delete a faculty member from Firebase
+ * @param {string} facultyId - Faculty ID to delete
+ * @returns {Promise<boolean>} - Success status
+ */
+export const deleteFaculty = async (facultyId) => {
+  try {
+    const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+    await updateDoc(facultyRef, {
+      deletedAt: serverTimestamp()
+    });
+    return true;
+  } catch (error) {
+    console.error('Error deleting faculty:', error);
+    throw new Error('Failed to delete faculty member');
+  }
+};
+
+/**
+ * Get faculty workload statistics
+ * @param {Array} faculty - Array of faculty members
+ * @returns {Object} - Workload statistics
+ */
+export const getFacultyWorkloadStats = (faculty) => {
+  if (faculty.length === 0) {
+    return {
+      available: 0,
+      nearlyFull: 0,
+      overloaded: 0,
+      averageLoad: 0,
+      totalHours: 0
+    };
+  }
+
+  const stats = faculty.reduce((acc, f) => {
+    acc.totalHours += f.loadHours;
+    switch (f.status) {
+      case 'available':
+        acc.available++;
+        break;
+      case 'nearlyFull':
+        acc.nearlyFull++;
+        break;
+      case 'overloaded':
+        acc.overloaded++;
+        break;
+    }
+    return acc;
+  }, { available: 0, nearlyFull: 0, overloaded: 0, totalHours: 0 });
+
+  stats.averageLoad = Math.round(stats.totalHours / faculty.length);
+  
+  return stats;
+};
+
+/**
+ * Get course assignment statistics
+ * @param {Array} courses - Array of courses
+ * @returns {Object} - Assignment statistics
+ */
+export const getCourseAssignmentStats = (courses) => {
+  if (courses.length === 0) {
+    return {
+      assigned: 0,
+      unassigned: 0,
+      totalCourses: 0,
+      assignmentPercentage: 0
+    };
+  }
+
+  const assigned = courses.filter(c => c.faculty).length;
+  const unassigned = courses.length - assigned;
+  const assignmentPercentage = Math.round((assigned / courses.length) * 100);
+
+  return {
+    assigned,
+    unassigned,
+    totalCourses: courses.length,
+    assignmentPercentage
+  };
+};
+
+/**
+ * Validate course data before creating/updating
+ * @param {Object} courseData - Course data to validate
+ * @returns {Object} - Validation result
+ */
+export const validateCourseData = (courseData) => {
+  const errors = [];
+
+  if (!courseData.code || courseData.code.trim() === '') {
+    errors.push('Course code is required');
+  }
+
+  if (!courseData.title || courseData.title.trim() === '') {
+    errors.push('Course title is required');
+  }
+
+  if (!courseData.semester || courseData.semester.trim() === '') {
+    errors.push('Semester is required');
+  }
+
+  if (!courseData.weeklyHours || courseData.weeklyHours.trim() === '') {
+    errors.push('Weekly hours is required');
+  }
+
+  if (!courseData.department || courseData.department.trim() === '') {
+    errors.push('Department is required');
+  }
+
+  // Validate weekly hours format (e.g., "3L+1T+2P")
+  const hoursPattern = /^(\d+L)?(\+\d+T)?(\+\d+P)?$/;
+  if (courseData.weeklyHours && !hoursPattern.test(courseData.weeklyHours)) {
+    errors.push('Weekly hours format is invalid (use format like "3L+1T+2P")');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
+/**
+ * Validate faculty data before creating/updating
+ * @param {Object} facultyData - Faculty data to validate
+ * @returns {Object} - Validation result
+ */
+export const validateFacultyData = (facultyData) => {
+  const errors = [];
+
+  if (!facultyData.name || facultyData.name.trim() === '') {
+    errors.push('Faculty name is required');
+  }
+
+  if (!facultyData.department || facultyData.department.trim() === '') {
+    errors.push('Department is required');
+  }
+
+  if (facultyData.maxHours && (facultyData.maxHours < 0 || facultyData.maxHours > 40)) {
+    errors.push('Max hours should be between 0 and 40');
+  }
+
+  if (facultyData.expertise && !Array.isArray(facultyData.expertise)) {
+    errors.push('Expertise should be an array');
+  }
+
+  if (facultyData.preferredCourses && !Array.isArray(facultyData.preferredCourses)) {
+    errors.push('Preferred courses should be an array');
+  }
+
+  return {
+    isValid: errors.length === 0,
+    errors
+  };
+};
+
+/**
+ * Check Firebase connection health
+ * @returns {Promise<boolean>} - Connection status
+ */
+export const checkFirebaseConnection = async () => {
+  try {
+    // Try to read a small document or collection
+    const testRef = collection(db, 'health_check');
+    const testQuery = query(testRef, limit(1));
+    await getDocs(testQuery);
+    return true;
+  } catch (error) {
+    console.error('Firebase connection error:', error);
+    return false;
+  }
+};
+
+/**
+ * Retry operation with exponential backoff
+ * @param {Function} operation - Operation to retry
+ * @param {number} maxRetries - Maximum number of retries
+ * @param {number} baseDelay - Base delay in milliseconds
+ * @returns {Promise} - Result of the operation
+ */
+export const retryOperation = async (operation, maxRetries = 3, baseDelay = 1000) => {
+  let lastError;
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error;
+      
+      if (attempt === maxRetries) {
+        break;
+      }
+      
+      const delay = baseDelay * Math.pow(2, attempt - 1);
+      console.log(`Operation failed, retrying in ${delay}ms (attempt ${attempt}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  
+  throw lastError;
+};
+
+/**
+ * Map department ID to full department name for compatibility
+ * @param {string} departmentId - Department ID or name
+ * @returns {string} - Full department name
+ */
+export const getDepartmentName = (departmentId) => {
+  const departmentMap = {
+    'dept_computer_science': 'Computer Science',
+    'dept_electrical_engineering': 'Electrical Engineering',
+    'dept_mechanical_engineering': 'Mechanical Engineering',
+    'dept_civil_engineering': 'Civil Engineering',
+    'dept_chemical_engineering': 'Chemical Engineering',
+    'dept_agricultural_engineering': 'Agricultural Engineering'
+  };
+  
+  // If it's already a full name, return as is
+  if (Object.values(departmentMap).includes(departmentId)) {
+    return departmentId;
+  }
+  
+  // If it's a department ID, map it to full name
+  return departmentMap[departmentId] || departmentId;
 };

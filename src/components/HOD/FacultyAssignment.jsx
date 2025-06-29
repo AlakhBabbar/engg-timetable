@@ -1,6 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { FiAlertCircle, FiCheck, FiRefreshCw, FiStar, FiUsers, FiLoader, FiDatabase } from 'react-icons/fi';
 import { motion } from 'framer-motion';
+import { AuthContext } from '../../App'; // Import AuthContext from App.jsx
 import { 
   fetchCourses,
   fetchFaculty,
@@ -8,7 +9,10 @@ import {
   autoAssignFaculty,
   saveAssignments,
   getTimeSlots, 
-  filterFacultyBySearch 
+  filterFacultyBySearch,
+  getFacultyWorkloadStats,
+  getCourseAssignmentStats,
+  checkFirebaseConnection
 } from './services/FacultyAssignment';
 import { initializeAllSampleData } from './services/SampleDataInitializer';
 import { useToast } from '../../context/ToastContext';
@@ -160,52 +164,61 @@ export default function FacultyAssignment() {
   const [saving, setSaving] = useState(false);
   const [autoAssigning, setAutoAssigning] = useState(false);
   const [initializingData, setInitializingData] = useState(false);
+  const [connectionError, setConnectionError] = useState(false);
   const { showSuccess, showError } = useToast();
+  const { user } = useContext(AuthContext); // Get authenticated user data
   
-  // For demo purposes, using a static department ID
-  // In a real app, this would come from user context or route params
-  const departmentId = 'dept_computer_science';
+  // Get department from authenticated HOD user
+  const departmentId = user?.department || 'Computer Science'; // Default fallback
   
   // Load data from Firebase on component mount
   useEffect(() => {
     const loadData = async () => {
+      // Skip loading if user data is not available yet
+      if (!user?.department) {
+        console.log('Waiting for user authentication...');
+        setLoading(false);
+        return;
+      }
+
       try {
         setLoading(true);
+        setConnectionError(false);
         
-        // Try to fetch existing data
-        let [coursesData, facultyData] = await Promise.all([
+        // Check Firebase connection first
+        const isConnected = await checkFirebaseConnection();
+        if (!isConnected) {
+          setConnectionError(true);
+          showError('Unable to connect to database. Please check your internet connection.');
+          return;
+        }
+        
+        // Fetch existing data from Firebase for HOD's department
+        const [coursesData, facultyData] = await Promise.all([
           fetchCourses(departmentId),
           fetchFaculty(departmentId)
         ]);
         
-        // If no data found, initialize sample data
-        if ((coursesData.length === 0 || coursesData.some(c => c.id <= 10)) && 
-            (facultyData.length === 0 || facultyData.some(f => f.id <= 10))) {
-          console.log('No Firebase data found, initializing sample data...');
-          const initSuccess = await initializeAllSampleData(departmentId);
-          
-          if (initSuccess) {
-            // Refetch data after initialization
-            [coursesData, facultyData] = await Promise.all([
-              fetchCourses(departmentId),
-              fetchFaculty(departmentId)
-            ]);
-          }
-        }
-        
         setCourses(coursesData);
         setFaculty(facultyData);
         setFilteredFaculty(facultyData);
+        
+        console.log(`Loaded ${coursesData.length} courses and ${facultyData.length} faculty members from Firebase for department: ${departmentId}`);
       } catch (error) {
         console.error('Error loading data:', error);
+        setConnectionError(true);
         showError('Error loading data. Please try again.');
+        // Set empty arrays to allow the user to manually add data
+        setCourses([]);
+        setFaculty([]);
+        setFilteredFaculty([]);
       } finally {
         setLoading(false);
       }
     };
     
     loadData();
-  }, [departmentId, showError]);
+  }, [departmentId, user?.department, showError]);
   
   // Local function to calculate faculty load from courses
   const updateFacultyLoadFromCourses = (courses, facultyList) => {
@@ -377,14 +390,78 @@ export default function FacultyAssignment() {
     }
   };
 
+  // Refresh data function
+  const handleRefreshData = async () => {
+    if (!user?.department) {
+      showError('User authentication required to refresh data.');
+      return;
+    }
+
+    try {
+      setLoading(true);
+      setConnectionError(false);
+      
+      // Check connection first
+      const isConnected = await checkFirebaseConnection();
+      if (!isConnected) {
+        setConnectionError(true);
+        showError('Unable to connect to database. Please check your internet connection.');
+        return;
+      }
+      
+      const [coursesData, facultyData] = await Promise.all([
+        fetchCourses(departmentId),
+        fetchFaculty(departmentId)
+      ]);
+      
+      setCourses(coursesData);
+      setFaculty(facultyData);
+      setFilteredFaculty(facultyData);
+      setSelectedCourse(null); // Clear selection on refresh
+      
+      showSuccess(`Refreshed data: ${coursesData.length} courses, ${facultyData.length} faculty members`);
+    } catch (error) {
+      console.error('Error refreshing data:', error);
+      setConnectionError(true);
+      showError('Error refreshing data. Please check your connection and try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Calculate statistics
+  const facultyStats = getFacultyWorkloadStats(faculty);
+  const courseStats = getCourseAssignmentStats(courses);
+  
   // Show loading state
   if (loading) {
     return (
       <div className="p-6 bg-gray-50 min-h-screen flex items-center justify-center">
         <div className="text-center">
           <FiLoader className="w-8 h-8 animate-spin text-teal-600 mx-auto mb-4" />
-          <p className="text-gray-600 mb-2">Loading faculty and courses...</p>
-          <p className="text-sm text-gray-500">This may take a moment if initializing sample data</p>
+          <p className="text-gray-600 mb-2">
+            {!user ? 'Authenticating...' : 'Loading faculty and courses...'}
+          </p>
+          <p className="text-sm text-gray-500">
+            {!user ? 'Please wait while we verify your credentials' : 'This may take a moment if initializing sample data'}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show authentication required state
+  if (!user?.department) {
+    return (
+      <div className="p-6 bg-gray-50 min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <FiUsers className="w-16 h-16 text-gray-400 mx-auto mb-4" />
+          <h3 className="text-lg font-medium text-gray-700 mb-2">Authentication Required</h3>
+          <p className="text-gray-500 mb-6">
+            Please log in as an HOD to access faculty assignment features.
+            <br />
+            Your department information is required to load relevant data.
+          </p>
         </div>
       </div>
     );
@@ -401,19 +478,29 @@ export default function FacultyAssignment() {
           <FiDatabase className="w-16 h-16 text-gray-400 mx-auto mb-4" />
           <h3 className="text-lg font-medium text-gray-700 mb-2">No Data Found</h3>
           <p className="text-gray-500 mb-6">
-            It looks like you don't have any courses or faculty data yet.
+            No courses or faculty data found for this department.
             <br />
-            Click the button below to get started with sample data.
+            You can either initialize sample data to get started or add data manually.
           </p>
-          <button
-            onClick={handleInitializeSampleData}
-            disabled={initializingData}
-            className="px-6 py-3 rounded-lg bg-teal-600 text-white hover:bg-teal-700 
-                     transition flex items-center gap-2 mx-auto disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {initializingData ? <FiLoader className="animate-spin" /> : <FiDatabase />}
-            <span>{initializingData ? 'Initializing...' : '📊 Initialize Sample Data'}</span>
-          </button>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <button
+              onClick={handleInitializeSampleData}
+              disabled={initializingData}
+              className="px-6 py-3 rounded-lg bg-teal-600 text-white hover:bg-teal-700 
+                       transition flex items-center gap-2 justify-center disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {initializingData ? <FiLoader className="animate-spin" /> : <FiDatabase />}
+              <span>{initializingData ? 'Initializing...' : '📊 Initialize Sample Data'}</span>
+            </button>
+            <p className="text-sm text-gray-400 self-center px-4">or</p>
+            <button
+              onClick={() => showSuccess('Manual data entry feature coming soon!')}
+              className="px-6 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 
+                       transition flex items-center gap-2 justify-center"
+            >
+              <span>➕ Add Data Manually</span>
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -425,16 +512,45 @@ export default function FacultyAssignment() {
         Faculty Assignment
       </h1>
       
-      {/* Data source indicator */}
-      <div className="mb-6 flex items-center gap-2 text-sm">
-        <FiDatabase className="text-teal-600" />
-        <span className="text-gray-600">
-          Using Firebase data • Department: {departmentId}
-        </span>
-        {courses.length > 0 && faculty.length > 0 && (
-          <span className="text-green-600 font-medium">
-            • {courses.length} courses, {faculty.length} faculty members
+      {/* Data source indicator and stats */}
+      <div className="mb-6 flex items-center justify-between flex-wrap gap-4">
+        <div className="flex items-center gap-2 text-sm">
+          <FiDatabase className="text-teal-600" />
+          <span className="text-gray-600">
+           Department: {departmentId}
           </span>
+          {user?.name && (
+            <span className="text-blue-600 font-medium">
+              • HOD: {user.name}
+            </span>
+          )}
+          {courses.length > 0 || faculty.length > 0 ? (
+            <span className="text-green-600 font-medium">
+              • {courses.length} courses, {faculty.length} faculty members
+            </span>
+          ) : null}
+          <button
+            onClick={handleRefreshData}
+            disabled={loading}
+            className="ml-2 p-1 text-gray-400 hover:text-gray-600 transition"
+            title="Refresh data"
+          >
+            <FiRefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+        
+        {/* Partial data warnings */}
+        {(courses.length === 0 && faculty.length > 0) && (
+          <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-lg">
+            <FiAlertCircle />
+            <span>No courses found. Add courses to enable assignments.</span>
+          </div>
+        )}
+        {(faculty.length === 0 && courses.length > 0) && (
+          <div className="flex items-center gap-2 text-sm text-amber-600 bg-amber-50 px-3 py-1 rounded-lg">
+            <FiAlertCircle />
+            <span>No faculty found. Add faculty to enable assignments.</span>
+          </div>
         )}
       </div>
       
@@ -453,10 +569,10 @@ export default function FacultyAssignment() {
       </div>
       
       {/* Auto-assign and data management buttons */}
-      <div className="mb-6 flex gap-4 flex-wrap">
+      <div className="mb-6 flex gap-4 flex-wrap items-center">
         <button
           onClick={handleAutoAssign}
-          disabled={autoAssigning || courses.length === 0}
+          disabled={autoAssigning || courses.length === 0 || faculty.length === 0}
           className="px-6 py-2 rounded-lg border border-teal-500 text-teal-600 hover:bg-teal-50 
                    transition flex items-center gap-2 group disabled:opacity-50 disabled:cursor-not-allowed"
         >
@@ -472,22 +588,110 @@ export default function FacultyAssignment() {
                      transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {initializingData ? <FiLoader className="animate-spin" /> : <FiDatabase />}
-            <span>{initializingData ? 'Initializing...' : '📊 Initialize Sample Data'}</span>
+            <span>{initializingData ? 'Initializing...' : 
+              courses.length === 0 && faculty.length === 0 ? '📊 Initialize Sample Data' :
+              courses.length === 0 ? '📚 Add Sample Courses' : '👥 Add Sample Faculty'}</span>
           </button>
         )}
         
         <div className="flex items-center text-sm text-gray-500">
           <FiAlertCircle className="inline-block mr-1" />
-          <span>Auto-assign will match faculty to compatible courses based on expertise and workload</span>
+          <span>
+            {courses.length === 0 || faculty.length === 0 
+              ? 'Both courses and faculty are required for auto-assignment'
+              : 'Auto-assign will match faculty to compatible courses based on expertise and workload'
+            }
+          </span>
         </div>
       </div>
+      
+      {/* Statistics Dashboard */}
+      {(courses.length > 0 || faculty.length > 0) && (
+        <div className="mb-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Course Assignment Stats */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border">
+            <div className="flex items-center gap-2 mb-2">
+              <FiDatabase className="text-blue-600" />
+              <h3 className="font-medium text-gray-700">Course Assignments</h3>
+            </div>
+            <div className="text-2xl font-bold text-blue-600 mb-1">
+              {courseStats.assigned}/{courseStats.totalCourses}
+            </div>
+            <div className="text-sm text-gray-500">
+              {courseStats.assignmentPercentage}% assigned
+            </div>
+            <div className="mt-2 bg-gray-200 rounded-full h-2">
+              <div 
+                className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${courseStats.assignmentPercentage}%` }}
+              ></div>
+            </div>
+          </div>
+
+          {/* Faculty Workload Stats */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border">
+            <div className="flex items-center gap-2 mb-2">
+              <FiUsers className="text-green-600" />
+              <h3 className="font-medium text-gray-700">Faculty Load</h3>
+            </div>
+            <div className="text-2xl font-bold text-green-600 mb-1">
+              {facultyStats.averageLoad}h
+            </div>
+            <div className="text-sm text-gray-500">
+              avg per faculty
+            </div>
+            <div className="flex gap-1 mt-2">
+              <div className="flex items-center gap-1 text-xs">
+                <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                <span>{facultyStats.available}</span>
+              </div>
+              <div className="flex items-center gap-1 text-xs">
+                <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                <span>{facultyStats.nearlyFull}</span>
+              </div>
+              <div className="flex items-center gap-1 text-xs">
+                <div className="w-2 h-2 bg-red-500 rounded-full"></div>
+                <span>{facultyStats.overloaded}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Unassigned Courses */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border">
+            <div className="flex items-center gap-2 mb-2">
+              <FiAlertCircle className="text-orange-600" />
+              <h3 className="font-medium text-gray-700">Pending</h3>
+            </div>
+            <div className="text-2xl font-bold text-orange-600 mb-1">
+              {courseStats.unassigned}
+            </div>
+            <div className="text-sm text-gray-500">
+              unassigned courses
+            </div>
+          </div>
+
+          {/* Total Teaching Hours */}
+          <div className="bg-white p-4 rounded-lg shadow-sm border">
+            <div className="flex items-center gap-2 mb-2">
+              <FiStar className="text-purple-600" />
+              <h3 className="font-medium text-gray-700">Total Hours</h3>
+            </div>
+            <div className="text-2xl font-bold text-purple-600 mb-1">
+              {facultyStats.totalHours}h
+            </div>
+            <div className="text-sm text-gray-500">
+              assigned
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Main content: 2-column layout */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Left Column: Courses */}
         <div>
           <h2 className="text-lg font-medium text-gray-700 mb-4">
-            Courses 
+            Courses ({courses.length})
             {selectedCourse && (
               <button
                 onClick={() => setSelectedCourse(null)}
@@ -497,26 +701,45 @@ export default function FacultyAssignment() {
               </button>
             )}
           </h2>
-          <div className="grid grid-cols-1 gap-4">
-            {courses.map(course => {
-              const assignedFaculty = faculty.find(f => f.id === course.faculty);
-              return (
-                <CourseCard 
-                  key={course.id} 
-                  course={course} 
-                  isSelected={selectedCourse?.id === course.id}
-                  onClick={() => handleSelectCourse(course)}
-                  faculty={assignedFaculty}
-                />
-              );
-            })}
-          </div>
+          
+          {courses.length === 0 ? (
+            <div className="bg-white p-8 rounded-lg text-center border-2 border-dashed border-gray-300">
+              <FiDatabase className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-700 mb-2">No Courses Found</h3>
+              <p className="text-gray-500 mb-4">
+                Add courses to start faculty assignments
+              </p>
+              <button
+                onClick={handleInitializeSampleData}
+                disabled={initializingData}
+                className="px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 
+                         transition disabled:opacity-50"
+              >
+                Add Sample Courses
+              </button>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {courses.map(course => {
+                const assignedFaculty = faculty.find(f => f.id === course.faculty);
+                return (
+                  <CourseCard 
+                    key={course.id} 
+                    course={course} 
+                    isSelected={selectedCourse?.id === course.id}
+                    onClick={() => handleSelectCourse(course)}
+                    faculty={assignedFaculty}
+                  />
+                );
+              })}
+            </div>
+          )}
         </div>
         
         {/* Right Column: Faculty */}
         <div>
           <h2 className="text-lg font-medium text-gray-700 mb-4">
-            Faculty
+            Faculty ({faculty.length})
             {selectedCourse && (
               <span className="ml-3 text-sm text-gray-500 font-normal">
                 Assigning for: {selectedCourse.code}
@@ -524,68 +747,112 @@ export default function FacultyAssignment() {
             )}
           </h2>
           
-          <div className="flex items-center mb-3 gap-6">
-            <div className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-green-500"></span>
-              <span className="text-xs text-gray-600">Available</span>
+          {faculty.length === 0 ? (
+            <div className="bg-white p-8 rounded-lg text-center border-2 border-dashed border-gray-300">
+              <FiUsers className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+              <h3 className="text-lg font-medium text-gray-700 mb-2">No Faculty Found</h3>
+              <p className="text-gray-500 mb-4">
+                Add faculty members to start course assignments
+              </p>
+              <button
+                onClick={handleInitializeSampleData}
+                disabled={initializingData}
+                className="px-4 py-2 rounded-lg bg-blue-100 text-blue-700 hover:bg-blue-200 
+                         transition disabled:opacity-50"
+              >
+                Add Sample Faculty
+              </button>
             </div>
-            <div className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
-              <span className="text-xs text-gray-600">Nearly Full</span>
-            </div>
-            <div className="flex items-center gap-1">
-              <span className="w-3 h-3 rounded-full bg-red-500"></span>
-              <span className="text-xs text-gray-600">Overloaded</span>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 gap-4">
-            {filteredFaculty.map(f => (
-              <FacultyCard 
-                key={f.id} 
-                faculty={f} 
-                selectedCourse={selectedCourse}
-                onAssign={handleAssignFaculty}
-                assignedCourses={courses}
-              />
-            ))}
-            
-            {filteredFaculty.length === 0 && (
-              <div className="bg-white p-6 rounded-lg text-center text-gray-500">
-                No faculty found matching your search criteria
+          ) : (
+            <>
+              <div className="flex items-center mb-3 gap-6">
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-green-500"></span>
+                  <span className="text-xs text-gray-600">Available</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-yellow-500"></span>
+                  <span className="text-xs text-gray-600">Nearly Full</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <span className="w-3 h-3 rounded-full bg-red-500"></span>
+                  <span className="text-xs text-gray-600">Overloaded</span>
+                </div>
               </div>
-            )}
-          </div>
+              
+              <div className="grid grid-cols-1 gap-4">
+                {filteredFaculty.map(f => (
+                  <FacultyCard 
+                    key={f.id} 
+                    faculty={f} 
+                    selectedCourse={selectedCourse}
+                    onAssign={handleAssignFaculty}
+                    assignedCourses={courses}
+                  />
+                ))}
+                
+                {filteredFaculty.length === 0 && faculty.length > 0 && (
+                  <div className="bg-white p-6 rounded-lg text-center text-gray-500">
+                    No faculty found matching your search criteria
+                  </div>
+                )}
+              </div>
+            </>
+          )}
         </div>
       </div>
       
-      {/* Floating Save Button */}
-      <div className="fixed bottom-8 right-8">
-        <motion.button
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={handleSaveAssignments}
-          disabled={saving}
-          className="px-6 py-3 rounded-full bg-gradient-to-r from-teal-500 to-blue-600 
-                   text-white font-semibold hover:shadow-lg transition flex items-center gap-2
-                   disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {saving ? <FiLoader className="animate-spin" /> : <FiCheck />}
-          <span>{saving ? 'Saving...' : '✅ Save Assignments'}</span>
-        </motion.button>
-        
-        {showSavedMessage && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="absolute top-0 right-0 transform -translate-y-full mb-2 px-4 py-2 
-                     bg-green-100 text-green-700 rounded-lg text-sm"
+      {/* Connection Error Banner */}
+      {connectionError && (
+        <div className="mb-6 bg-red-50 border border-red-200 rounded-lg p-4">
+          <div className="flex items-center gap-3">
+            <FiAlertCircle className="text-red-600 flex-shrink-0" />
+            <div className="flex-1">
+              <h3 className="font-medium text-red-800">Connection Error</h3>
+              <p className="text-sm text-red-700 mt-1">
+                Unable to connect to the database. Please check your internet connection and try refreshing.
+              </p>
+            </div>
+            <button
+              onClick={handleRefreshData}
+              disabled={loading}
+              className="px-4 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200 transition disabled:opacity-50"
+            >
+              {loading ? 'Retrying...' : 'Retry'}
+            </button>
+          </div>
+        </div>
+      )}
+      
+      {/* Floating Save Button - only show if there are assignments */}
+      {courses.some(course => course.faculty) && (
+        <div className="fixed bottom-8 right-8">
+          <motion.button
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={handleSaveAssignments}
+            disabled={saving}
+            className="px-6 py-3 rounded-full bg-gradient-to-r from-teal-500 to-blue-600 
+                     text-white font-semibold hover:shadow-lg transition flex items-center gap-2
+                     disabled:opacity-50 disabled:cursor-not-allowed shadow-lg"
           >
-            Assignments saved successfully!
-          </motion.div>
-        )}
-      </div>
+            {saving ? <FiLoader className="animate-spin" /> : <FiCheck />}
+            <span>{saving ? 'Saving...' : '✅ Save Assignments'}</span>
+          </motion.button>
+          
+          {showSavedMessage && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="absolute top-0 right-0 transform -translate-y-full mb-2 px-4 py-2 
+                       bg-green-100 text-green-700 rounded-lg text-sm whitespace-nowrap"
+            >
+              Assignments saved successfully!
+            </motion.div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

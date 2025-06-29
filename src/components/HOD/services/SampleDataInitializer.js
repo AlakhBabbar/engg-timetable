@@ -9,6 +9,9 @@ import {
   where
 } from '../../../firebase/config.js';
 
+// Use same collection as TeacherManagement for consistency
+const FACULTY_COLLECTION = 'teachers';
+
 // Sample courses data
 const sampleCourses = [
   {
@@ -228,22 +231,43 @@ export const initializeSampleCourses = async (departmentId = 'dept_computer_scie
  */
 export const initializeSampleFaculty = async (departmentId = 'dept_computer_science') => {
   try {
+    // Map department ID to full name for compatibility
+    const departmentMap = {
+      'dept_computer_science': 'Computer Science',
+      'dept_electrical_engineering': 'Electrical Engineering',
+      'dept_mechanical_engineering': 'Mechanical Engineering',
+      'dept_civil_engineering': 'Civil Engineering',
+      'dept_chemical_engineering': 'Chemical Engineering',
+      'dept_agricultural_engineering': 'Agricultural Engineering'
+    };
+    
+    const fullDepartmentName = departmentMap[departmentId] || departmentId;
+    
     // Check if faculty already exist
-    const facultyRef = collection(db, 'faculty');
-    const existingFacultyQuery = query(facultyRef, where('department', '==', departmentId));
+    const facultyRef = collection(db, FACULTY_COLLECTION);
+    const existingFacultyQuery = query(facultyRef, where('department', '==', fullDepartmentName));
     const existingFacultySnapshot = await getDocs(existingFacultyQuery);
     
     if (!existingFacultySnapshot.empty) {
-      console.log('Sample faculty already exist for department:', departmentId);
+      console.log('Sample faculty already exist for department:', fullDepartmentName);
       return true;
     }
     
-    // Add sample faculty
+    // Add sample faculty with TeacherManagement compatible structure
     for (const faculty of sampleFaculty) {
-      const facultyData = { ...faculty, department: departmentId };
+      const facultyData = { 
+        ...faculty, 
+        department: fullDepartmentName,
+        // Add TeacherManagement fields
+        email: `${faculty.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@university.edu`,
+        qualification: 'Ph.D Computer Science',
+        experience: Math.floor(Math.random() * 15) + 5, // Random experience 5-20 years
+        active: true,
+        role: 'Faculty'
+      };
       delete facultyData.id; // Remove id field, Firestore will generate it
       
-      const facultyDoc = doc(db, 'faculty', faculty.id);
+      const facultyDoc = doc(db, FACULTY_COLLECTION, faculty.id);
       await setDoc(facultyDoc, facultyData);
     }
     
