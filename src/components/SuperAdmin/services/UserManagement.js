@@ -27,7 +27,8 @@ const departments = [
   'Electrical Engineering', 
   'Mechanical Engineering',
   'Civil Engineering',
-  'Chemical Engineering'
+  'Chemical Engineering',
+  'Common'
 ];
 
 // User roles
@@ -61,6 +62,7 @@ export const getUsers = async () => {
         role: data.role,
         department: data.department,
         active: data.active !== false, // default to true if not specified
+        canEditCommonCourses: data.canEditCommonCourses || false, // New permission field
         createdAt: data.createdAt
       };
     });
@@ -178,6 +180,7 @@ export const createUser = async (userData) => {
       role: userData.role,
       department: userData.department,
       active: true,
+      canEditCommonCourses: userData.canEditCommonCourses || false, // New permission field
       createdAt: new Date().toISOString()
     });
     
@@ -239,7 +242,8 @@ export const updateUser = async (id, userData) => {
       email: userData.email,
       role: userData.role,
       department: userData.department,
-      active: userData.active !== false
+      active: userData.active !== false,
+      canEditCommonCourses: userData.canEditCommonCourses || false // Update permission field
     });
     
     // If the user is an HOD, update or create their record in the teachers collection

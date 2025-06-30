@@ -7,6 +7,7 @@ import {
   FiChevronLeft, FiChevronRight, FiPlus, FiEdit2, FiMaximize2, FiMinimize2
 } from 'react-icons/fi';
 import { db, collection, doc, setDoc, getDoc, getDocs, onSnapshot, query, where } from '../../firebase/config';
+import { useSemester } from '../../context/SemesterContext';
 
 // Import services and data
 import { 
@@ -20,6 +21,9 @@ import {
 } from './services/TimetableBuilder';
 
 export default function TimetableBuilder() {
+  // Get current semester from context
+  const { selectedSemester: currentSemester } = useSemester();
+  
   // State for screen size detection
   const [isZoomed, setIsZoomed] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
@@ -35,7 +39,6 @@ export default function TimetableBuilder() {
   const [editTabName, setEditTabName] = useState("");
   
   // State for filters
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
   const [selectedDepartment, setSelectedDepartment] = useState(null);
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   
@@ -72,7 +75,7 @@ export default function TimetableBuilder() {
   
   // Filter courses based on selected filters
   const filteredCourses = filterCourses(coursesData, { 
-    selectedSemester, selectedDepartment, selectedFaculty 
+    selectedSemester: currentSemester, selectedDepartment, selectedFaculty 
   });
 
   // State for fetched and processed course blocks
@@ -111,17 +114,17 @@ export default function TimetableBuilder() {
 
   // Fetch all courses from Firestore (store raw)
   useEffect(() => {
-    if (!selectedSemester) {
+    if (!currentSemester) {
       setAllCourses([]);
       return;
     }
     async function fetchCourses() {
-      const q = query(collection(db, 'courses'), where('semester', '==', selectedSemester));
+      const q = query(collection(db, 'courses'), where('semester', '==', currentSemester));
       const snap = await getDocs(q);
       setAllCourses(snap.docs.map(doc => doc.data()));
     }
     fetchCourses();
-  }, [selectedSemester]);
+  }, [currentSemester]);
 
   // Map courses to courseBlocks whenever teacherMap or allCourses changes
   useEffect(() => {
@@ -223,10 +226,10 @@ export default function TimetableBuilder() {
 
   // Firestore real-time listener for timetable (per tab)
   useEffect(() => {
-    if (!selectedSemester || !selectedBranch || !selectedBatch || !selectedType) return;
+    if (!currentSemester || !selectedBranch || !selectedBatch || !selectedType) return;
     const timetableQuery = query(
       collection(db, 'timetables'),
-      where('semester', '==', selectedSemester),
+      where('semester', '==', currentSemester),
       where('branch', '==', selectedBranch),
       where('batch', '==', selectedBatch),
       where('type', '==', selectedType)
@@ -241,7 +244,7 @@ export default function TimetableBuilder() {
       }
     });
     return () => unsub();
-  }, [selectedSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
+  }, [currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
 
   // Utility to deeply replace undefined with null in an object
   function replaceUndefinedWithNull(obj) {
@@ -259,20 +262,20 @@ export default function TimetableBuilder() {
 
   // Write timetable changes to Firestore
   useEffect(() => {
-    if (!selectedSemester || !selectedBranch || !selectedBatch || !selectedType) return;
+    if (!currentSemester || !selectedBranch || !selectedBatch || !selectedType) return;
     const currentSchedule = timetablesData[activeTabId];
     if (!currentSchedule) return;
-    const timetableDocId = `${selectedSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
+    const timetableDocId = `${currentSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
     // Replace undefined with null before saving
     const safeSchedule = replaceUndefinedWithNull(currentSchedule);
     setDoc(doc(db, 'timetables', timetableDocId), {
-      semester: selectedSemester,
+      semester: currentSemester,
       branch: selectedBranch,
       batch: selectedBatch,
       type: selectedType,
       schedule: safeSchedule
     }, { merge: true });
-  }, [timetablesData, selectedSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
+  }, [timetablesData, currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
 
   // Initialize empty timetable data and check screen size on component mount
   useEffect(() => {
@@ -321,7 +324,6 @@ export default function TimetableBuilder() {
     addToHistory(newTabId, initialData);
     
     // Reset fields
-    setSelectedSemester('');
     setSelectedBranch('');
     setSelectedBatch('');
     setSelectedType('');
@@ -437,7 +439,10 @@ export default function TimetableBuilder() {
   };
 
   // Handle drag start - from course list or timetable
-  const handleDragStart = (course, fromTimetable = false, day = null, slot = null) => {
+  const handleDragStart = (e, course, fromTimetable = false, day = null, slot = null) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', ''); // Required for some browsers
+    
     setIsDragging(true);
     setDraggedCourse(course);
     
@@ -464,7 +469,10 @@ export default function TimetableBuilder() {
   };
 
   // Handle drop on a timetable cell
-  const handleDrop = (day, slot) => {
+  const handleDrop = (e, day, slot) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
     if (draggedCourse) {
       // If dragging from the left panel, selectedRoom may be null
       let roomToAssign = selectedRoom;
@@ -505,6 +513,19 @@ export default function TimetableBuilder() {
       setDraggedCourse(null);
       setDragSourceInfo(null);
     }
+  };
+
+  // Handle drag over (required for drop to work)
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  };
+
+  // Handle drag end
+  const handleDragEnd = () => {
+    setIsDragging(false);
+    setDraggedCourse(null);
+    setDragSourceInfo(null);
   };
 
   // Handle clearing a week
@@ -630,19 +651,11 @@ export default function TimetableBuilder() {
       {/* Filters Row */}
       <div className="bg-white p-3 rounded-xl shadow-sm">
         <div className="flex flex-wrap items-center gap-2">
-          {/* Semester Filter */}
+          {/* Current Semester Display */}
           <div>
-            <label className="block text-xs font-medium text-gray-500 mb-1">Semester</label>
-            <div className="relative">
-              <select
-                value={selectedSemester}
-                onChange={(e) => setSelectedSemester(e.target.value)}
-                className="appearance-none pl-3 pr-8 py-1 text-sm border border-gray-300 rounded-lg focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white"
-              >
-                <option value="Semester 7">Semester 7</option>
-                <option value="Semester 6">Semester 6</option>
-              </select>
-              <FiChevronDown className="absolute right-2 top-1/2 transform -translate-y-1/2 text-gray-400" size={14} />
+            <label className="block text-xs font-medium text-gray-500 mb-1">Current Semester</label>
+            <div className="px-3 py-1 text-sm bg-gray-50 border border-gray-200 rounded-lg text-gray-700 font-medium">
+              {currentSemester || 'No semester selected'}
             </div>
           </div>
           
@@ -722,7 +735,8 @@ export default function TimetableBuilder() {
                     key={block.id}
                     className={`p-2 rounded-lg border ${getCourseColorClass(block)} cursor-grab hover:shadow-sm transition mb-1`}
                     draggable
-                    onDragStart={() => handleDragStart({ ...course, teacherId: block.teacherId, teacherName: block.teacherName })}
+                    onDragStart={(e) => handleDragStart(e, { ...course, teacherId: block.teacherId, teacherName: block.teacherName })}
+                    onDragEnd={handleDragEnd}
                     whileHover={{ scale: 1.01 }}
                   >
                     <div className="flex justify-between items-start">
@@ -892,14 +906,17 @@ export default function TimetableBuilder() {
                           c => c.day === day && c.slot === slot
                         );
                         return (
-                          <td key={`${day}-${slot}`} className="py-1 px-1 border-b border-gray-100 text-center relative" onDragOver={(e) => e.preventDefault()} onDrop={() => handleDrop(day, slot)}>
+                          <td key={`${day}-${slot}`} className="py-1 px-1 border-b border-gray-100 text-center relative" 
+                              onDragOver={handleDragOver} 
+                              onDrop={(e) => handleDrop(e, day, slot)}>
                             {courseInSlot && courseInSlot.code ? (
                               <div 
                                 className={`p-1 rounded-lg ${getCourseColorClass(courseInSlot)} border cursor-grab relative 
                                           ${getCellHeight(viewMode)} max-w-[100px] mx-auto group
                                           ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}`}
                                 draggable
-                                onDragStart={() => handleDragStart(courseInSlot, true, day, slot)}
+                                onDragStart={(e) => handleDragStart(e, courseInSlot, true, day, slot)}
+                                onDragEnd={handleDragEnd}
                               >
                                 <button 
                                   onClick={(e) => handleDeleteCourse(day, slot, e)}
@@ -926,8 +943,8 @@ export default function TimetableBuilder() {
                             ) : (
                               <div
                                 className={`${getCellHeight(viewMode)} w-full max-w-[100px] mx-auto border border-dashed border-gray-200 rounded-lg flex items-center justify-center`}
-                                onDragOver={e => e.preventDefault()}
-                                onDrop={() => handleDrop(day, slot)}
+                                onDragOver={handleDragOver}
+                                onDrop={(e) => handleDrop(e, day, slot)}
                                 style={{ minHeight: '40px', minWidth: '80px' }}
                               >
                                 {isDragging && (
@@ -947,13 +964,16 @@ export default function TimetableBuilder() {
                         );
                         
                         return (
-                          <td className="py-1 px-2 border-b border-gray-100 text-center relative" onDragOver={(e) => e.preventDefault()} onDrop={() => handleDrop(currentDay, slot)}>
+                          <td className="py-1 px-2 border-b border-gray-100 text-center relative" 
+                              onDragOver={handleDragOver} 
+                              onDrop={(e) => handleDrop(e, currentDay, slot)}>
                             {courseInSlot ? (
                               <div 
                                 className={`p-2 rounded-lg ${getCourseColorClass(courseInSlot)} border cursor-grab relative max-w-[280px] mx-auto group
                                           ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}`}
                                 draggable
-                                onDragStart={() => handleDragStart(courseInSlot, true, currentDay, slot)}
+                                onDragStart={(e) => handleDragStart(e, courseInSlot, true, currentDay, slot)}
+                                onDragEnd={handleDragEnd}
                               >
                                 <button 
                                   onClick={(e) => handleDeleteCourse(currentDay, slot, e)}
@@ -979,6 +999,8 @@ export default function TimetableBuilder() {
                             ) : (
                               <div 
                                 className="h-14 max-w-[280px] mx-auto border border-dashed border-gray-200 rounded-lg flex items-center justify-center"
+                                onDragOver={handleDragOver}
+                                onDrop={(e) => handleDrop(e, currentDay, slot)}
                               >
                                 {isDragging && (
                                   <div className="text-xs text-gray-400">Drop here</div>

@@ -21,13 +21,7 @@ import {
 } from './services/FacultyAssignment';
 import { initializeAllSampleData, initializeSampleCoursesForSemester } from './services/SampleDataInitializer';
 import { useToast } from '../../context/ToastContext';
-
-// Import semester service
-import { 
-  getAllSemesters,
-  getDefaultSemesters,
-  getActiveSemester 
-} from '../../services/SemesterService.js';
+import { useSemester } from '../../context/SemesterContext';
 
 // Component for displaying a faculty card
 const FacultyCard = ({ faculty, selectedCourse, onAssign, assignedCourses }) => {
@@ -291,13 +285,9 @@ export default function FacultyAssignment() {
   const [discardingChanges, setDiscardingChanges] = useState(false);
   const [unsavedChanges, setUnsavedChanges] = useState(false);
   
-  // Semester-related state
-  const [availableSemesters, setAvailableSemesters] = useState([]);
-  const [selectedSemester, setSelectedSemester] = useState('');
-  const [loadingSemesters, setLoadingSemesters] = useState(true);
-  
   const { showSuccess, showError } = useToast();
   const { user } = useContext(AuthContext); // Get authenticated user data
+  const { selectedSemester, availableSemesters, loading: loadingSemesters, selectSemester } = useSemester();
   
   // Get department from authenticated HOD user
   const departmentId = user?.department || 'Computer Science'; // Default fallback
@@ -351,42 +341,11 @@ export default function FacultyAssignment() {
     loadData();
   }, [departmentId, user?.department, showError]);
   
-  // Load available semesters
+  // Clear course selection when semester changes from context
   useEffect(() => {
-    const loadSemesters = async () => {
-      try {
-        setLoadingSemesters(true);
-        
-        // Try to get semesters from Firebase first
-        const semestersData = await getAllSemesters();
-        
-        if (semestersData.length > 0) {
-          const semesterNames = semestersData.map(sem => sem.name);
-          setAvailableSemesters(semesterNames);
-          
-          // Set the first semester as default, or active semester if available
-          const activeSemester = await getActiveSemester();
-          setSelectedSemester(activeSemester?.name || semesterNames[0]);
-        } else {
-          // Fallback to default semesters
-          const defaultSemesters = getDefaultSemesters();
-          setAvailableSemesters(defaultSemesters);
-          setSelectedSemester(defaultSemesters[0]);
-        }
-      } catch (error) {
-        console.error('Error loading semesters:', error);
-        // Fallback to default semesters
-        const defaultSemesters = getDefaultSemesters();
-        setAvailableSemesters(defaultSemesters);
-        setSelectedSemester(defaultSemesters[0]);
-      } finally {
-        setLoadingSemesters(false);
-      }
-    };
-    
-    loadSemesters();
-  }, []);
-  
+    setSelectedCourse(null);
+  }, [selectedSemester]);
+
   // Local function to calculate faculty load from courses
   const updateFacultyLoadFromCourses = (courses, facultyList) => {
     // Create a copy of the faculty array to avoid modifying the original
@@ -1114,31 +1073,17 @@ export default function FacultyAssignment() {
               )}
             </h2>
             
-            {/* Semester Selector */}
+            {/* Semester Info Display */}
             <div className="flex items-center gap-2">
-              <label htmlFor="semester-select" className="text-sm font-medium text-gray-600">
-                Semester:
-              </label>
-              <select
-                id="semester-select"
-                value={selectedSemester}
-                onChange={(e) => {
-                  setSelectedSemester(e.target.value);
-                  setSelectedCourse(null); // Clear course selection when semester changes
-                }}
-                disabled={loadingSemesters}
-                className="px-3 py-1.5 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
-              >
-                {loadingSemesters ? (
-                  <option>Loading...</option>
-                ) : (
-                  availableSemesters.map(semester => (
-                    <option key={semester} value={semester}>
-                      {semester}
-                    </option>
-                  ))
-                )}
-              </select>
+              <span className="text-sm font-medium text-gray-600">
+                Current Semester:
+              </span>
+              <span className="text-sm font-semibold text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                {selectedSemester || 'No semester selected'}
+              </span>
+              <span className="text-xs text-gray-500">
+                (Managed from header dropdown)
+              </span>
             </div>
           </div>
           

@@ -30,6 +30,7 @@ import {
 // Collection references
 const COURSES_COLLECTION = 'courses';
 const FACULTY_COLLECTION = 'teachers';
+const DEPARTMENTS_COLLECTION = 'departments';
 
 // Dummy data for courses (used as fallback)
 const dummyCourses = [];
@@ -43,28 +44,104 @@ const dummyFaculty = [];
  * @param {string} departmentId - Department ID 
  * @returns {Promise<Array>} - Array of courses
  */
-export const fetchCourses = async (departmentId) => {
+export const fetchCourses = async (departmentName) => {
   try {
+    
     const coursesRef = collection(db, COURSES_COLLECTION);
     
-    // Create queries for both department-specific and common courses
-    const departmentCoursesQuery = query(coursesRef, where('department', '==', departmentId));
-    const commonCoursesQuery = query(coursesRef, where('department', '==', 'common'));
+    // First, find the department ID from the department name and identify common department ID
+    let departmentId = null;
+    let commonDepartmentId = null;
     
-    // Execute both queries
-    const [departmentSnapshot, commonSnapshot] = await Promise.all([
-      getDocs(departmentCoursesQuery),
-      getDocs(commonCoursesQuery)
-    ]);
+    try {
+      const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
+      const departmentsSnapshot = await getDocs(departmentsRef);
+      
+      
+      for (const deptDoc of departmentsSnapshot.docs) {
+        const deptData = deptDoc.data();
+        
+        // Check if this is the user's department
+        if (deptData.name === departmentName) {
+          departmentId = deptDoc.id;
+        }
+        
+        // Check if this is the common department (look for various common department names)
+        if (deptData.name && (
+          deptData.name.toLowerCase() === 'common' ||
+          deptData.name.toLowerCase() === 'common department' ||
+          deptData.name.toLowerCase() === 'general' ||
+          deptData.name.toLowerCase() === 'shared'
+        )) {
+          commonDepartmentId = deptDoc.id;
+        }
+      }
+      
+      if (!departmentId && departmentName !== 'common') {
+        // Department not found in database
+      }
+    } catch (deptError) {
+      console.error('fetchCourses: Error finding department IDs:', deptError);
+    }
+    
+    // Also fetch all courses to see what's in the database
+    const allCoursesSnapshot = await getDocs(coursesRef);
+    
+    
+    // Create queries for both department-specific and common courses
+    const queries = [];
+    
+    // Add department-specific query if we found a department ID
+    if (departmentId) {
+      queries.push(getDocs(query(coursesRef, where('department', '==', departmentId))));
+    }
+    
+    // Add common courses queries (try multiple variations)
+    queries.push(getDocs(query(coursesRef, where('department', '==', 'common'))));
+    queries.push(getDocs(query(coursesRef, where('department', '==', 'Common'))));
+    queries.push(getDocs(query(coursesRef, where('department', '==', 'COMMON'))));
+    
+    // Also query using the common department ID if we found one
+    if (commonDepartmentId) {
+      queries.push(getDocs(query(coursesRef, where('department', '==', commonDepartmentId))));
+    }
+    
+    // Execute all queries
+    const snapshots = await Promise.all(queries);
+    
+    let departmentSnapshot = { docs: [] };
+    let commonSnapshot1 = { docs: [] };
+    let commonSnapshot2 = { docs: [] };
+    let commonSnapshot3 = { docs: [] };
+    let commonSnapshotById = { docs: [] };
+    
+    if (departmentId) {
+      departmentSnapshot = snapshots[0];
+      commonSnapshot1 = snapshots[1];
+      commonSnapshot2 = snapshots[2];
+      commonSnapshot3 = snapshots[3];
+      if (commonDepartmentId && snapshots[4]) {
+        commonSnapshotById = snapshots[4];
+      }
+    } else {
+      commonSnapshot1 = snapshots[0];
+      commonSnapshot2 = snapshots[1];
+      commonSnapshot3 = snapshots[2];
+      if (commonDepartmentId && snapshots[3]) {
+        commonSnapshotById = snapshots[3];
+      }
+    }
     
     // Combine all course documents
     const allCourseDocs = [
       ...departmentSnapshot.docs,
-      ...commonSnapshot.docs
+      ...commonSnapshot1.docs,
+      ...commonSnapshot2.docs,
+      ...commonSnapshot3.docs,
+      ...commonSnapshotById.docs
     ];
     
     if (allCourseDocs.length === 0) {
-      console.log('No courses found, using dummy data');
       return dummyCourses;
     }
     
@@ -113,6 +190,10 @@ export const fetchCourses = async (departmentId) => {
         }
       }
       
+      const finalWeeklyHours = (courseData.weeklyHours && typeof courseData.weeklyHours === 'string') 
+        ? courseData.weeklyHours 
+        : (courseData.weeklyHours ? String(courseData.weeklyHours) : '');
+      
       courses.push({
         id: courseDoc.id,
         code: courseData.code || '',
@@ -120,9 +201,12 @@ export const fetchCourses = async (departmentId) => {
         faculty: facultyData, // Primary faculty (backward compatibility)
         facultyList: facultyList, // All assigned faculty
         semester: courseData.semester || '',
-        weeklyHours: courseData.weeklyHours || '',
+        weeklyHours: finalWeeklyHours,
         department: courseData.department || '',
-        isCommon: courseData.department === 'common' // Flag to identify common courses
+        isCommon: courseData.department === 'common' || 
+                  courseData.department === 'Common' || 
+                  courseData.department === 'COMMON' ||
+                  (commonDepartmentId && courseData.department === commonDepartmentId) // Flag to identify common courses
       });
     }
     
@@ -130,6 +214,129 @@ export const fetchCourses = async (departmentId) => {
   } catch (error) {
     console.error('Error fetching courses:', error);
     return dummyCourses;
+  }
+};
+
+/**
+ * Fetch a single course by ID from Firebase
+ * @param {string} courseId - Course document ID
+ * @returns {Promise<Object|null>} - Course data or null if not found
+ */
+export const fetchSingleCourse = async (courseId) => {
+  try {
+    const courseDocRef = doc(db, COURSES_COLLECTION, courseId);
+    
+    const courseSnapshot = await getDoc(courseDocRef);
+    
+    if (!courseSnapshot.exists()) {
+      return null;
+    }
+    
+    const courseData = courseSnapshot.data();
+    
+    // Fetch faculty data if assigned
+    let facultyData = null;
+    let facultyList = [];
+    
+    if (courseData.faculty) {
+      try {
+        const facultyDoc = await getDoc(doc(db, FACULTY_COLLECTION, courseData.faculty));
+        if (facultyDoc.exists()) {
+          facultyData = {
+            id: facultyDoc.id,
+            ...facultyDoc.data()
+          };
+        }
+      } catch (facultyError) {
+        console.error('Error fetching primary faculty:', facultyError);
+      }
+    }
+    
+    // Fetch multiple faculty if assigned (facultyList field)
+    if (courseData.facultyList && Array.isArray(courseData.facultyList)) {
+      try {
+        for (const facultyId of courseData.facultyList) {
+          const facultyDoc = await getDoc(doc(db, FACULTY_COLLECTION, facultyId));
+          if (facultyDoc.exists()) {
+            facultyList.push({
+              id: facultyDoc.id,
+              ...facultyDoc.data()
+            });
+          }
+        }
+      } catch (facultyListError) {
+        console.error('Error fetching faculty list:', facultyListError);
+      }
+    }
+    
+    // Ensure weeklyHours is a string
+    let finalWeeklyHours = courseData.weeklyHours;
+    if (typeof finalWeeklyHours !== 'string') {
+      if (finalWeeklyHours && typeof finalWeeklyHours === 'object') {
+        // If it's an object, try to format it
+        finalWeeklyHours = `${finalWeeklyHours.lecture || 0}-${finalWeeklyHours.tutorial || 0}-${finalWeeklyHours.practical || 0}`;
+      } else {
+        finalWeeklyHours = String(finalWeeklyHours || '0-0-0');
+      }
+    }
+    
+    // Determine if this is a common course
+    let isCommon = false;
+    if (courseData.department === 'common' || 
+        courseData.department === 'Common' || 
+        courseData.department === 'COMMON') {
+      isCommon = true;
+    } else {
+      // Check if department ID matches common department ID
+      try {
+        const departmentsQuery = query(collection(db, DEPARTMENTS_COLLECTION));
+        const departmentsSnapshot = await getDocs(departmentsQuery);
+        
+        for (const deptDoc of departmentsSnapshot.docs) {
+          const deptData = deptDoc.data();
+          if (deptData.name && 
+              (deptData.name.toLowerCase() === 'common' || 
+               deptData.name.toLowerCase() === 'common department') &&
+              courseData.department === deptDoc.id) {
+            isCommon = true;
+            break;
+          }
+        }
+      } catch (deptError) {
+        console.error('Error checking common department:', deptError);
+      }
+    }
+    
+    const course = {
+      id: courseSnapshot.id,
+      code: courseData.code || '',
+      title: courseData.title || '',
+      faculty: facultyData, // Primary faculty (backward compatibility)
+      facultyList: facultyList, // All assigned faculty
+      semester: courseData.semester || '',
+      weeklyHours: finalWeeklyHours,
+      department: courseData.department || '',
+      isCommon: isCommon,
+      // Include the individual hour fields
+      lectureHours: courseData.lectureHours || 0,
+      tutorialHours: courseData.tutorialHours || 0,
+      practicalHours: courseData.practicalHours || 0,
+      // Include other important fields
+      credits: courseData.credits || 0,
+      type: courseData.type || 'Core',
+      description: courseData.description || '',
+      prerequisites: courseData.prerequisites || [],
+      active: courseData.active !== false,
+      facultyId: courseData.facultyId || null,
+      createdAt: courseData.createdAt || '',
+      updatedAt: courseData.updatedAt || ''
+    };
+    
+    return course;
+    
+  } catch (error) {
+    console.error('Error fetching single course:', error);
+    return null;
   }
 };
 
@@ -145,18 +352,42 @@ export const getCourses = () => {
 
 /**
  * Fetch faculty from Firebase
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name
  * @returns {Promise<Array>} - Array of faculty members
  */
-export const fetchFaculty = async (departmentId) => {
+export const fetchFaculty = async (departmentName) => {
   try {
+    
+    // First, find the department ID from the department name
+    let departmentId = null;
+    if (departmentName && departmentName !== 'common') {
+      try {
+        const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
+        const departmentsSnapshot = await getDocs(departmentsRef);
+        
+        for (const deptDoc of departmentsSnapshot.docs) {
+          const deptData = deptDoc.data();
+          if (deptData.name === departmentName) {
+            departmentId = deptDoc.id;
+            break;
+          }
+        }
+        
+        if (!departmentId) {
+          return dummyFaculty;
+        }
+      } catch (deptError) {
+        console.error('fetchFaculty: Error finding department ID:', deptError);
+        return dummyFaculty;
+      }
+    }
+    
     const facultyRef = collection(db, FACULTY_COLLECTION);
     const facultyQuery = query(facultyRef, where('department', '==', departmentId));
     
     const snapshot = await getDocs(facultyQuery);
     
     if (snapshot.empty) {
-      console.log('No faculty found, using dummy data');
       return dummyFaculty;
     }
     
@@ -255,16 +486,99 @@ export const filterCourses = (courses, searchTerm, selectedSemester, selectedFac
  * @param {string} weeklyHours - Weekly hours string (e.g. "3L+1T+2P")
  * @returns {Object} - Parsed hours
  */
-export const parseWeeklyHours = (weeklyHours) => {
-  const lectureMatch = weeklyHours.match(/(\d+)L/);
-  const tutorialMatch = weeklyHours.match(/(\d+)T/);
-  const practicalMatch = weeklyHours.match(/(\d+)P/);
+/**
+ * Parse weekly hours into components (lecture, tutorial, practical)
+ * @param {string|number} weeklyHours - Weekly hours string or number
+ * @param {Object} courseData - Full course data object (optional) 
+ * @returns {Object} - Parsed hours
+ */
+export const parseWeeklyHours = (weeklyHours, courseData = null) => {
   
-  return {
-    lectureHours: lectureMatch ? lectureMatch[1] : '0',
-    tutorialHours: tutorialMatch ? tutorialMatch[1] : '0',
-    practicalHours: practicalMatch ? practicalMatch[1] : '0'
-  };
+  // If course data is provided and has individual hour fields, use them directly
+  if (courseData && (courseData.lectureHours !== undefined || courseData.tutorialHours !== undefined || courseData.practicalHours !== undefined)) {
+    
+    const result = {
+      lectureHours: courseData.lectureHours !== undefined && courseData.lectureHours !== null ? courseData.lectureHours.toString() : '0',
+      tutorialHours: courseData.tutorialHours !== undefined && courseData.tutorialHours !== null ? courseData.tutorialHours.toString() : '0',
+      practicalHours: courseData.practicalHours !== undefined && courseData.practicalHours !== null ? courseData.practicalHours.toString() : '0'
+    };
+    return result;
+  }
+  
+  // Handle null or undefined values
+  if (!weeklyHours && weeklyHours !== 0) {
+    return {
+      lectureHours: '0',
+      tutorialHours: '0',
+      practicalHours: '0'
+    };
+  }
+  
+  try {
+    
+    // Handle number format - assume it's total lecture hours
+    if (typeof weeklyHours === 'number') {
+      const result = {
+        lectureHours: weeklyHours.toString(),
+        tutorialHours: '0',
+        practicalHours: '0'
+      };
+      return result;
+    }
+    
+    // Convert to string for further processing
+    const weeklyHoursStr = weeklyHours.toString();
+    
+    // Try format with L-T-P suffixes with + separators (e.g., "3L+1T+2P")
+    let lectureMatch = weeklyHoursStr.match(/(\d+)L/);
+    let tutorialMatch = weeklyHoursStr.match(/(\d+)T/);
+    let practicalMatch = weeklyHoursStr.match(/(\d+)P/);
+    
+    if (lectureMatch || tutorialMatch || practicalMatch) {
+      const result = {
+        lectureHours: lectureMatch ? lectureMatch[1] : '0',
+        tutorialHours: tutorialMatch ? tutorialMatch[1] : '0',
+        practicalHours: practicalMatch ? practicalMatch[1] : '0'
+      };
+      return result;
+    }
+    
+    // Try format without suffixes with dash separators (e.g., "3-1-2")
+    const dashSeparated = weeklyHoursStr.split('-');
+    if (dashSeparated.length >= 3) {
+      const result = {
+        lectureHours: dashSeparated[0] || '0',
+        tutorialHours: dashSeparated[1] || '0',
+        practicalHours: dashSeparated[2] || '0'
+      };
+      return result;
+    }
+    
+    // If it's a single number string, treat as lecture hours
+    const singleNumber = parseInt(weeklyHoursStr);
+    if (!isNaN(singleNumber)) {
+      const result = {
+        lectureHours: singleNumber.toString(),
+        tutorialHours: '0',
+        practicalHours: '0'
+      };
+      return result;
+    }
+    
+    // If no recognized format, return defaults
+    return {
+      lectureHours: '0',
+      tutorialHours: '0',
+      practicalHours: '0'
+    };
+    
+  } catch (error) {
+    return {
+      lectureHours: '0',
+      tutorialHours: '0',
+      practicalHours: '0'
+    };
+  }
 };
 
 /**
@@ -298,12 +612,13 @@ export const formatWeeklyHours = (lectureHours, tutorialHours, practicalHours) =
  * @param {Object} formData - Form data for new course
  * @param {Array} faculty - Available faculty
  * @param {string} departmentId - Department ID
+ * @param {Object} user - Current user object with permissions
  * @returns {Promise<Array>} - Updated courses array
  */
-export const addCourse = async (courses, formData, faculty, departmentId) => {
+export const addCourse = async (courses, formData, faculty, departmentId, user = null) => {
   try {
-    // Prevent HODs from adding courses to the "common" department
-    if (departmentId === 'common') {
+    // Prevent HODs from adding courses to the "common" department unless they have permission
+    if (departmentId === 'common' && (!user || !user.canEditCommonCourses)) {
       throw new Error('HODs cannot add courses to the common department. Please contact SuperAdmin.');
     }
     
@@ -396,9 +711,11 @@ export const addCourse = async (courses, formData, faculty, departmentId) => {
  * @param {Object} formData - Updated course data
  * @param {Array} faculty - Available faculty
  * @param {string} departmentId - Department ID
+ * @param {string} departmentId - Department ID
+ * @param {Object} user - Current user object with permissions
  * @returns {Promise<Array>} - Updated courses array
  */
-export const updateCourse = async (courses, courseId, formData, faculty, departmentId) => {
+export const updateCourse = async (courses, courseId, formData, faculty, departmentId, user = null) => {
   try {
     // Find the existing course
     const courseIndex = courses.findIndex(c => c.id === courseId);
@@ -408,8 +725,8 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
     
     const existingCourse = courses[courseIndex];
     
-    // Prevent HODs from updating common courses
-    if (existingCourse.department === 'common') {
+    // Prevent HODs from updating common courses unless they have permission
+    if (existingCourse.department === 'common' && (!user || !user.canEditCommonCourses)) {
       throw new Error('HODs cannot modify common courses. Please contact SuperAdmin.');
     }
     
@@ -534,9 +851,11 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
  * @param {Array} courses - Current courses array
  * @param {number} courseId - Course ID to delete
  * @param {string} departmentId - Department ID
+ * @param {string} departmentId - Department ID
+ * @param {Object} user - Current user object with permissions
  * @returns {Promise<Array>} - Updated courses array
  */
-export const deleteCourse = async (courses, courseId, departmentId) => {
+export const deleteCourse = async (courses, courseId, departmentId, user = null) => {
   try {
     // Find the course to delete
     const courseToDelete = courses.find(c => c.id === courseId);
@@ -544,8 +863,8 @@ export const deleteCourse = async (courses, courseId, departmentId) => {
       throw new Error('Course not found');
     }
     
-    // Prevent HODs from deleting common courses
-    if (courseToDelete.department === 'common') {
+    // Prevent HODs from deleting common courses unless they have permission
+    if (courseToDelete.department === 'common' && (!user || !user.canEditCommonCourses)) {
       throw new Error('HODs cannot delete common courses. Please contact SuperAdmin.');
     }
     
@@ -718,12 +1037,13 @@ export const processUploadedCourses = async (jsonData, courses, faculty, departm
  * @param {Object} courseData - Single course data object
  * @param {Array} faculty - Available faculty list
  * @param {string} departmentId - Department ID of the user
+ * @param {Object} user - Current user object with permissions
  * @returns {Promise<Object>} Result object with success status
  */
-export const processSingleCourseImport = async (courseData, faculty, departmentId) => {
+export const processSingleCourseImport = async (courseData, faculty, departmentId, user = null) => {
   try {
-    // Prevent HODs from uploading courses to the "common" department
-    if (departmentId === 'common') {
+    // Prevent HODs from uploading courses to the "common" department unless they have permission
+    if (departmentId === 'common' && (!user || !user.canEditCommonCourses)) {
       return {
         success: false,
         error: 'HODs cannot upload courses to the common department. Please contact SuperAdmin.',
@@ -1049,9 +1369,91 @@ export const getCoursesByFaculty = (courses, facultyId) => {
   });
 };
 
+/**
+ * Create sample common courses for testing (for development only)
+ * @returns {Promise<void>}
+ */
+export const createSampleCommonCourses = async () => {
+  try {
+    
+    const sampleCommonCourses = [
+      {
+        code: 'MATH101',
+        title: 'Engineering Mathematics I',
+        semester: 'Semester 1',
+        lectureHours: 4,
+        tutorialHours: 1,
+        practicalHours: 0,
+        weeklyHours: '4L+1T',
+        department: 'common',
+        faculty: null,
+        facultyList: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      },
+      {
+        code: 'PHY101',
+        title: 'Engineering Physics',
+        semester: 'Semester 1',
+        lectureHours: 3,
+        tutorialHours: 1,
+        practicalHours: 2,
+        weeklyHours: '3L+1T+2P',
+        department: 'common',
+        faculty: null,
+        facultyList: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      },
+      {
+        code: 'CHEM101',
+        title: 'Engineering Chemistry',
+        semester: 'Semester 1',
+        lectureHours: 3,
+        tutorialHours: 0,
+        practicalHours: 2,
+        weeklyHours: '3L+2P',
+        department: 'common',
+        faculty: null,
+        facultyList: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      },
+      {
+        code: 'ENG101',
+        title: 'Technical Communication',
+        semester: 'Semester 2',
+        lectureHours: 2,
+        tutorialHours: 1,
+        practicalHours: 0,
+        weeklyHours: '2L+1T',
+        department: 'common',
+        faculty: null,
+        facultyList: [],
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      }
+    ];
+    
+    for (const courseData of sampleCommonCourses) {
+      const courseRef = doc(db, COURSES_COLLECTION, `${courseData.code}_${courseData.semester.replace(/\s+/g, '_')}_common`);
+      
+      // Check if course already exists
+      const existingDoc = await getDoc(courseRef);
+      if (!existingDoc.exists()) {
+        await setDoc(courseRef, courseData);
+      }
+    }
+    
+  } catch (error) {
+    console.error('Error creating sample common courses:', error);
+  }
+};
+
 // Export functions for use in the component
 const CourseManagementService = {
   fetchCourses,
+  fetchSingleCourse,
   fetchFaculty,
   getCourses,
   getFaculty,
@@ -1067,7 +1469,8 @@ const CourseManagementService = {
   processSuperAdminCourseImport,
   getExampleCourseData,
   normalizeCourseData,
-  getCoursesByFaculty
+  getCoursesByFaculty,
+  createSampleCommonCourses
 };
 
 export default CourseManagementService;

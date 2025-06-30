@@ -17,6 +17,7 @@ import {
   FiUsers
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import { useSemester } from '../../context/SemesterContext';
 import { 
   getInitialTimetableStatus, 
   getInitialConflicts, 
@@ -29,6 +30,7 @@ import {
 
 export default function TTInchargeDashboard() {
   const navigate = useNavigate();
+  const { selectedSemester } = useSemester();
   
   // Use service functions for initial state
   const [timetableStatus, setTimetableStatus] = useState(getInitialTimetableStatus());
@@ -102,7 +104,7 @@ export default function TTInchargeDashboard() {
           </div>
           <div className="flex-grow">
             <h2 className="text-lg font-semibold text-gray-700">Current Semester</h2>
-            <p className="text-xl font-bold text-blue-600">Semester 7</p>
+            <p className="text-xl font-bold text-blue-600">{selectedSemester || 'No semester selected'}</p>
             <div className="flex items-center gap-2">
               <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
                 <div 

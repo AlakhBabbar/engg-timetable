@@ -5,10 +5,14 @@ import { useRateLimitedUpload } from '../../hooks/useRateLimitedUpload';
 import UploadProgressIndicator from '../common/UploadProgressIndicator';
 import { useToast } from '../../context/ToastContext';
 import { AuthContext } from '../../App';
+import { useSemester } from '../../context/SemesterContext';
 
 export default function CourseManagement() {
   // Authentication context
   const { user } = useContext(AuthContext);
+  
+  // Semester context
+  const { selectedSemester, availableSemesters } = useSemester();
   
   // Toast notifications
   const { showSuccess, showError, showWarning, showInfo } = useToast();
@@ -17,8 +21,6 @@ export default function CourseManagement() {
   const [courses, setCourses] = useState([]);
   const [filteredCourses, setFilteredCourses] = useState([]);
   const [faculty, setFaculty] = useState([]);
-  const [semesterOptions, setSemesterOptions] = useState([]);
-  const [selectedSemester, setSelectedSemester] = useState('All Semesters');
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -27,11 +29,12 @@ export default function CourseManagement() {
     title: '',
     code: '',
     faculty: '',
-    semester: 'Semester 1',
+    semester: selectedSemester || 'Semester 1',
     weeklyHours: '',
     lectureHours: '3',
     tutorialHours: '1',
-    practicalHours: '0'
+    practicalHours: '0',
+    targetDepartment: '' // Will be set when modal opens
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
@@ -56,9 +59,6 @@ export default function CourseManagement() {
         // Fetch faculty from Firebase using user's department  
         const facultyData = await CourseManagementService.fetchFaculty(user.department);
         setFaculty(facultyData);
-        
-        // Get semester options (this is static data)
-        setSemesterOptions(CourseManagementService.getSemesterOptions({ includeAll: true }));
       } catch (error) {
         console.error('Error loading course data:', error);
         showError('Failed to load course data. Please refresh the page.', {
@@ -67,7 +67,6 @@ export default function CourseManagement() {
         // Fallback to cached/dummy data
         setCourses(CourseManagementService.getCourses());
         setFaculty(CourseManagementService.getFaculty());
-        setSemesterOptions(CourseManagementService.getSemesterOptions({ includeAll: true }));
       } finally {
         setIsLoading(false);
       }
@@ -99,12 +98,19 @@ export default function CourseManagement() {
     };
   }, [showInfoTooltip]);
 
+  // Update form data semester when context selectedSemester changes
+  useEffect(() => {
+    if (selectedSemester && !editingCourse) {
+      setFormData(prev => ({ ...prev, semester: selectedSemester }));
+    }
+  }, [selectedSemester, editingCourse]);
+
   // Filter courses whenever filter parameters change
   useEffect(() => {
     const filtered = CourseManagementService.filterCourses(
       courses,
       searchTerm,
-      selectedSemester,
+      selectedSemester || 'All Semesters',
       selectedFaculty
     );
     setFilteredCourses(filtered);
@@ -138,29 +144,116 @@ export default function CourseManagement() {
       weeklyHours: '',
       lectureHours: '3',
       tutorialHours: '1',
-      practicalHours: '0'
+      practicalHours: '0',
+      targetDepartment: user?.department || ''
     });
     setShowModal(true);
   };
 
   // Open modal for editing an existing course
-  const openEditCourseModal = (course) => {
-    setEditingCourse(course);
-    
-    // Parse weekly hours into components
-    const { lectureHours, tutorialHours, practicalHours } = CourseManagementService.parseWeeklyHours(course.weeklyHours);
-    
-    setFormData({
-      title: course.title,
-      code: course.code,
-      faculty: course.faculty ? course.faculty.id : '',
-      semester: course.semester,
-      weeklyHours: course.weeklyHours,
-      lectureHours,
-      tutorialHours,
-      practicalHours
-    });
-    setShowModal(true);
+  const openEditCourseModal = async (course) => {
+    try {
+      setIsLoading(true);
+      
+      // Add a timeout to the Firestore fetch to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Firestore fetch timeout')), 5000)
+      );
+      
+      let latestCourseData = null;
+      
+      try {
+        // Race between fetchSingleCourse and timeout
+        latestCourseData = await Promise.race([
+          CourseManagementService.fetchSingleCourse(course.id),
+          timeoutPromise
+        ]);
+        
+        if (!latestCourseData) {
+          throw new Error('Course not found in database');
+        }
+        
+      } catch (fetchError) {
+        console.warn('Firestore fetch failed, using local state data:', fetchError.message);
+        latestCourseData = course; // Use local state as fallback
+      }
+      
+      setEditingCourse(latestCourseData);
+      
+      // Parse weekly hours into components using the available data
+      const { lectureHours, tutorialHours, practicalHours } = CourseManagementService.parseWeeklyHours(latestCourseData.weeklyHours, latestCourseData);
+      
+      // Determine target department correctly
+      let targetDepartment;
+      if (latestCourseData.isCommon || latestCourseData.department === 'common') {
+        targetDepartment = 'common';
+      } else {
+        targetDepartment = latestCourseData.department || user?.department || '';
+      }
+      
+      // Ensure faculty ID is a string
+      const facultyId = latestCourseData.faculty ? String(latestCourseData.faculty.id) : '';
+      
+      // IMPORTANT: Don't use fallback values if parseWeeklyHours returned valid values
+      const finalLectureHours = lectureHours !== undefined && lectureHours !== null ? lectureHours : '3';
+      const finalTutorialHours = tutorialHours !== undefined && tutorialHours !== null ? tutorialHours : '1';
+      const finalPracticalHours = practicalHours !== undefined && practicalHours !== null ? practicalHours : '0';
+      
+      setFormData({
+        title: latestCourseData.title || '',
+        code: latestCourseData.code || '',
+        faculty: facultyId,
+        semester: latestCourseData.semester || 'Semester 1',
+        weeklyHours: latestCourseData.weeklyHours || '',
+        lectureHours: finalLectureHours,
+        tutorialHours: finalTutorialHours,
+        practicalHours: finalPracticalHours,
+        targetDepartment
+      });
+      setShowModal(true);
+      
+    } catch (error) {
+      console.error('Error fetching latest course data:', error);
+      showError('Failed to load latest course data. Using cached data instead.');
+      
+      // Fallback to local state data if Firestore fetch fails
+      setEditingCourse(course);
+      
+      // Parse weekly hours into components using local data
+      const { lectureHours, tutorialHours, practicalHours } = CourseManagementService.parseWeeklyHours(course.weeklyHours, course);
+      
+      // Determine target department correctly for fallback
+      let targetDepartment;
+      if (course.isCommon || course.department === 'common') {
+        targetDepartment = 'common';
+      } else {
+        targetDepartment = course.department || user?.department || '';
+      }
+      
+      // Ensure faculty ID is a string for fallback
+      const facultyId = course.faculty ? String(course.faculty.id) : '';
+      
+      // IMPORTANT: Don't use fallback values if parseWeeklyHours returned valid values
+      const finalLectureHours = lectureHours !== undefined && lectureHours !== null ? lectureHours : '3';
+      const finalTutorialHours = tutorialHours !== undefined && tutorialHours !== null ? tutorialHours : '1';
+      const finalPracticalHours = practicalHours !== undefined && practicalHours !== null ? practicalHours : '0';
+      
+      setFormData({
+        title: course.title || '',
+        code: course.code || '',
+        faculty: facultyId,
+        semester: course.semester || 'Semester 1',
+        weeklyHours: course.weeklyHours || '',
+        lectureHours: finalLectureHours,
+        tutorialHours: finalTutorialHours,
+        practicalHours: finalPracticalHours,
+        targetDepartment
+      });
+      setShowModal(true);
+      
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   // Handle form submission
@@ -184,7 +277,8 @@ export default function CourseManagement() {
           editingCourse.id,
           formData,
           faculty,
-          user.department
+          formData.targetDepartment,
+          user
         );
         setCourses(updatedCourses);
         showSuccess(`Course ${formData.code} updated successfully`);
@@ -194,7 +288,8 @@ export default function CourseManagement() {
           courses,
           formData,
           faculty,
-          user.department
+          formData.targetDepartment,
+          user
         );
         setCourses(updatedCourses);
         showSuccess(`Course ${formData.code} created successfully`);
@@ -227,7 +322,7 @@ export default function CourseManagement() {
       setIsLoading(true);
       const courseToDelete = courses.find(c => c.id === id);
       
-      const updatedCourses = await CourseManagementService.deleteCourse(courses, id, user.department);
+      const updatedCourses = await CourseManagementService.deleteCourse(courses, id, user.department, user);
       setCourses(updatedCourses);
       showSuccess(`Course ${courseToDelete?.code || ''} deleted successfully`);
     } catch (err) {
@@ -241,7 +336,6 @@ export default function CourseManagement() {
 
   // Reset all filters
   const resetFilters = () => {
-    setSelectedSemester('All Semesters');
     setSelectedFaculty(null);
     setSearchTerm('');
   };
@@ -349,7 +443,7 @@ export default function CourseManagement() {
                 const results = [];
                 for (const course of courseBatch) {
                   try {
-                    const result = await CourseManagementService.processSingleCourseImport(course, faculty, user.department);
+                    const result = await CourseManagementService.processSingleCourseImport(course, faculty, user.department, user);
                     results.push(result);
                   } catch (error) {
                     results.push({
@@ -656,18 +750,17 @@ export default function CourseManagement() {
       <div className="bg-white rounded-2xl p-5 shadow-md mb-6">
         <div className="flex flex-col lg:flex-row gap-4 justify-between items-center">
           <div className="flex flex-1 flex-col md:flex-row gap-4 w-full lg:w-auto">
-            {/* Semester Filter */}
+            {/* Current Semester Display */}
             <div className="relative flex-1">
-              <label className="block text-sm font-medium text-gray-600 mb-1">Semester</label>
-              <select
-                value={selectedSemester}
-                onChange={(e) => setSelectedSemester(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-              >
-                {semesterOptions.map((semester) => (
-                  <option key={semester} value={semester}>{semester}</option>
-                ))}
-              </select>
+              <label className="block text-sm font-medium text-gray-600 mb-1">Current Semester</label>
+              <div className="w-full px-4 py-3 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-between">
+                <span className="font-medium text-blue-600">
+                  {selectedSemester || 'No semester selected'}
+                </span>
+                <span className="text-xs text-gray-500">
+                  (Managed from header)
+                </span>
+              </div>
             </div>
             
             {/* Faculty Filter */}
@@ -714,7 +807,7 @@ export default function CourseManagement() {
           
           <div className="flex gap-2 w-full lg:w-auto justify-end">
             {/* Reset Filters Button */}
-            {(selectedSemester !== 'All Semesters' || selectedFaculty || searchTerm) && (
+            {(selectedFaculty || searchTerm) && (
               <button
                 onClick={resetFilters}
                 className="px-4 py-3 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-100 transition flex items-center gap-2"
@@ -812,8 +905,12 @@ export default function CourseManagement() {
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-teal-700">{course.code}</span>
                         {course.isCommon && (
-                          <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
-                            Common
+                          <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${
+                            user?.canEditCommonCourses 
+                              ? 'bg-blue-100 text-blue-800' 
+                              : 'bg-orange-100 text-orange-800'
+                          }`}>
+                            {user?.canEditCommonCourses ? 'Common (Editable)' : 'Common'}
                           </span>
                         )}
                       </div>
@@ -874,7 +971,9 @@ export default function CourseManagement() {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <div className="flex justify-end gap-3">
-                        {course.isCommon ? (
+                        {(() => {
+                          return course.isCommon && !user?.canEditCommonCourses;
+                        })() ? (
                           <div className="flex items-center gap-2 text-gray-400">
                             <span className="text-xs">Common Course</span>
                             <span className="text-xs">(Read Only)</span>
@@ -915,65 +1014,93 @@ export default function CourseManagement() {
       
       {/* Add/Edit Course Modal */}
       {showModal && (
-        <div className="fixed inset-0 flex items-center justify-end bg-black bg-opacity-40 z-50 backdrop-blur-sm overflow-y-auto">
-          <div className="relative w-full max-w-md bg-white shadow-xl rounded-l-3xl h-full animate-slide-left">
-            {/* Close button */}
-            <button 
-              onClick={() => setShowModal(false)}
-              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition"
-            >
-              <FiX size={24} />
-            </button>
-            
-            <div className="p-8">
-              <h2 className="text-2xl font-bold mb-6 text-gray-800">
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 backdrop-blur-sm p-4 overflow-y-auto">
+          <div className="relative w-full max-w-2xl my-8 bg-white shadow-2xl rounded-2xl overflow-hidden flex flex-col max-h-[calc(100vh-4rem)]">
+            {/* Modal Header */}
+            <div className="flex-shrink-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-gray-800">
                 {editingCourse ? 'Edit Course' : 'Add New Course'}
               </h2>
-              
+              <button 
+                onClick={() => setShowModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition p-1 hover:bg-gray-100 rounded-full"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+            
+            {/* Modal Body - Scrollable */}
+            <div className="flex-1 overflow-y-auto p-6 scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-gray-100">
               <form onSubmit={handleSubmit} className="space-y-6">
-                {/* Course Title */}
-                <div className="relative">
-                  <div className="flex items-center mb-1">
-                    <FiBook size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-600">Course Title</label>
+                {/* Row 1: Course Title and Code */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {/* Course Title */}
+                  <div className="relative">
+                    <div className="flex items-center mb-2">
+                      <FiBook size={16} className="text-teal-600 mr-2" />
+                      <label className="block text-sm font-medium text-gray-700">Course Title</label>
+                    </div>
+                    <input
+                      type="text"
+                      name="title"
+                      value={formData.title}
+                      onChange={handleChange}
+                      required
+                      placeholder="Introduction to Computer Science"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    name="title"
-                    value={formData.title}
-                    onChange={handleChange}
-                    required
-                    placeholder="Introduction to Computer Science"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  />
-                </div>
-                
-                {/* Course Code */}
-                <div className="relative">
-                  <div className="flex items-center mb-1">
-                    <FiHash size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-600">Course Code</label>
+                  
+                  {/* Course Code */}
+                  <div className="relative">
+                    <div className="flex items-center mb-2">
+                      <FiHash size={16} className="text-teal-600 mr-2" />
+                      <label className="block text-sm font-medium text-gray-700">Course Code</label>
+                    </div>
+                    <input
+                      type="text"
+                      name="code"
+                      value={formData.code}
+                      onChange={handleChange}
+                      required
+                      placeholder="CS101"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                    />
                   </div>
-                  <input
-                    type="text"
-                    name="code"
-                    value={formData.code}
-                    onChange={handleChange}
-                    required
-                    placeholder="CS101"
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
-                  />
                 </div>
+
+                {/* Department Selector - Only show if user can edit common courses */}
+                {user?.canEditCommonCourses && (
+                  <div className="relative">
+                    <div className="flex items-center mb-2">
+                      <FiUser size={16} className="text-teal-600 mr-2" />
+                      <label className="block text-sm font-medium text-gray-700">Department</label>
+                    </div>
+                    <select
+                      name="targetDepartment"
+                      value={formData.targetDepartment}
+                      onChange={handleChange}
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                    >
+                      <option value={user?.department}>{user?.department}</option>
+                      <option value="common">Common Department</option>
+                    </select>
+                    <p className="text-xs text-gray-500 mt-1">
+                      Choose whether this course belongs to your department or the common department.
+                    </p>
+                  </div>
+                )}
                 
                 {/* Weekly Hours */}
                 <div>
-                  <div className="flex items-center mb-1">
+                  <div className="flex items-center mb-2">
                     <FiClock size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-600">Weekly Hours</label>
+                    <label className="block text-sm font-medium text-gray-700">Weekly Hours</label>
                   </div>
-                  <div className="flex gap-2">
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-500">Lectures</label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Lectures</label>
                       <div className="flex">
                         <input
                           type="number"
@@ -982,13 +1109,13 @@ export default function CourseManagement() {
                           onChange={handleChange}
                           min="0"
                           max="10"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                          className="w-full px-2 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                         />
-                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500">L</span>
+                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500 text-sm">L</span>
                       </div>
                     </div>
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-500">Tutorials</label>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Tutorials</label>
                       <div className="flex">
                         <input
                           type="number"
@@ -997,13 +1124,13 @@ export default function CourseManagement() {
                           onChange={handleChange}
                           min="0"
                           max="10"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                          className="w-full px-2 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                         />
-                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500">T</span>
+                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500 text-sm">T</span>
                       </div>
                     </div>
-                    <div className="flex-1">
-                      <label className="block text-xs text-gray-500">Practicals</label>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">Practicals</label>
                       <div className="flex">
                         <input
                           type="number"
@@ -1012,30 +1139,29 @@ export default function CourseManagement() {
                           onChange={handleChange}
                           min="0"
                           max="10"
-                          className="w-full px-3 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                          className="w-full px-2 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                         />
-                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500">P</span>
+                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500 text-sm">P</span>
                       </div>
                     </div>
                   </div>
-                  <p className="text-xs text-gray-500 mt-1">Format: {formData.weeklyHours}</p>
+                  <p className="text-xs text-gray-500 mt-2">Format: <span className="font-medium">{formData.weeklyHours}</span></p>
                 </div>
                 
-                {/* Semester */}
+                {/* Row 2: Semester */}
                 <div className="relative">
-                  <div className="flex items-center mb-1">
+                  <div className="flex items-center mb-2">
                     <FiCalendar size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-600">Semester</label>
+                    <label className="block text-sm font-medium text-gray-700">Semester</label>
                   </div>
                   <select
                     name="semester"
                     value={formData.semester}
                     onChange={handleChange}
                     required
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                   >
-                    {/* Filter out "All Semesters" from the options */}
-                    {semesterOptions.filter(option => option !== 'All Semesters').map((semester) => (
+                    {availableSemesters.map((semester) => (
                       <option key={semester} value={semester}>{semester}</option>
                     ))}
                   </select>
@@ -1049,15 +1175,15 @@ export default function CourseManagement() {
                 
                 {/* Faculty Assignment */}
                 <div className="relative">
-                  <div className="flex items-center mb-1">
+                  <div className="flex items-center mb-2">
                     <FiUser size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-600">Primary Faculty</label>
+                    <label className="block text-sm font-medium text-gray-700">Primary Faculty</label>
                   </div>
                   <select
                     name="faculty"
                     value={formData.faculty}
                     onChange={handleChange}
-                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
                   >
                     <option value="">-- Not Assigned --</option>
                     {faculty.map((facultyMember) => (
@@ -1072,51 +1198,56 @@ export default function CourseManagement() {
                 </div>
                 
                 {/* Faculty Avatars Quick Selection */}
-                <div>
-                  <label className="block text-xs text-gray-500 mb-2">Quick Select:</label>
-                  <div className="flex flex-wrap gap-2">
-                    {faculty.map((facultyMember) => (
-                      <button
-                        type="button"
-                        key={facultyMember.id}
-                        onClick={() => setFormData(prev => ({ ...prev, faculty: facultyMember.id.toString() }))}
-                        className={`relative p-1 border-2 rounded-full transition ${
-                          parseInt(formData.faculty) === facultyMember.id 
-                          ? 'border-teal-500 shadow-md' 
-                          : 'border-transparent hover:border-gray-300'
-                        }`}
-                        title={facultyMember.name}
-                      >
-                        <img src={facultyMember.avatar} alt={facultyMember.name} className="w-10 h-10 rounded-full" />
-                        <span 
-                          className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${
-                            facultyMember.status === 'available' ? 'bg-green-500' : 
-                            facultyMember.status === 'busy' ? 'bg-yellow-500' : 
-                            'bg-red-500'
+                {faculty.length > 0 && (
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-2">Quick Select Faculty:</label>
+                    <div className="flex flex-wrap gap-2 max-h-24 overflow-y-auto">
+                      {faculty.map((facultyMember) => (
+                        <button
+                          type="button"
+                          key={facultyMember.id}
+                          onClick={() => setFormData(prev => ({ ...prev, faculty: facultyMember.id.toString() }))}
+                          className={`relative p-1 border-2 rounded-full transition ${
+                            parseInt(formData.faculty) === facultyMember.id 
+                            ? 'border-teal-500 shadow-md' 
+                            : 'border-transparent hover:border-gray-300'
                           }`}
-                        ></span>
-                      </button>
-                    ))}
+                          title={facultyMember.name}
+                        >
+                          <img src={facultyMember.avatar} alt={facultyMember.name} className="w-8 h-8 rounded-full" />
+                          <span 
+                            className={`absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border-2 border-white ${
+                              facultyMember.status === 'available' ? 'bg-green-500' : 
+                              facultyMember.status === 'busy' ? 'bg-yellow-500' : 
+                              'bg-red-500'
+                            }`}
+                          ></span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-                
-                {/* Action Buttons */}
-                <div className="flex justify-end gap-4 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => setShowModal(false)}
-                    className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    type="submit"
-                    className="px-6 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition flex items-center gap-2"
-                  >
-                    💾 Save Course
-                  </button>
-                </div>
+                )}
               </form>
+            </div>
+            
+            {/* Modal Footer - Sticky */}
+            <div className="flex-shrink-0 bg-white border-t border-gray-200 px-6 py-4">
+              <div className="flex flex-col sm:flex-row justify-end gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="w-full sm:w-auto px-4 py-2 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSubmit}
+                  className="w-full sm:w-auto px-6 py-2 rounded-lg bg-teal-600 text-white hover:bg-teal-700 transition flex items-center justify-center gap-2 text-sm font-medium"
+                >
+                  💾 {editingCourse ? 'Update' : 'Save'} Course
+                </button>
+              </div>
             </div>
           </div>
         </div>

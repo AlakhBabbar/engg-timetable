@@ -7,6 +7,7 @@ import {
 } from 'react-icons/fi';
 import { AuthContext } from '../../App';
 import { useToast } from '../../context/ToastContext';
+import { useSemester } from '../../context/SemesterContext';
 
 // Import service functions and data
 import { 
@@ -25,12 +26,11 @@ import {
 export default function FacultyLoadReports() {
   const { user } = useContext(AuthContext);
   const { showSuccess, showError } = useToast();
+  const { selectedSemester, availableSemesters } = useSemester();
   
   // State for data
   const [faculty, setFaculty] = useState([]);
   const [courses, setCourses] = useState([]);
-  const [semesters, setSemesters] = useState([]);
-  const [selectedSemester, setSelectedSemester] = useState('');
   
   // State for UI
   const [loading, setLoading] = useState(true);
@@ -52,15 +52,6 @@ export default function FacultyLoadReports() {
     const loadInitialData = async () => {
       try {
         setLoading(true);
-        
-        // Load semesters first (they're global, not department-specific)
-        const semestersData = await fetchSemesters(departmentId);
-        setSemesters(semestersData);
-        
-        // Set default semester to the first available one
-        if (semestersData.length > 0) {
-          setSelectedSemester(semestersData[0]);
-        }
         
         // Load faculty and courses for the department
         if (departmentId) {
@@ -216,7 +207,7 @@ export default function FacultyLoadReports() {
   }
 
   // Show error if no semesters available
-  if (semesters.length === 0) {
+  if (availableSemesters.length === 0) {
     return (
       <div className="p-6 relative bg-gray-50 min-h-screen">
         <h1 className="text-2xl font-bold text-gray-800 mb-6">
@@ -248,15 +239,12 @@ export default function FacultyLoadReports() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
               <select
                 value={selectedSemester}
-                onChange={(e) => setSelectedSemester(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
-                disabled={loadingData}
+                disabled
+                className="rounded-lg border border-gray-300 bg-gray-100 py-2 pl-3 pr-10 text-sm cursor-not-allowed"
               >
-                <option value="">Select Semester</option>
-                {semesters.map(semester => (
-                  <option key={semester} value={semester}>{semester}</option>
-                ))}
+                <option value={selectedSemester}>{selectedSemester || 'No semester selected'}</option>
               </select>
+              <p className="text-xs text-gray-500 mt-1">Semester is managed from the header dropdown</p>
             </div>
             
             {/* Overload filter checkbox */}

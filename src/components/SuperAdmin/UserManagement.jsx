@@ -25,7 +25,8 @@ export default function UserManagement() {
     email: '', 
     role: 'hod',
     department: '',
-    active: true
+    active: true,
+    canEditCommonCourses: false
   });
   const [isLoading, setIsLoading] = useState(false);
   const [editingId, setEditingId] = useState(null);
@@ -61,7 +62,8 @@ export default function UserManagement() {
         email: user.email, 
         role: user.role,
         department: user.department,
-        active: user.active
+        active: user.active,
+        canEditCommonCourses: user.canEditCommonCourses || false
       });
       setEditingId(user.id);
       setEditingUserId(user.userId);
@@ -71,7 +73,8 @@ export default function UserManagement() {
         email: '', 
         role: 'hod',
         department: '',
-        active: true
+        active: true,
+        canEditCommonCourses: false
       });
       setEditingId(null);
       setEditingUserId(null);
@@ -182,86 +185,107 @@ export default function UserManagement() {
       <h1 className="text-2xl font-bold mb-6">User Management</h1>
 
       {/* User Table */}
-      <div className="overflow-x-auto rounded-2xl shadow-xl">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gradient-to-r from-indigo-100 to-purple-100">
-            <tr>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Name</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Email</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Role</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Department</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Status</th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {isLoading && !users.length ? (
+      <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gradient-to-r from-indigo-100 to-purple-100">
               <tr>
-                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                  Loading users...
-                </td>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase hidden sm:table-cell">Email</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Role</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase hidden md:table-cell">Department</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase hidden lg:table-cell">Access</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Actions</th>
               </tr>
-            ) : users.length === 0 ? (
-              <tr>
-                <td colSpan="6" className="px-6 py-8 text-center text-gray-500">
-                  No users found. Add your first user with the button below.
-                </td>
-              </tr>
-            ) : (
-              users.map((user, idx) => (
-                <tr key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="flex items-center">
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-medium ${getAvatarBg(user.name)}`}>
-                        {getInitials(user.name)}
-                      </div>
-                      <span className="ml-3">{user.name}</span>
-                    </div>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">{user.email}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(user.role)}`}>
-                      {getRoleIcon(user.role)}
-                      {getRoleDisplayName(user.role)}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap">{user.department}</td>
-                  <td className="px-6 py-4 whitespace-nowrap">
-                    <button
-                      onClick={() => handleToggleStatus(user.id, user.active)}
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
-                    >
-                      {user.active ? 'Active' : 'Inactive'}
-                    </button>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-right space-x-2">
-                    <button 
-                      onClick={() => handlePasswordReset(user.email)}
-                      className="text-blue-600 hover:text-blue-900"
-                      title="Send password reset"
-                    >
-                      <FiMail size={18} />
-                    </button>
-                    <button 
-                      onClick={() => openModal(user)}
-                      className="text-indigo-600 hover:text-indigo-900"
-                      title="Edit user"
-                    >
-                      <FiEdit2 size={18} />
-                    </button>
-                    <button 
-                      onClick={() => handleDelete(user.id, user.userId)}
-                      className="text-red-600 hover:text-red-900"
-                      title="Delete user"
-                    >
-                      <FiTrash2 size={18} />
-                    </button>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {isLoading && !users.length ? (
+                <tr>
+                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                    Loading users...
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ) : users.length === 0 ? (
+                <tr>
+                  <td colSpan="7" className="px-4 py-8 text-center text-gray-500">
+                    No users found. Add your first user with the button below.
+                  </td>
+                </tr>
+              ) : (
+                users.map((user, idx) => (
+                  <tr key={user.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                    <td className="px-4 py-4">
+                      <div className="flex items-center">
+                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-xs ${getAvatarBg(user.name)}`}>
+                          {getInitials(user.name)}
+                        </div>
+                        <div className="ml-2">
+                          <span className="text-sm font-medium text-gray-900">{user.name}</span>
+                          <div className="text-xs text-gray-500 sm:hidden">{user.email}</div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="px-4 py-4 hidden sm:table-cell">
+                      <span className="text-sm text-gray-900">{user.email}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${getRoleBadgeColor(user.role)}`}>
+                        <span className="hidden sm:inline">{getRoleIcon(user.role)}</span>
+                        {getRoleDisplayName(user.role)}
+                      </span>
+                    </td>
+                    <td className="px-4 py-4 hidden md:table-cell">
+                      <span className="text-sm text-gray-900">{user.department}</span>
+                    </td>
+                    <td className="px-4 py-4">
+                      <button
+                        onClick={() => handleToggleStatus(user.id, user.active)}
+                        className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${user.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}
+                      >
+                        {user.active ? 'Active' : 'Inactive'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-4 hidden lg:table-cell">
+                      {user.role === 'hod' ? (
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${user.canEditCommonCourses ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-800'}`}>
+                          {user.canEditCommonCourses ? 'Yes' : 'No'}
+                        </span>
+                      ) : (
+                        <span className="text-gray-400 text-xs">N/A</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-4 text-right">
+                      <div className="flex justify-end space-x-1">
+                        <button 
+                          onClick={() => handlePasswordReset(user.email)}
+                          className="text-blue-600 hover:text-blue-900 p-1"
+                          title="Send password reset"
+                        >
+                          <FiMail size={16} />
+                        </button>
+                        <button 
+                          onClick={() => openModal(user)}
+                          className="text-indigo-600 hover:text-indigo-900 p-1"
+                          title="Edit user"
+                        >
+                          <FiEdit2 size={16} />
+                        </button>
+                        <button 
+                          onClick={() => handleDelete(user.id, user.userId)}
+                          className="text-red-600 hover:text-red-900 p-1"
+                          title="Delete user"
+                        >
+                          <FiTrash2 size={16} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Floating Add Button */}
@@ -400,6 +424,30 @@ export default function UserManagement() {
                   </span>
                 </label>
               </div>
+
+              {/* Common Course Access Permission (only for HODs) */}
+              {formData.role === 'hod' && (
+                <div className="flex items-center justify-between p-3 border border-gray-200 rounded-full">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-medium text-gray-700">Common Course Access</span>
+                    <span className="text-xs text-gray-500">Allow editing courses in Common Department</span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      name="canEditCommonCourses"
+                      checked={formData.canEditCommonCourses}
+                      onChange={handleChange}
+                      disabled={isLoading}
+                      className="sr-only peer" 
+                    />
+                    <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+                    <span className="ml-2 text-sm font-medium text-gray-700">
+                      {formData.canEditCommonCourses ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </label>
+                </div>
+              )}
 
               <div className="flex justify-end gap-4 mt-6">
                 <button

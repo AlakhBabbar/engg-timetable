@@ -11,9 +11,9 @@ import {
   FiAlertCircle,
   FiRefreshCw
 } from 'react-icons/fi';
+import { useSemester } from '../../context/SemesterContext';
 import { 
   getBranches, 
-  getSemesters, 
   createBatch, 
   updateBatch, 
   deleteBatch, 
@@ -23,8 +23,10 @@ import {
 } from './services/BatchManagement';
 
 export default function BatchManagement() {
+  // Semester context
+  const { selectedSemester } = useSemester();
+  
   const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedSemester, setSelectedSemester] = useState('');
   const [batches, setBatches] = useState([]);
   const [newBatchName, setNewBatchName] = useState('');
   const [editingBatch, setEditingBatch] = useState(null);
@@ -35,7 +37,6 @@ export default function BatchManagement() {
   const [syncing, setSyncing] = useState(false);
 
   const branches = getBranches();
-  const semesters = getSemesters();
 
   // Monitor online status
   useEffect(() => {
@@ -245,7 +246,7 @@ export default function BatchManagement() {
 
       {/* Selection Form */}
       <div className="bg-white p-6 rounded-2xl shadow-md">
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">Select Branch and Semester</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Select Branch for Current Semester</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -266,20 +267,16 @@ export default function BatchManagement() {
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Semester
+              Current Semester
             </label>
-            <select
-              value={selectedSemester}
-              onChange={(e) => setSelectedSemester(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500"
-            >
-              <option value="">Select Semester</option>
-              {semesters.map((semester) => (
-                <option key={semester} value={semester}>
-                  {semester}
-                </option>
-              ))}
-            </select>
+            <div className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 flex items-center justify-between">
+              <span className="font-medium text-purple-600">
+                {selectedSemester || 'No semester selected'}
+              </span>
+              <span className="text-xs text-gray-500">
+                (Managed from header)
+              </span>
+            </div>
           </div>
         </div>
       </div>

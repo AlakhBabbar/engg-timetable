@@ -5,6 +5,7 @@ import {
   FiGrid, FiUser, FiHome, FiBookOpen, FiChevronLeft, FiChevronRight,
   FiMaximize2, FiMinimize2, FiInfo
 } from 'react-icons/fi';
+import { useSemester } from '../../context/SemesterContext';
 
 // Import services and constants
 import {
@@ -21,11 +22,13 @@ import {
 } from './services/TimetableViewer';
 
 export default function TimetableViewer() {
+  // Semester context
+  const { selectedSemester, availableSemesters } = useSemester();
+  
   // State variables
   const [viewType, setViewType] = useState('default'); // 'default', 'faculty', 'semester', 'room'
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
   const [selectedDepartment, setSelectedDepartment] = useState('Computer Science');
   const [selectedDay, setSelectedDay] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -154,13 +157,12 @@ export default function TimetableViewer() {
             <label className="block text-xs font-medium text-gray-500 mb-1 ml-1">Semester</label>
             <select
               value={selectedSemester}
-              onChange={(e) => setSelectedSemester(e.target.value)}
-              className="w-full pl-4 pr-8 py-2 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              disabled
+              className="w-full pl-4 pr-8 py-2 rounded-full border border-gray-300 text-sm bg-gray-100 cursor-not-allowed"
             >
-              {semesters.map((sem) => (
-                <option key={sem} value={sem}>{sem}</option>
-              ))}
+              <option value={selectedSemester}>{selectedSemester}</option>
             </select>
+            <p className="text-xs text-gray-500 mt-1">Semester is managed from the header dropdown</p>
           </div>
 
           {/* Day Filter */}
