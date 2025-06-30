@@ -246,7 +246,7 @@ export const fetchRooms = async (db, collection, getDocs) => {
  * @returns {Function} Unsubscribe function
  */
 export const setupTimetableListener = ({
-  db, collection, query, where, onSnapshot,
+  db, doc, onSnapshot,
   currentSemester, selectedBranch, selectedBatch, selectedType,
   callback
 }) => {
@@ -254,21 +254,32 @@ export const setupTimetableListener = ({
     return () => {}; // Return empty unsubscribe function
   }
   
-  const timetableQuery = query(
-    collection(db, 'timetables'),
-    where('semester', '==', currentSemester),
-    where('branch', '==', selectedBranch),
-    where('batch', '==', selectedBatch),
-    where('type', '==', selectedType)
-  );
+  // Create document ID in the same format as saving
+  const timetableDocId = `${currentSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
+  const timetableDocRef = doc(db, 'timetables', timetableDocId);
   
-  return onSnapshot(timetableQuery, (snapshot) => {
-    if (!snapshot.empty) {
-      const docData = snapshot.docs[0].data();
-      callback(docData.schedule || initializeEmptyTimetable());
+  console.log('Setting up listener for document:', timetableDocId);
+  
+  return onSnapshot(timetableDocRef, (docSnapshot) => {
+    console.log('Document snapshot received:', {
+      exists: docSnapshot.exists(),
+      id: docSnapshot.id,
+      data: docSnapshot.exists() ? docSnapshot.data() : null
+    });
+    
+    if (docSnapshot.exists()) {
+      const docData = docSnapshot.data();
+      const scheduleData = docData.schedule || initializeEmptyTimetable();
+      console.log('Loading existing timetable data:', scheduleData);
+      callback(scheduleData);
     } else {
+      // Document doesn't exist, initialize with empty timetable
+      console.log('Document does not exist, initializing empty timetable');
       callback(initializeEmptyTimetable());
     }
+  }, (error) => {
+    console.error('Error listening to timetable document:', error);
+    callback(initializeEmptyTimetable());
   });
 };
 
@@ -297,6 +308,9 @@ export const saveTimetableToFirestore = async ({
   const timetableDocId = `${currentSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
   const safeSchedule = replaceUndefinedWithNull(scheduleData);
   
+  console.log('Saving timetable to document:', timetableDocId);
+  console.log('Schedule data:', safeSchedule);
+  
   try {
     await setDoc(doc(db, 'timetables', timetableDocId), {
       semester: currentSemester,
@@ -305,6 +319,7 @@ export const saveTimetableToFirestore = async ({
       type: selectedType,
       schedule: safeSchedule
     }, { merge: true });
+    console.log('Timetable saved successfully to:', timetableDocId);
   } catch (error) {
     console.error('Error saving timetable to Firestore:', error);
   }
@@ -521,8 +536,8 @@ export const dragDropOperations = {
       );
     }
 
-    // Check for new conflicts
-    const newConflicts = checkConflicts(newTimetable, day, slot, draggedCourse, roomToAssign);
+    // Check for new conflicts using production-level detection
+    const newConflicts = checkConflictsProduction(newTimetable, day, slot, draggedCourse, roomToAssign);
     const finalConflicts = [
       ...updatedConflicts.filter(c => !(c.day === day && c.slot === slot)),
       ...newConflicts
@@ -594,184 +609,1248 @@ export const checkConflicts = (timetableData, day, slot, course, selectedRoom) =
   return conflicts;
 };
 
-// Add course to timetable
-export const addCourseToTimetable = (timetableData, day, slot, course, selectedRoom) => {
-  const newTimetable = JSON.parse(JSON.stringify(timetableData));
+/**
+ * PRODUCTION-LEVEL CONFLICT DETECTION SYSTEM
+ * This replaces the flawed checkConflicts function above
+ */
+export const checkConflictsProduction = (timetableData, targetDay, targetSlot, newCourse, selectedRoom) => {
+  const conflicts = [];
   
-  // Add the course to the timetable with the selected room
-  newTimetable[day][slot] = {
-    ...course,
-    room: selectedRoom.id
+  // Extract faculty/teacher ID from the new course being placed
+  const newFacultyId = extractFacultyId(newCourse);
+  const newRoomId = selectedRoom?.id || selectedRoom?.number;
+  
+  // Check all existing courses in the timetable for conflicts
+  Object.keys(timetableData).forEach(day => {
+    Object.keys(timetableData[day] || {}).forEach(slot => {
+      const existingCourse = timetableData[day][slot];
+      
+      // Skip empty slots or the target slot itself
+      if (!existingCourse || !existingCourse.code || (day === targetDay && slot === targetSlot)) {
+        return;
+      }
+      
+      // ROOM CONFLICT: Same room, same time slot, same day
+      if (newRoomId && existingCourse.room === newRoomId && day === targetDay && slot === targetSlot) {
+        conflicts.push({
+          type: 'room',
+          severity: 'critical',
+          message: `Room ${newRoomId} is already booked for ${existingCourse.code} (${existingCourse.name || 'Unknown Course'}) at ${slot} on ${day}`,
+          conflictingCourse: {
+            code: existingCourse.code,
+            name: existingCourse.name,
+            day: day,
+            slot: slot,
+            room: existingCourse.room
+          },
+          day: targetDay,
+          slot: targetSlot,
+          suggestedActions: [
+            'Choose a different room',
+            'Move to a different time slot',
+            'Reschedule the conflicting course'
+          ]
+        });
+      }
+      
+      // FACULTY CONFLICT: Same faculty, same time slot, same day
+      const existingFacultyId = extractFacultyId(existingCourse);
+      if (newFacultyId && existingFacultyId && newFacultyId === existingFacultyId && 
+          day === targetDay && slot === targetSlot) {
+        const facultyName = existingCourse.teacher?.name || existingCourse.faculty?.name || `Faculty ID: ${existingFacultyId}`;
+        conflicts.push({
+          type: 'faculty',
+          severity: 'critical',
+          message: `${facultyName} is already teaching ${existingCourse.code} (${existingCourse.name || 'Unknown Course'}) at ${slot} on ${day}`,
+          conflictingCourse: {
+            code: existingCourse.code,
+            name: existingCourse.name,
+            day: day,
+            slot: slot,
+            faculty: facultyName
+          },
+          day: targetDay,
+          slot: targetSlot,
+          suggestedActions: [
+            'Assign a different faculty member',
+            'Move to a different time slot',
+            'Reschedule the conflicting course'
+          ]
+        });
+      }
+      
+      // ADVANCED: Check for overlapping time slots (for multi-hour courses)
+      const timeOverlap = checkTimeSlotOverlap(targetSlot, slot, newCourse.duration, existingCourse.duration);
+      if (timeOverlap && day === targetDay) {
+        // Room conflict due to time overlap
+        if (newRoomId && existingCourse.room === newRoomId) {
+          conflicts.push({
+            type: 'room',
+            severity: 'warning',
+            message: `Room ${newRoomId} has a time overlap between ${newCourse.code} (${targetSlot}) and ${existingCourse.code} (${slot})`,
+            conflictingCourse: {
+              code: existingCourse.code,
+              name: existingCourse.name,
+              day: day,
+              slot: slot,
+              room: existingCourse.room
+            },
+            day: targetDay,
+            slot: targetSlot,
+            suggestedActions: [
+              'Choose a different room',
+              'Adjust course duration',
+              'Move to a non-overlapping time slot'
+            ]
+          });
+        }
+        
+        // Faculty conflict due to time overlap
+        if (newFacultyId && existingFacultyId && newFacultyId === existingFacultyId) {
+          const facultyName = existingCourse.teacher?.name || existingCourse.faculty?.name || `Faculty ID: ${existingFacultyId}`;
+          conflicts.push({
+            type: 'faculty',
+            severity: 'warning',
+            message: `${facultyName} has overlapping classes: ${newCourse.code} (${targetSlot}) and ${existingCourse.code} (${slot})`,
+            conflictingCourse: {
+              code: existingCourse.code,
+              name: existingCourse.name,
+              day: day,
+              slot: slot,
+              faculty: facultyName
+            },
+            day: targetDay,
+            slot: targetSlot,
+            suggestedActions: [
+              'Assign a different faculty member',
+              'Adjust course duration',
+              'Move to a non-overlapping time slot'
+            ]
+          });
+        }
+      }
+    });
+  });
+  
+  return conflicts;
+};
+
+/**
+ * Extract faculty ID from course object with multiple possible structures
+ */
+const extractFacultyId = (course) => {
+  if (!course) return null;
+  
+  // Try different possible structures
+  return course.teacherId || 
+         course.facultyId ||
+         course.teacher?.id ||
+         course.faculty?.id ||
+         course.instructor?.id ||
+         null;
+};
+
+/**
+ * Check if two time slots overlap based on their start times and durations
+ */
+const checkTimeSlotOverlap = (slot1, slot2, duration1 = 1, duration2 = 1) => {
+  // Parse time slots (format: "HH:MM-HH:MM")
+  const parseTimeSlot = (slot) => {
+    const [start, end] = slot.split('-');
+    const [startHour, startMin] = start.split(':').map(Number);
+    const [endHour, endMin] = end.split(':').map(Number);
+    return {
+      start: startHour * 60 + startMin,
+      end: endHour * 60 + endMin
+    };
   };
   
-  return newTimetable;
-};
-
-// Save timetable
-export const saveTimetable = (timetableData) => {
-  // In a real app, this would make an API call to save the data
-  return new Promise((resolve) => {
-    // Simulate API delay
-    setTimeout(() => {
-      console.log('Timetable saved:', timetableData);
-      resolve({ success: true, message: 'Timetable saved successfully!' });
-    }, 500);
-  });
-};
-
-// Publish timetable
-export const publishTimetable = (timetableData, conflicts) => {
-  return new Promise((resolve, reject) => {
-    // Check if there are any conflicts first
-    if (conflicts.length > 0) {
-      reject({ success: false, message: 'Please resolve all conflicts before publishing' });
-      return;
-    }
+  try {
+    const time1 = parseTimeSlot(slot1);
+    const time2 = parseTimeSlot(slot2);
     
-    // Simulate API delay
-    setTimeout(() => {
-      console.log('Timetable published:', timetableData);
-      resolve({ success: true, message: 'Timetable published successfully!' });
-    }, 500);
-  });
+    // Extend durations if courses are longer than the base slot
+    const duration1Minutes = (duration1 || 1) * (time1.end - time1.start);
+    const duration2Minutes = (duration2 || 1) * (time2.end - time2.start);
+    
+    const end1 = time1.start + duration1Minutes;
+    const end2 = time2.start + duration2Minutes;
+    
+    // Check for overlap: courses overlap if one starts before the other ends
+    return (time1.start < end2 && time2.start < end1);
+  } catch (error) {
+    console.warn('Error parsing time slots for overlap check:', error);
+    return false;
+  }
 };
 
-// Get color class for a course based on its color property
-export const getCourseColorClass = (course) => {
-  const colorMap = {
-    'blue': 'bg-blue-100 border-blue-300 text-blue-800',
-    'indigo': 'bg-indigo-100 border-indigo-300 text-indigo-800',
-    'purple': 'bg-purple-100 border-purple-300 text-purple-800',
-    'green': 'bg-green-100 border-green-300 text-green-800',
-    'amber': 'bg-amber-100 border-amber-300 text-amber-800',
-    'rose': 'bg-rose-100 border-rose-300 text-rose-800'
-  };
+/**
+ * Get all conflicts for the entire timetable (for comprehensive validation)
+ */
+export const getAllTimetableConflicts = (timetableData) => {
+  const allConflicts = [];
   
-  return colorMap[course.color] || 'bg-gray-100 border-gray-300 text-gray-800';
+  Object.keys(timetableData).forEach(day => {
+    Object.keys(timetableData[day] || {}).forEach(slot => {
+      const course = timetableData[day][slot];
+      if (course && course.code) {
+        // Check conflicts for this course against all other courses
+        const courseConflicts = checkConflictsProduction(
+          timetableData, 
+          day, 
+          slot, 
+          course, 
+          { id: course.room }
+        );
+        allConflicts.push(...courseConflicts);
+      }
+    });
+  });
+  
+  // Remove duplicates (same conflict detected from both sides)
+  return deduplicateConflicts(allConflicts);
 };
 
-// Filter courses based on selected filters
-export const filterCourses = (courses, { selectedSemester, selectedDepartment, selectedFaculty }) => {
-  return courses.filter(course => {
-    if (selectedSemester && course.semester !== selectedSemester) return false;
-    if (selectedDepartment && course.department !== selectedDepartment) return false;
-    if (selectedFaculty && course.faculty.id !== selectedFaculty.id) return false;
+/**
+ * Remove duplicate conflicts
+ */
+const deduplicateConflicts = (conflicts) => {
+  const seen = new Set();
+  return conflicts.filter(conflict => {
+    const key = `${conflict.type}-${conflict.day}-${conflict.slot}-${conflict.conflictingCourse?.code}`;
+    if (seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
     return true;
   });
 };
 
-// Get compact hour format for display
-export const getCompactTimeFormat = (timeSlot) => {
-  const parts = timeSlot.split(' - ');
-  if (parts.length !== 2) return timeSlot;
+/**
+ * Validate course placement before allowing drop (prevents invalid placements)
+ */
+export const validateCoursePlacement = (timetableData, day, slot, course, selectedRoom) => {
+  const conflicts = checkConflictsProduction(timetableData, day, slot, course, selectedRoom);
+  const criticalConflicts = conflicts.filter(c => c.severity === 'critical');
   
-  const start = parts[0].substring(0, 5);
-  const end = parts[1].substring(0, 5);
-  return `${start}-${end}`;
-};
-
-// Get abbreviated day name
-export const getAbbreviatedDay = (day) => {
-  return day.substring(0, 3);
-};
-
-// Get compacted cell height based on view mode
-export const getCellHeight = (viewMode) => {
-  return viewMode === 'week' ? 'h-14' : 'h-20';
-};
-
-// Optimize display for smaller screens
-export const getResponsiveClasses = (isMobile) => {
   return {
-    courseBlockWidth: isMobile ? 'w-40' : 'w-52',
-    roomSelectionWidth: isMobile ? 'w-44' : 'w-56',
-    gapSize: isMobile ? 'gap-1' : 'gap-3',
-    fontSize: isMobile ? 'text-xs' : 'text-sm',
-    padding: isMobile ? 'p-2' : 'p-4'
+    isValid: criticalConflicts.length === 0,
+    conflicts: conflicts,
+    criticalConflicts: criticalConflicts,
+    canPlace: criticalConflicts.length === 0,
+    warnings: conflicts.filter(c => c.severity === 'warning')
   };
 };
 
-// Get compact display of course details based on available space
-export const getCompactCourseDisplay = (course, isCompact) => {
+/**
+ * Comprehensive logging and audit trail system
+ */
+export const auditLogger = {
+  /**
+   * Log timetable actions for audit trail
+   */
+  logAction: (action, details) => {
+    const logEntry = {
+      timestamp: new Date().toISOString(),
+      action,
+      details,
+      user: 'current_user', // Replace with actual user context
+      sessionId: window.sessionStorage.getItem('sessionId') || 'unknown'
+    };
+    
+    console.log('AUDIT LOG:', logEntry);
+    
+    // Store in local storage for now (in production, send to server)
+    try {
+      const existingLogs = JSON.parse(localStorage.getItem('timetable_audit_logs') || '[]');
+      existingLogs.push(logEntry);
+      
+      // Keep only last 1000 entries to prevent storage overflow
+      if (existingLogs.length > 1000) {
+        existingLogs.splice(0, existingLogs.length - 1000);
+      }
+      
+      localStorage.setItem('timetable_audit_logs', JSON.stringify(existingLogs));
+    } catch (error) {
+      console.error('Failed to store audit log:', error);
+    }
+    
+    return logEntry;
+  },
+
+  /**
+   * Get audit logs for a specific date range
+   */
+  getLogs: (startDate, endDate) => {
+    try {
+      const logs = JSON.parse(localStorage.getItem('timetable_audit_logs') || '[]');
+      if (!startDate && !endDate) return logs;
+      
+      return logs.filter(log => {
+        const logDate = new Date(log.timestamp);
+        if (startDate && logDate < new Date(startDate)) return false;
+        if (endDate && logDate > new Date(endDate)) return false;
+        return true;
+      });
+    } catch (error) {
+      console.error('Failed to retrieve audit logs:', error);
+      return [];
+    }
+  },
+
+  /**
+   * Clear audit logs (admin only)
+   */
+  clearLogs: () => {
+    try {
+      localStorage.removeItem('timetable_audit_logs');
+      console.log('Audit logs cleared');
+    } catch (error) {
+      console.error('Failed to clear audit logs:', error);
+    }
+  }
+};
+
+/**
+ * Performance optimization with indexing for conflict detection
+ */
+export const TimetableIndex = {
+  // Index structures for fast lookups
+  roomIndex: new Map(), // roomId -> Set of slot keys
+  facultyIndex: new Map(), // facultyId -> Set of slot keys
+  slotIndex: new Map(), // day-slot -> course data
+  
+  /**
+   * Build indexes from timetable data
+   */
+  buildIndexes: (timetableData) => {
+    // Clear existing indexes
+    TimetableIndex.roomIndex.clear();
+    TimetableIndex.facultyIndex.clear();
+    TimetableIndex.slotIndex.clear();
+    
+    Object.keys(timetableData).forEach(day => {
+      Object.keys(timetableData[day] || {}).forEach(slot => {
+        const course = timetableData[day][slot];
+        if (!course || !course.code) return;
+        
+        const slotKey = `${day}-${slot}`;
+        
+        // Index by slot
+        TimetableIndex.slotIndex.set(slotKey, course);
+        
+        // Index by room
+        if (course.room) {
+          if (!TimetableIndex.roomIndex.has(course.room)) {
+            TimetableIndex.roomIndex.set(course.room, new Set());
+          }
+          TimetableIndex.roomIndex.get(course.room).add(slotKey);
+        }
+        
+        // Index by faculty
+        const facultyId = extractFacultyId(course);
+        if (facultyId) {
+          if (!TimetableIndex.facultyIndex.has(facultyId)) {
+            TimetableIndex.facultyIndex.set(facultyId, new Set());
+          }
+          TimetableIndex.facultyIndex.get(facultyId).add(slotKey);
+        }
+      });
+    });
+  },
+  
+  /**
+   * Fast conflict detection using indexes
+   */
+  checkConflictsOptimized: (targetDay, targetSlot, newCourse, selectedRoom) => {
+    const conflicts = [];
+    const targetSlotKey = `${targetDay}-${targetSlot}`;
+    const newFacultyId = extractFacultyId(newCourse);
+    const newRoomId = selectedRoom?.id || selectedRoom?.number;
+    
+    // Check room conflicts using index
+    if (newRoomId && TimetableIndex.roomIndex.has(newRoomId)) {
+      const roomSlots = TimetableIndex.roomIndex.get(newRoomId);
+      if (roomSlots.has(targetSlotKey)) {
+        const existingCourse = TimetableIndex.slotIndex.get(targetSlotKey);
+        if (existingCourse && existingCourse.code !== newCourse.code) {
+          conflicts.push({
+            type: 'room',
+            severity: 'critical',
+            message: `Room ${newRoomId} is already booked for ${existingCourse.code} at ${targetSlot} on ${targetDay}`,
+            conflictingCourse: existingCourse,
+            day: targetDay,
+            slot: targetSlot
+          });
+        }
+      }
+    }
+    
+    // Check faculty conflicts using index
+    if (newFacultyId && TimetableIndex.facultyIndex.has(newFacultyId)) {
+      const facultySlots = TimetableIndex.facultyIndex.get(newFacultyId);
+      if (facultySlots.has(targetSlotKey)) {
+        const existingCourse = TimetableIndex.slotIndex.get(targetSlotKey);
+        if (existingCourse && existingCourse.code !== newCourse.code) {
+          const facultyName = existingCourse.teacher?.name || existingCourse.faculty?.name || `Faculty ID: ${newFacultyId}`;
+          conflicts.push({
+            type: 'faculty',
+            severity: 'critical',
+            message: `${facultyName} is already teaching ${existingCourse.code} at ${targetSlot} on ${targetDay}`,
+            conflictingCourse: existingCourse,
+            day: targetDay,
+            slot: targetSlot
+          });
+        }
+      }
+    }
+    
+    return conflicts;
+  },
+  
+  /**
+   * Update indexes when timetable changes
+   */
+  updateIndex: (day, slot, oldCourse, newCourse, roomId) => {
+    const slotKey = `${day}-${slot}`;
+    
+    // Remove old course from indexes
+    if (oldCourse) {
+      TimetableIndex.slotIndex.delete(slotKey);
+      
+      if (oldCourse.room) {
+        const roomSlots = TimetableIndex.roomIndex.get(oldCourse.room);
+        if (roomSlots) {
+          roomSlots.delete(slotKey);
+          if (roomSlots.size === 0) {
+            TimetableIndex.roomIndex.delete(oldCourse.room);
+          }
+        }
+      }
+      
+      const oldFacultyId = extractFacultyId(oldCourse);
+      if (oldFacultyId) {
+        const facultySlots = TimetableIndex.facultyIndex.get(oldFacultyId);
+        if (facultySlots) {
+          facultySlots.delete(slotKey);
+          if (facultySlots.size === 0) {
+            TimetableIndex.facultyIndex.delete(oldFacultyId);
+          }
+        }
+      }
+    }
+    
+    // Add new course to indexes
+    if (newCourse) {
+      TimetableIndex.slotIndex.set(slotKey, newCourse);
+      
+      if (roomId) {
+        if (!TimetableIndex.roomIndex.has(roomId)) {
+          TimetableIndex.roomIndex.set(roomId, new Set());
+        }
+        TimetableIndex.roomIndex.get(roomId).add(slotKey);
+      }
+      
+      const newFacultyId = extractFacultyId(newCourse);
+      if (newFacultyId) {
+        if (!TimetableIndex.facultyIndex.has(newFacultyId)) {
+          TimetableIndex.facultyIndex.set(newFacultyId, new Set());
+        }
+        TimetableIndex.facultyIndex.get(newFacultyId).add(slotKey);
+      }
+    }
+  }
+};
+
+/**
+ * Conflict resolution suggestions system
+ */
+export const conflictResolver = {
+  /**
+   * Generate suggestions for resolving conflicts
+   */
+  generateSuggestions: (timetableData, conflictData, allRooms, allTeachers) => {
+    const suggestions = [];
+    
+    switch (conflictData.type) {
+      case 'room':
+        suggestions.push(...conflictResolver.getRoomConflictSuggestions(
+          timetableData, conflictData, allRooms
+        ));
+        break;
+      case 'faculty':
+        suggestions.push(...conflictResolver.getFacultyConflictSuggestions(
+          timetableData, conflictData, allTeachers
+        ));
+        break;
+    }
+    
+    return suggestions;
+  },
+  
+  /**
+   * Get suggestions for room conflicts
+   */
+  getRoomConflictSuggestions: (timetableData, conflict, allRooms) => {
+    const suggestions = [];
+    const { day, slot } = conflict;
+    
+    // Find alternative rooms
+    const availableRooms = allRooms.filter(room => {
+      const existingCourse = timetableData[day]?.[slot];
+      if (!existingCourse) return true;
+      
+      // Check if this room is free at this time
+      return !Object.keys(timetableData).some(d => 
+        Object.keys(timetableData[d] || {}).some(s => {
+          const course = timetableData[d][s];
+          return course && course.room === room.id && d === day && s === slot;
+        })
+      );
+    });
+    
+    availableRooms.forEach(room => {
+      suggestions.push({
+        type: 'room_change',
+        priority: 'high',
+        title: `Use Room ${room.number || room.id}`,
+        description: `Move course to ${room.number || room.id} (${room.type}, capacity: ${room.capacity})`,
+        action: {
+          type: 'change_room',
+          roomId: room.id,
+          day,
+          slot
+        },
+        estimatedEffort: 'Low'
+      });
+    });
+    
+    // Find alternative time slots
+    const alternativeSlots = conflictResolver.findAlternativeTimeSlots(
+      timetableData, day, slot, conflict.conflictingCourse
+    );
+    
+    alternativeSlots.forEach(altSlot => {
+      suggestions.push({
+        type: 'time_change',
+        priority: 'medium',
+        title: `Move to ${altSlot.day} at ${altSlot.slot}`,
+        description: `Reschedule course to ${altSlot.day} ${altSlot.slot}`,
+        action: {
+          type: 'change_time',
+          newDay: altSlot.day,
+          newSlot: altSlot.slot,
+          originalDay: day,
+          originalSlot: slot
+        },
+        estimatedEffort: 'Medium'
+      });
+    });
+    
+    return suggestions;
+  },
+  
+  /**
+   * Get suggestions for faculty conflicts
+   */
+  getFacultyConflictSuggestions: (timetableData, conflict, allTeachers) => {
+    const suggestions = [];
+    const { day, slot, conflictingCourse } = conflict;
+    
+    // Find alternative teachers for the same course
+    const courseCode = conflictingCourse.code;
+    const availableTeachers = allTeachers.filter(teacher => {
+      // Check if teacher is available at this time
+      return !Object.keys(timetableData).some(d => 
+        Object.keys(timetableData[d] || {}).some(s => {
+          const course = timetableData[d][s];
+          const facultyId = extractFacultyId(course);
+          return course && facultyId === teacher.id && d === day && s === slot;
+        })
+      );
+    });
+    
+    availableTeachers.forEach(teacher => {
+      suggestions.push({
+        type: 'faculty_change',
+        priority: 'high',
+        title: `Assign ${teacher.name}`,
+        description: `Change instructor to ${teacher.name} (${teacher.department || 'N/A'})`,
+        action: {
+          type: 'change_faculty',
+          teacherId: teacher.id,
+          teacherName: teacher.name,
+          day,
+          slot,
+          courseCode
+        },
+        estimatedEffort: 'Medium'
+      });
+    });
+    
+    // Find alternative time slots for faculty
+    const alternativeSlots = conflictResolver.findAlternativeTimeSlots(
+      timetableData, day, slot, conflictingCourse
+    );
+    
+    alternativeSlots.forEach(altSlot => {
+      suggestions.push({
+        type: 'time_change',
+        priority: 'medium',
+        title: `Move to ${altSlot.day} at ${altSlot.slot}`,
+        description: `Reschedule to avoid faculty conflict`,
+        action: {
+          type: 'change_time',
+          newDay: altSlot.day,
+          newSlot: altSlot.slot,
+          originalDay: day,
+          originalSlot: slot
+        },
+        estimatedEffort: 'High'
+      });
+    });
+    
+    return suggestions;
+  },
+  
+  /**
+   * Find alternative time slots
+   */
+  findAlternativeTimeSlots: (timetableData, currentDay, currentSlot, course) => {
+    const alternatives = [];
+    const maxSuggestions = 5;
+    
+    // Check all days and slots
+    Object.keys(timetableData).forEach(day => {
+      Object.keys(timetableData[day] || {}).forEach(slot => {
+        if (day === currentDay && slot === currentSlot) return;
+        
+        const existingCourse = timetableData[day][slot];
+        if (!existingCourse || !existingCourse.code) {
+          // This slot is free
+          alternatives.push({
+            day,
+            slot,
+            priority: day === currentDay ? 'high' : 'medium'
+          });
+        }
+      });
+    });
+    
+    // Sort by priority and return top suggestions
+    return alternatives
+      .sort((a, b) => {
+        if (a.priority === 'high' && b.priority !== 'high') return -1;
+        if (b.priority === 'high' && a.priority !== 'high') return 1;
+        return 0;
+      })
+      .slice(0, maxSuggestions);
+  },
+  
+  /**
+   * Apply a suggestion to resolve conflict
+   */
+  applySuggestion: (timetableData, suggestion) => {
+    const newTimetable = deepCopy(timetableData);
+    
+    switch (suggestion.action.type) {
+      case 'change_room':
+        const course = newTimetable[suggestion.action.day][suggestion.action.slot];
+        if (course) {
+          course.room = suggestion.action.roomId;
+        }
+        break;
+        
+      case 'change_time':
+        const courseToMove = newTimetable[suggestion.action.originalDay][suggestion.action.originalSlot];
+        if (courseToMove) {
+          // Remove from original slot
+          newTimetable[suggestion.action.originalDay][suggestion.action.originalSlot] = null;
+          // Add to new slot
+          newTimetable[suggestion.action.newDay][suggestion.action.newSlot] = courseToMove;
+        }
+        break;
+        
+      case 'change_faculty':
+        const courseToUpdate = newTimetable[suggestion.action.day][suggestion.action.slot];
+        if (courseToUpdate) {
+          courseToUpdate.teacher = {
+            id: suggestion.action.teacherId,
+            name: suggestion.action.teacherName
+          };
+          courseToUpdate.faculty = {
+            id: suggestion.action.teacherId,
+            name: suggestion.action.teacherName
+          };
+        }
+        break;
+    }
+    
+    return newTimetable;
+  }
+};
+
+/**
+ * Batch and resource validation system
+ */
+export const resourceValidator = {
+  /**
+   * Validate if room capacity is sufficient for batch size
+   */
+  validateRoomCapacity: (room, batchSize) => {
+    if (!room || !room.capacity || !batchSize) {
+      return {
+        isValid: false,
+        message: 'Room capacity or batch size information missing'
+      };
+    }
+    
+    const capacityMargin = 0.9; // 90% capacity utilization
+    const effectiveCapacity = Math.floor(room.capacity * capacityMargin);
+    
+    if (batchSize > effectiveCapacity) {
+      return {
+        isValid: false,
+        severity: 'critical',
+        message: `Room ${room.number || room.id} capacity (${room.capacity}) insufficient for batch size (${batchSize}). Recommended capacity: ${Math.ceil(batchSize / capacityMargin)}`,
+        suggestedActions: [
+          'Choose a larger room',
+          'Split the batch into smaller groups',
+          'Find alternative venue'
+        ]
+      };
+    }
+    
+    if (batchSize > room.capacity * 0.8) {
+      return {
+        isValid: true,
+        severity: 'warning',
+        message: `Room ${room.number || room.id} will be at high capacity (${Math.round((batchSize / room.capacity) * 100)}%)`,
+        suggestedActions: [
+          'Consider a larger room for comfort',
+          'Ensure adequate ventilation'
+        ]
+      };
+    }
+    
+    return {
+      isValid: true,
+      message: `Room capacity sufficient for batch size`
+    };
+  },
+  
+  /**
+   * Validate if room facilities match course requirements
+   */
+  validateRoomFacilities: (room, courseRequirements) => {
+    if (!room || !room.facilities) {
+      return {
+        isValid: false,
+        message: 'Room facilities information not available'
+      };
+    }
+    
+    if (!courseRequirements || courseRequirements.length === 0) {
+      return {
+        isValid: true,
+        message: 'No specific facility requirements'
+      };
+    }
+    
+    const missingFacilities = courseRequirements.filter(
+      requirement => !room.facilities.includes(requirement)
+    );
+    
+    if (missingFacilities.length > 0) {
+      return {
+        isValid: false,
+        severity: 'warning',
+        message: `Room ${room.number || room.id} missing required facilities: ${missingFacilities.join(', ')}`,
+        missingFacilities,
+        suggestedActions: [
+          'Choose a room with required facilities',
+          'Arrange for portable equipment',
+          'Contact facilities management'
+        ]
+      };
+    }
+    
+    return {
+      isValid: true,
+      message: 'All required facilities available'
+    };
+  },
+  
+  /**
+   * Validate batch scheduling conflicts
+   */
+  validateBatchConflicts: (timetableData, targetDay, targetSlot, batchId, courseCode) => {
+    const conflicts = [];
+    
+    // Check if the same batch has another class at the same time
+    Object.keys(timetableData).forEach(day => {
+      Object.keys(timetableData[day] || {}).forEach(slot => {
+        const existingCourse = timetableData[day][slot];
+        
+        if (existingCourse && 
+            existingCourse.batchId === batchId && 
+            day === targetDay && 
+            slot === targetSlot &&
+            existingCourse.code !== courseCode) {
+          
+          conflicts.push({
+            type: 'batch',
+            severity: 'critical',
+            message: `Batch ${batchId} already has ${existingCourse.code} scheduled at ${slot} on ${day}`,
+            conflictingCourse: existingCourse,
+            day: targetDay,
+            slot: targetSlot,
+            suggestedActions: [
+              'Move one course to a different time slot',
+              'Check if courses can be combined',
+              'Verify batch assignments'
+            ]
+          });
+        }
+      });
+    });
+    
+    return conflicts;
+  },
+  
+  /**
+   * Validate break time requirements
+   */
+  validateBreakTimes: (timetableData, targetDay, targetSlot, minimumBreakMinutes = 15) => {
+    const warnings = [];
+    const timeSlotDuration = 55; // Assuming 55-minute slots
+    
+    // Check adjacent time slots for the same batch/room
+    const adjacentSlots = resourceValidator.getAdjacentSlots(targetSlot);
+    
+    adjacentSlots.forEach(adjSlot => {
+      const adjCourse = timetableData[targetDay]?.[adjSlot];
+      if (adjCourse && adjCourse.code) {
+        // Check if it's back-to-back classes for same batch or in same room
+        warnings.push({
+          type: 'break_time',
+          severity: 'warning',
+          message: `Back-to-back classes detected. Consider adding break time between ${targetSlot} and ${adjSlot}`,
+          suggestedActions: [
+            'Add buffer time between classes',
+            'Ensure adequate transition time',
+            'Consider student movement time'
+          ]
+        });
+      }
+    });
+    
+    return warnings;
+  },
+  
+  /**
+   * Get adjacent time slots
+   */
+  getAdjacentSlots: (currentSlot) => {
+    const currentIndex = timeSlots.indexOf(currentSlot);
+    const adjacent = [];
+    
+    if (currentIndex > 0) {
+      adjacent.push(timeSlots[currentIndex - 1]);
+    }
+    if (currentIndex < timeSlots.length - 1) {
+      adjacent.push(timeSlots[currentIndex + 1]);
+    }
+    
+    return adjacent;
+  },
+  
+  /**
+   * Comprehensive resource validation
+   */
+  validateAllResources: (timetableData, day, slot, course, room, batchInfo) => {
+    const validations = {
+      roomCapacity: { isValid: true },
+      roomFacilities: { isValid: true },
+      batchConflicts: [],
+      breakTimes: [],
+      overall: { isValid: true, conflicts: [], warnings: [] }
+    };
+    
+    // Validate room capacity
+    if (room && batchInfo?.size) {
+      validations.roomCapacity = resourceValidator.validateRoomCapacity(room, batchInfo.size);
+      if (!validations.roomCapacity.isValid) {
+        validations.overall.isValid = false;
+        validations.overall.conflicts.push(validations.roomCapacity);
+      } else if (validations.roomCapacity.severity === 'warning') {
+        validations.overall.warnings.push(validations.roomCapacity);
+      }
+    }
+    
+    // Validate room facilities
+    if (room && course?.requiredFacilities) {
+      validations.roomFacilities = resourceValidator.validateRoomFacilities(room, course.requiredFacilities);
+      if (!validations.roomFacilities.isValid) {
+        if (validations.roomFacilities.severity === 'critical') {
+          validations.overall.isValid = false;
+          validations.overall.conflicts.push(validations.roomFacilities);
+        } else {
+          validations.overall.warnings.push(validations.roomFacilities);
+        }
+      }
+    }
+    
+    // Validate batch conflicts
+    if (batchInfo?.id) {
+      validations.batchConflicts = resourceValidator.validateBatchConflicts(
+        timetableData, day, slot, batchInfo.id, course?.code
+      );
+      if (validations.batchConflicts.length > 0) {
+        validations.overall.isValid = false;
+        validations.overall.conflicts.push(...validations.batchConflicts);
+      }
+    }
+    
+    // Validate break times
+    validations.breakTimes = resourceValidator.validateBreakTimes(timetableData, day, slot);
+    if (validations.breakTimes.length > 0) {
+      validations.overall.warnings.push(...validations.breakTimes);
+    }
+    
+    return validations;
+  }
+};
+
+/**
+ * Deep copy utility function
+ * @param {*} obj - Object to deep copy
+ * @returns {*} Deep copied object
+ */
+export const deepCopy = (obj) => {
+  if (obj === null || typeof obj !== 'object') return obj;
+  if (obj instanceof Date) return new Date(obj.getTime());
+  if (obj instanceof Array) return obj.map(item => deepCopy(item));
+  if (typeof obj === 'object') {
+    const copy = {};
+    Object.keys(obj).forEach(key => {
+      copy[key] = deepCopy(obj[key]);
+    });
+    return copy;
+  }
+};
+
+/**
+ * Add course to timetable
+ * @param {Object} timetableData - Current timetable data
+ * @param {string} day - Day of the week
+ * @param {string} slot - Time slot
+ * @param {Object} course - Course to add
+ * @param {Object} room - Room assignment
+ * @returns {Object} Updated timetable data
+ */
+export const addCourseToTimetable = (timetableData, day, slot, course, room) => {
+  const newTimetable = deepCopy(timetableData);
+  
+  if (!newTimetable[day]) {
+    newTimetable[day] = {};
+  }
+  
+  newTimetable[day][slot] = {
+    ...course,
+    room: room?.id || room?.number || '',
+    roomName: room?.name || room?.type || '',
+    timeSlot: slot,
+    dayOfWeek: day
+  };
+  
+  return newTimetable;
+};
+
+/**
+ * Save timetable (alias for saveTimetableToFirestore for backward compatibility)
+ */
+export const saveTimetable = saveTimetableToFirestore;
+
+/**
+ * Publish timetable
+ * @param {Object} params - Parameters for publishing
+ * @returns {Promise<void>}
+ */
+export const publishTimetable = async (params) => {
+  // Implementation for publishing timetable
+  try {
+    await saveTimetableToFirestore({
+      ...params,
+      published: true,
+      publishedAt: new Date().toISOString()
+    });
+    console.log('Timetable published successfully');
+  } catch (error) {
+    console.error('Error publishing timetable:', error);
+    throw error;
+  }
+};
+
+/**
+ * Get course color class based on course color
+ * @param {string} color - Course color
+ * @returns {string} CSS class name
+ */
+export const getCourseColorClass = (color) => {
+  const colorMap = {
+    blue: 'bg-blue-100 border-blue-500 text-blue-800',
+    indigo: 'bg-indigo-100 border-indigo-500 text-indigo-800',
+    purple: 'bg-purple-100 border-purple-500 text-purple-800',
+    green: 'bg-green-100 border-green-500 text-green-800',
+    amber: 'bg-amber-100 border-amber-500 text-amber-800',
+    rose: 'bg-rose-100 border-rose-500 text-rose-800',
+    red: 'bg-red-100 border-red-500 text-red-800',
+    orange: 'bg-orange-100 border-orange-500 text-orange-800',
+    yellow: 'bg-yellow-100 border-yellow-500 text-yellow-800',
+    emerald: 'bg-emerald-100 border-emerald-500 text-emerald-800',
+    teal: 'bg-teal-100 border-teal-500 text-teal-800',
+    cyan: 'bg-cyan-100 border-cyan-500 text-cyan-800',
+    sky: 'bg-sky-100 border-sky-500 text-sky-800',
+    violet: 'bg-violet-100 border-violet-500 text-violet-800',
+    fuchsia: 'bg-fuchsia-100 border-fuchsia-500 text-fuchsia-800',
+    pink: 'bg-pink-100 border-pink-500 text-pink-800'
+  };
+  
+  return colorMap[color] || 'bg-gray-100 border-gray-500 text-gray-800';
+};
+
+/**
+ * Filter courses based on search criteria
+ * @param {Array} courses - Array of courses
+ * @param {Object|string} criteria - Filter criteria object or search term string
+ * @param {string} [filterDepartment] - Department filter (if using string params)
+ * @returns {Array} Filtered courses
+ */
+export const filterCourses = (courses, criteria = {}, filterDepartment = '') => {
+  if (!Array.isArray(courses)) return [];
+  
+  // Handle both object and string parameter formats for backward compatibility
+  let searchTerm = '';
+  let departmentFilter = '';
+  let semesterFilter = '';
+  let facultyFilter = '';
+  
+  if (typeof criteria === 'string') {
+    // Legacy format: filterCourses(courses, searchTerm, filterDepartment)
+    searchTerm = criteria || '';
+    departmentFilter = filterDepartment || '';
+  } else if (typeof criteria === 'object' && criteria !== null) {
+    // New format: filterCourses(courses, { searchTerm, selectedDepartment, selectedSemester, selectedFaculty })
+    searchTerm = criteria.searchTerm || '';
+    departmentFilter = criteria.selectedDepartment || criteria.filterDepartment || '';
+    semesterFilter = criteria.selectedSemester || '';
+    facultyFilter = criteria.selectedFaculty || '';
+  }
+  
+  return courses.filter(course => {
+    // Search term matching
+    const matchesSearch = !searchTerm || 
+      course.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      course.title?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      course.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    
+    // Department matching
+    const matchesDepartment = !departmentFilter || 
+      course.department === departmentFilter;
+    
+    // Semester matching
+    const matchesSemester = !semesterFilter || 
+      course.semester === semesterFilter;
+    
+    // Faculty matching (check if faculty is in the course's faculty list)
+    const matchesFaculty = !facultyFilter || 
+      (Array.isArray(course.facultyList) && course.facultyList.includes(facultyFilter)) ||
+      course.facultyList === facultyFilter ||
+      course.faculty?.id === facultyFilter ||
+      course.teacher?.id === facultyFilter;
+    
+    return matchesSearch && matchesDepartment && matchesSemester && matchesFaculty;
+  });
+};
+
+/**
+ * Get compact time format for display
+ * @param {string} timeSlot - Time slot (e.g., "7:00-7:55")
+ * @returns {string} Compact time format
+ */
+export const getCompactTimeFormat = (timeSlot) => {
+  if (!timeSlot) return '';
+  
+  const [start] = timeSlot.split('-');
+  return start;
+};
+
+/**
+ * Get abbreviated day name
+ * @param {string} day - Full day name
+ * @returns {string} Abbreviated day name
+ */
+export const getAbbreviatedDay = (day) => {
+  const abbreviations = {
+    Monday: 'Mon',
+    Tuesday: 'Tue',
+    Wednesday: 'Wed',
+    Thursday: 'Thu',
+    Friday: 'Fri',
+    Saturday: 'Sat',
+    Sunday: 'Sun'
+  };
+  
+  return abbreviations[day] || day;
+};
+
+/**
+ * Get cell height based on screen size
+ * @param {boolean} isCompact - Whether to use compact mode
+ * @returns {string} CSS height class
+ */
+export const getCellHeight = (isCompact = false) => {
+  return isCompact ? 'h-12' : 'h-16';
+};
+
+/**
+ * Get responsive classes for timetable layout
+ * @param {boolean} isMobile - Whether device is mobile
+ * @returns {Object} CSS classes for different parts of the layout
+ */
+export const getResponsiveClasses = (isMobile = false) => {
+  return {
+    // Layout widths - significantly reduced course blocks width to maximize timetable space
+    courseBlockWidth: isMobile ? 'w-44' : 'w-52', // Further reduced for more timetable space
+    roomSelectionWidth: isMobile ? 'w-48' : 'w-64',
+    gapSize: isMobile ? 'gap-2' : 'gap-3', // Slightly reduced gap for more space
+    
+    // Cell styling
+    cellClasses: isMobile 
+      ? 'text-xs p-1 min-h-8'
+      : 'text-sm p-2 min-h-12'
+  };
+};
+
+/**
+ * Get compact course display information
+ * @param {Object} course - Course object
+ * @param {boolean} isCompact - Whether to use compact mode
+ * @returns {Object} Display information
+ */
+export const getCompactCourseDisplay = (course, isCompact = false) => {
+  if (!course) return { title: '', subtitle: '' };
+  
+  const courseCode = course.code || course.id;
+  const courseName = course.title || course.name;
+  const facultyName = course.teacher?.name || course.faculty?.name || '';
+  const room = course.room || '';
+  
   if (isCompact) {
     return {
-      title: course.id,
-      subtitle: course.faculty.name.split(' ')[1], // Just the last name
-      room: course.room
+      title: courseCode,
+      subtitle: room ? `Room: ${room}` : facultyName
     };
   }
   
   return {
-    title: `${course.id}: ${course.name}`,
-    subtitle: course.faculty.name,
-    room: `Room: ${course.room}`
+    title: `${courseCode} - ${courseName}`,
+    subtitle: `${facultyName}${room ? ` | Room: ${room}` : ''}`
   };
 };
 
-// Delete course from timetable
+/**
+ * Delete course from timetable
+ * @param {Object} timetableData - Current timetable data
+ * @param {string} day - Day of the week
+ * @param {string} slot - Time slot
+ * @returns {Object} Updated timetable data
+ */
 export const deleteCourse = (timetableData, day, slot) => {
-  const newTimetable = JSON.parse(JSON.stringify(timetableData));
-  newTimetable[day][slot] = null;
-  return newTimetable;
-};
-
-// Update timetable on course drop
-export const updateTimetableOnDrop = (timetableData, day, slot, course, selectedRoom, dragSourceInfo) => {
-  const newTimetable = JSON.parse(JSON.stringify(timetableData));
-
-  // If this is a re-drag from another cell, remove the course from its original position
-  if (dragSourceInfo) {
-    newTimetable[dragSourceInfo.day][dragSourceInfo.slot] = null;
+  const newTimetable = deepCopy(timetableData);
+  
+  if (newTimetable[day] && newTimetable[day][slot]) {
+    newTimetable[day][slot] = null;
   }
-
-  // Normalize course block structure for timetable grid
-  const normalizedCourse = {
-    id: course.id || course.code, // prefer id, fallback to code
-    code: course.code,
-    name: course.title || course.name || '',
-    faculty: course.faculty || course.teacher || {},
-    teacher: course.teacher || course.faculty || {},
-    color: course.color,
-    duration: course.duration,
-    weeklyHours: course.weeklyHours,
-    room: selectedRoom.id,
-    roomNumber: selectedRoom.number || '',
-  };
-
-  // Add the normalized course to the timetable
-  newTimetable[day][slot] = normalizedCourse;
-
+  
   return newTimetable;
 };
 
-// Filter conflicts when a course is deleted
+/**
+ * Update timetable when course is dropped
+ * @param {Object} timetableData - Current timetable data
+ * @param {string} day - Target day
+ * @param {string} slot - Target slot
+ * @param {Object} course - Course being dropped
+ * @param {Object} room - Room assignment
+ * @param {Object} dragSourceInfo - Information about drag source
+ * @returns {Object} Updated timetable data
+ */
+export const updateTimetableOnDrop = (timetableData, day, slot, course, room, dragSourceInfo) => {
+  let newTimetable = deepCopy(timetableData);
+  
+  // Remove course from source location if it was moved
+  if (dragSourceInfo && dragSourceInfo.day && dragSourceInfo.slot) {
+    newTimetable = deleteCourse(newTimetable, dragSourceInfo.day, dragSourceInfo.slot);
+  }
+  
+  // Add course to new location
+  newTimetable = addCourseToTimetable(newTimetable, day, slot, course, room);
+  
+  return newTimetable;
+};
+
+/**
+ * Filter conflicts after course deletion
+ * @param {Array} conflicts - Current conflicts
+ * @param {string} day - Day where course was deleted
+ * @param {string} slot - Slot where course was deleted
+ * @returns {Array} Filtered conflicts
+ */
 export const filterConflictsAfterDeletion = (conflicts, day, slot) => {
-  return conflicts.filter(
-    conflict => !(conflict.day === day && conflict.slot === slot)
+  return conflicts.filter(conflict => 
+    !(conflict.day === day && conflict.slot === slot)
   );
 };
 
-// Filter conflicts related to the source position when moving a course
+/**
+ * Filter conflicts after course move
+ * @param {Array} conflicts - Current conflicts
+ * @param {string} sourceDay - Source day
+ * @param {string} sourceSlot - Source slot
+ * @returns {Array} Filtered conflicts
+ */
 export const filterConflictsAfterMove = (conflicts, sourceDay, sourceSlot) => {
-  return conflicts.filter(
-    c => !(c.day === sourceDay && c.slot === sourceSlot)
+  return conflicts.filter(conflict => 
+    !(conflict.day === sourceDay && conflict.slot === sourceSlot)
   );
 };
 
-// Create a tab object
-export const createTab = (id, name, isActive = true) => {
-  return { id, name, isActive };
+/**
+ * Create new tab
+ * @param {number} tabId - Tab ID
+ * @param {string} tabName - Tab name
+ * @returns {Object} New tab object
+ */
+export const createTab = (tabId, tabName = `Timetable ${tabId}`) => {
+  return {
+    id: tabId,
+    name: tabName,
+    isActive: false,
+    data: initializeEmptyTimetable()
+  };
 };
 
-// Update tabs state when switching tabs
-export const updateTabsOnSwitch = (tabs, targetTabId) => {
-  return tabs.map(tab => ({ 
-    ...tab, 
-    isActive: tab.id === targetTabId 
+/**
+ * Update tabs when switching
+ * @param {Array} tabs - Current tabs
+ * @param {number} activeTabId - ID of active tab
+ * @returns {Array} Updated tabs
+ */
+export const updateTabsOnSwitch = (tabs, activeTabId) => {
+  return tabs.map(tab => ({
+    ...tab,
+    isActive: tab.id === activeTabId
   }));
-};
-
-// Create a deep copy of a timetable or any object
-export const deepCopy = (obj) => {
-  return JSON.parse(JSON.stringify(obj));
 };

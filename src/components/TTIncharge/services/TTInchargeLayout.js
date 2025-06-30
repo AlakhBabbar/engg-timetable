@@ -79,17 +79,17 @@ export const useTTInchargeLayout = (setUser) => {
     // Determine sidebar width class based on collapsed state and screen size
     const sidebarWidthClass = sidebarCollapsed 
       ? "w-16" 
-      : "w-20 lg:w-64";
+      : "w-20 lg:w-52";
     
     // Determine main content margin based on collapsed state and screen size
     const mainMarginClass = sidebarCollapsed 
       ? "ml-16" 
-      : "ml-20 lg:ml-64";
+      : "ml-20 lg:ml-52";
 
     // Determine header left position based on collapsed state and screen size
     const headerLeftClass = sidebarCollapsed 
       ? "left-16" 
-      : "left-20 lg:left-64";
+      : "left-20 lg:left-52";
       
     return {
       sidebarWidthClass,

@@ -13,7 +13,7 @@ import { useToast } from '../../context/ToastContext';
 // Import services and data
 import { 
   coursesData, facultyData, roomsData, timeSlots, weekDays,
-  initializeEmptyTimetable, checkConflicts, addCourseToTimetable,
+  initializeEmptyTimetable, checkConflictsProduction, addCourseToTimetable,
   saveTimetable, publishTimetable, getCourseColorClass, filterCourses,
   getCompactTimeFormat, getAbbreviatedDay, getCellHeight, 
   getResponsiveClasses, getCompactCourseDisplay, deleteCourse,
@@ -22,7 +22,9 @@ import {
   // New business logic imports
   fetchTeachersMap, fetchCourses, mapCoursesToBlocks, fetchRooms,
   setupTimetableListener, saveTimetableToFirestore, groupCourseBlocks,
-  tabOperations, historyManager, dragDropOperations
+  tabOperations, historyManager, dragDropOperations, validateCoursePlacement,
+  getAllTimetableConflicts, auditLogger, TimetableIndex, conflictResolver,
+  resourceValidator
 } from './services/TimetableBuilder';
 
 // Import batch management functions
@@ -125,6 +127,58 @@ export default function TimetableBuilder() {
   const [teacherMap, setTeacherMap] = useState({});
   // State for all fetched courses
   const [allCourses, setAllCourses] = useState([]);
+  // State for timetable loading
+  const [timetableLoading, setTimetableLoading] = useState(false);
+
+  // State for drop validation and visual feedback
+  const [dropValidation, setDropValidation] = useState({});
+  const [hoveredSlot, setHoveredSlot] = useState(null);
+  const [previewConflicts, setPreviewConflicts] = useState([]);
+
+  // Helper function to validate drop before allowing it with comprehensive checks
+  const validateDrop = (day, slot, course, room) => {
+    if (!course || !room) return { canDrop: false, conflicts: [], warnings: [] };
+    
+    // Basic conflict validation
+    const validation = validateCoursePlacement(timetableData, day, slot, course, room);
+    
+    // Get current batch info (you would get this from your batch management system)
+    const currentBatchInfo = {
+      id: selectedBatch,
+      size: availableBatches.find(b => b.name === selectedBatch)?.size || 30 // Default size
+    };
+    
+    // Comprehensive resource validation
+    const resourceValidation = resourceValidator.validateAllResources(
+      timetableData, day, slot, course, room, currentBatchInfo
+    );
+    
+    // Combine all validations
+    const allConflicts = [
+      ...validation.criticalConflicts,
+      ...resourceValidation.overall.conflicts
+    ];
+    
+    const allWarnings = [
+      ...validation.warnings,
+      ...resourceValidation.overall.warnings
+    ];
+    
+    return {
+      canDrop: allConflicts.length === 0,
+      conflicts: allConflicts,
+      warnings: allWarnings,
+      allConflicts: [...allConflicts, ...allWarnings],
+      resourceValidation
+    };
+  };
+
+  // Build performance indexes when timetable data changes
+  useEffect(() => {
+    if (timetableData && Object.keys(timetableData).length > 0) {
+      TimetableIndex.buildIndexes(timetableData);
+    }
+  }, [timetableData]);
 
   // Fetch branches on component mount
   useEffect(() => {
@@ -268,28 +322,65 @@ export default function TimetableBuilder() {
     }
   }, [selectedBranch, availableBatches]);
 
+  // Debug: Log when all required fields are selected
+  useEffect(() => {
+    if (isRequiredFieldsSelected()) {
+      const documentId = `${currentSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
+      console.log('All required fields selected. Document ID:', documentId);
+      console.log('Setting up listener for timetable:', {
+        currentSemester,
+        selectedBranch,
+        selectedBatch,
+        selectedType
+      });
+    }
+  }, [currentSemester, selectedBranch, selectedBatch, selectedType]);
+
   // Firestore real-time listener for timetable (per tab)
   useEffect(() => {
+    if (!isRequiredFieldsSelected()) {
+      // Clear timetable data if required fields are not selected
+      setTimetablesData(prev => ({ ...prev, [activeTabId]: initializeEmptyTimetable() }));
+      setTimetableLoading(false);
+      return () => {};
+    }
+
+    setTimetableLoading(true);
+    
     const unsubscribe = setupTimetableListener({
-      db, collection, query, where, onSnapshot,
+      db, doc, onSnapshot,
       currentSemester, selectedBranch, selectedBatch, selectedType,
       callback: (scheduleData) => {
         setTimetablesData(prev => ({ ...prev, [activeTabId]: scheduleData }));
+        setTimetableLoading(false);
+        
+        // Initialize history for this tab with the loaded data (first time only)
+        if (!historyData[activeTabId] || historyData[activeTabId].length === 0) {
+          addToHistory(activeTabId, scheduleData);
+        }
       }
     });
     
     return unsubscribe;
   }, [currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
 
-  // Write timetable changes to Firestore
+  // Write timetable changes to Firestore (only when data changes, not when loading)
   useEffect(() => {
     const currentSchedule = timetablesData[activeTabId];
-    if (currentSchedule) {
-      saveTimetableToFirestore({
-        db, doc, setDoc,
-        currentSemester, selectedBranch, selectedBatch, selectedType,
-        scheduleData: currentSchedule
-      });
+    // Only save if we have data and all required fields are selected
+    if (currentSchedule && isRequiredFieldsSelected() && Object.keys(currentSchedule).length > 0) {
+      // Check if this is not just an empty initialization
+      const hasActualData = Object.values(currentSchedule).some(dayData => 
+        Object.values(dayData || {}).some(slotData => slotData && slotData.code)
+      );
+      
+      if (hasActualData) {
+        saveTimetableToFirestore({
+          db, doc, setDoc,
+          currentSemester, selectedBranch, selectedBatch, selectedType,
+          scheduleData: currentSchedule
+        });
+      }
     }
   }, [timetablesData, currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
 
@@ -297,12 +388,14 @@ export default function TimetableBuilder() {
   useEffect(() => {
     const initialData = initializeEmptyTimetable();
     
-    // Initialize data for the first tab
-    setTimetablesData({ 1: initialData });
-    setConflictsData({ 1: [] });
+    // Initialize data for the first tab only if no data exists
+    setTimetablesData(prev => prev[1] ? prev : { 1: initialData });
+    setConflictsData(prev => prev[1] ? prev : { 1: [] });
     
-    // Initialize history for the first tab
-    addToHistory(1, initialData);
+    // Initialize history for the first tab only if no history exists
+    if (!historyData[1]) {
+      addToHistory(1, initialData);
+    }
     
     // Check screen size
     const checkScreenSize = () => {
@@ -467,20 +560,57 @@ export default function TimetableBuilder() {
   const handleDeleteCourse = (day, slot, e) => {
     e.stopPropagation(); // Prevent drag events from triggering
     
+    const courseToDelete = timetableData[day]?.[slot];
+    
     const result = dragDropOperations.deleteCourse(timetableData, day, slot, conflicts);
     setTimetablesData(prev => ({ ...prev, [activeTabId]: result.timetable }));
     setConflictsData(prev => ({ ...prev, [activeTabId]: result.conflicts }));
     
     // Add to history
     addToHistory(activeTabId, result.timetable);
+    
+    // Log the deletion
+    auditLogger.logAction('course_deleted', {
+      course: courseToDelete?.code,
+      courseName: courseToDelete?.name,
+      day,
+      slot,
+      room: courseToDelete?.room,
+      semester: currentSemester,
+      branch: selectedBranch,
+      batch: selectedBatch,
+      type: selectedType,
+      tabId: activeTabId
+    });
   };
 
-  // Handle drop on a timetable cell
+  // Handle drop on a timetable cell with pre-validation
   const handleDrop = (e, day, slot) => {
     e.preventDefault();
     e.stopPropagation();
     
     if (draggedCourse) {
+      // Pre-validate the drop
+      const validation = validateDrop(day, slot, draggedCourse, selectedRoom);
+      
+      // Prevent drop if there are critical conflicts
+      if (!validation.canDrop) {
+        showError(`Cannot place course: ${validation.conflicts[0]?.message || 'Critical conflict detected'}`);
+        
+        // Reset dragging state
+        setIsDragging(false);
+        setDraggedCourse(null);
+        setDragSourceInfo(null);
+        setHoveredSlot(null);
+        setPreviewConflicts([]);
+        return;
+      }
+      
+      // Show warnings but allow placement
+      if (validation.warnings.length > 0) {
+        showInfo(`Course placed with warnings: ${validation.warnings[0]?.message}`);
+      }
+      
       const result = dragDropOperations.handleDrop({
         timetableData, day, slot, draggedCourse, selectedRoom,
         dragSourceInfo, conflicts
@@ -493,17 +623,60 @@ export default function TimetableBuilder() {
       // Add to history
       addToHistory(activeTabId, result.timetable);
       
+      // Log the action for audit trail
+      auditLogger.logAction('course_placed', {
+        course: draggedCourse.code,
+        courseName: draggedCourse.title || draggedCourse.name,
+        day,
+        slot,
+        room: selectedRoom?.id,
+        conflicts: result.conflicts.length,
+        warnings: validation.warnings.length,
+        semester: currentSemester,
+        branch: selectedBranch,
+        batch: selectedBatch,
+        type: selectedType,
+        tabId: activeTabId
+      });
+      
       // Reset dragging state
       setIsDragging(false);
       setDraggedCourse(null);
       setDragSourceInfo(null);
+      setHoveredSlot(null);
+      setPreviewConflicts([]);
     }
   };
 
-  // Handle drag over (required for drop to work)
-  const handleDragOver = (e) => {
+  // Handle drag over (required for drop to work) with conflict preview
+  const handleDragOver = (e, day, slot) => {
     e.preventDefault();
     e.dataTransfer.dropEffect = 'move';
+    
+    // Show preview of conflicts if dragging a course
+    if (draggedCourse && selectedRoom) {
+      const currentHovered = `${day}-${slot}`;
+      if (hoveredSlot !== currentHovered) {
+        setHoveredSlot(currentHovered);
+        
+        // Get validation for preview
+        const validation = validateDrop(day, slot, draggedCourse, selectedRoom);
+        setPreviewConflicts(validation.allConflicts || []);
+      }
+    }
+  };
+
+  // Handle drag leave to clear preview
+  const handleDragLeave = (e) => {
+    // Only clear if we're leaving the cell entirely
+    const rect = e.currentTarget.getBoundingClientRect();
+    const x = e.clientX;
+    const y = e.clientY;
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      setHoveredSlot(null);
+      setPreviewConflicts([]);
+    }
   };
 
   // Handle drag end
@@ -511,6 +684,8 @@ export default function TimetableBuilder() {
     setIsDragging(false);
     setDraggedCourse(null);
     setDragSourceInfo(null);
+    setHoveredSlot(null);
+    setPreviewConflicts([]);
   };
 
   // Handle clearing a week
@@ -523,6 +698,15 @@ export default function TimetableBuilder() {
     
     // Add to history
     addToHistory(activeTabId, newTimetable);
+    
+    // Log the action
+    auditLogger.logAction('week_cleared', {
+      semester: currentSemester,
+      branch: selectedBranch,
+      batch: selectedBatch,
+      type: selectedType,
+      tabId: activeTabId
+    });
   };
 
   // Handle resolving a conflict
@@ -911,6 +1095,9 @@ export default function TimetableBuilder() {
           <div className="flex justify-between items-center mb-2">
             <h2 className="text-sm font-semibold text-gray-700">
               {viewMode === 'week' ? 'Weekly Schedule' : `${currentDay}`}
+              {timetableLoading && (
+                <span className="ml-2 text-xs text-blue-500">(Loading...)</span>
+              )}
             </h2>
             
             {/* Day selector for day view */}
@@ -1004,9 +1191,30 @@ export default function TimetableBuilder() {
                         const hasConflict = conflicts.some(
                           c => c.day === day && c.slot === slot
                         );
+                        
+                        // Check if this slot is being hovered during drag
+                        const isHovered = hoveredSlot === `${day}-${slot}`;
+                        const hasPreviewConflict = previewConflicts.some(
+                          c => c.day === day && c.slot === slot
+                        );
+                        
+                        // Determine visual feedback for drop validation
+                        let dropFeedbackClass = '';
+                        if (isDragging && isHovered) {
+                          const validation = validateDrop(day, slot, draggedCourse, selectedRoom);
+                          if (!validation.canDrop) {
+                            dropFeedbackClass = 'ring-2 ring-red-500 bg-red-50/50';
+                          } else if (validation.warnings.length > 0) {
+                            dropFeedbackClass = 'ring-2 ring-amber-500 bg-amber-50/50';
+                          } else {
+                            dropFeedbackClass = 'ring-2 ring-green-500 bg-green-50/50';
+                          }
+                        }
+                        
                         return (
-                          <td key={`${day}-${slot}`} className="py-1 px-1 border-b border-gray-100 text-center relative" 
-                              onDragOver={!isTimetableDisabled ? handleDragOver : undefined} 
+                          <td key={`${day}-${slot}`} className={`py-1 px-1 border-b border-gray-100 text-center relative ${dropFeedbackClass}`}
+                              onDragOver={!isTimetableDisabled ? (e) => handleDragOver(e, day, slot) : undefined} 
+                              onDragLeave={!isTimetableDisabled ? handleDragLeave : undefined}
                               onDrop={!isTimetableDisabled ? (e) => handleDrop(e, day, slot) : undefined}>
                             {courseInSlot && courseInSlot.code ? (
                               <div 
@@ -1191,24 +1399,74 @@ export default function TimetableBuilder() {
                 No conflicts detected
               </div>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-2">
                 {conflicts.map((conflict, index) => (
-                  <div key={index} className="p-2 bg-red-50 rounded-lg shadow-sm">
-                    <div className="flex justify-between">
-                      <div className="flex items-center gap-1">
-                        <FiAlertTriangle className="text-red-500" size={12} />
-                        <span className="text-xs font-medium text-red-700">
-                          {conflict.type === 'room' ? 'Room Conflict' : 'Faculty Conflict'}
-                        </span>
+                  <div key={index} className="border rounded-lg overflow-hidden">
+                    <div className="p-2 bg-red-50">
+                      <div className="flex justify-between items-start">
+                        <div className="flex items-center gap-1">
+                          <FiAlertTriangle className="text-red-500" size={12} />
+                          <span className="text-xs font-medium text-red-700">
+                            {conflict.type === 'room' ? 'Room Conflict' : 
+                             conflict.type === 'faculty' ? 'Faculty Conflict' :
+                             conflict.type === 'batch' ? 'Batch Conflict' : 'Conflict'}
+                          </span>
+                          {conflict.severity && (
+                            <span className={`text-xs px-1 py-0.5 rounded-full ${
+                              conflict.severity === 'critical' ? 'bg-red-200 text-red-800' : 'bg-amber-200 text-amber-800'
+                            }`}>
+                              {conflict.severity}
+                            </span>
+                          )}
+                        </div>
+                        <button 
+                          onClick={() => handleResolveConflict(index)}
+                          className="text-red-500 hover:text-red-700"
+                          title="Dismiss conflict"
+                        >
+                          <FiX size={12} />
+                        </button>
                       </div>
-                      <button 
-                        onClick={() => handleResolveConflict(index)}
-                        className="text-red-500 hover:text-red-700"
-                      >
-                        <FiX size={12} />
-                      </button>
+                      <p className="text-xs text-red-600 mt-1">{conflict.message}</p>
+                      
+                      {/* Conflict Resolution Suggestions */}
+                      {conflict.suggestedActions && conflict.suggestedActions.length > 0 && (
+                        <div className="mt-2">
+                          <p className="text-xs font-medium text-gray-600 mb-1">Suggested Actions:</p>
+                          <div className="space-y-1">
+                            {conflict.suggestedActions.slice(0, 2).map((action, actionIndex) => (
+                              <button
+                                key={actionIndex}
+                                className="block w-full text-left text-xs text-blue-600 hover:text-blue-800 hover:bg-blue-50 p-1 rounded"
+                                onClick={() => {
+                                  // Generate and apply suggestions
+                                  const suggestions = conflictResolver.generateSuggestions(
+                                    timetableData, conflict, rooms, teacherMap
+                                  );
+                                  if (suggestions.length > actionIndex) {
+                                    const newTimetable = conflictResolver.applySuggestion(
+                                      timetableData, suggestions[actionIndex]
+                                    );
+                                    setTimetablesData(prev => ({ ...prev, [activeTabId]: newTimetable }));
+                                    addToHistory(activeTabId, newTimetable);
+                                    
+                                    // Log the resolution
+                                    auditLogger.logAction('conflict_resolved', {
+                                      conflictType: conflict.type,
+                                      resolution: suggestions[actionIndex].type,
+                                      day: conflict.day,
+                                      slot: conflict.slot
+                                    });
+                                  }
+                                }}
+                              >
+                                • {action}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <p className="text-xs text-red-600 mt-1">{conflict.message}</p>
                   </div>
                 ))}
               </div>
