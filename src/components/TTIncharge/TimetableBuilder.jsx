@@ -8,6 +8,7 @@ import {
 } from 'react-icons/fi';
 import { db, collection, doc, setDoc, getDoc, getDocs, onSnapshot, query, where } from '../../firebase/config';
 import { useSemester } from '../../context/SemesterContext';
+import { useToast } from '../../context/ToastContext';
 
 // Import services and data
 import { 
@@ -17,12 +18,24 @@ import {
   getCompactTimeFormat, getAbbreviatedDay, getCellHeight, 
   getResponsiveClasses, getCompactCourseDisplay, deleteCourse,
   updateTimetableOnDrop, filterConflictsAfterDeletion, filterConflictsAfterMove,
-  createTab, updateTabsOnSwitch, deepCopy
+  createTab, updateTabsOnSwitch, deepCopy,
+  // New business logic imports
+  fetchTeachersMap, fetchCourses, mapCoursesToBlocks, fetchRooms,
+  setupTimetableListener, saveTimetableToFirestore, groupCourseBlocks,
+  tabOperations, historyManager, dragDropOperations
 } from './services/TimetableBuilder';
+
+// Import batch management functions
+import { 
+  getBranches, 
+  getBatches, 
+  subscribeToBatches 
+} from './services/BatchManagement';
 
 export default function TimetableBuilder() {
   // Get current semester from context
   const { selectedSemester: currentSemester } = useSemester();
+  const { showError, showInfo } = useToast();
   
   // State for screen size detection
   const [isZoomed, setIsZoomed] = useState(false);
@@ -89,82 +102,100 @@ export default function TimetableBuilder() {
   let colorIndex = 0;
 
 
-  const branch=['Electrical', 'Mechanical', 'Civil', 'Footwear', 'Agriculture']
+  // State for branches and batches from Firestore
+  const [branches, setBranches] = useState([]);
+  const [availableBatches, setAvailableBatches] = useState([]);
+  const [batchesLoading, setBatchesLoading] = useState(false);
+  
+  // Selected values for normalized timetable
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [selectedBatch, setSelectedBatch] = useState('');
+  const [selectedType, setSelectedType] = useState('');
+  
   const type=['Full-Time', 'Part-Time']
-  const batch=['A', 'B', 'C', 'Boys', 'Girls']
+
+  // Validation for required fields
+  const isRequiredFieldsSelected = () => {
+    return selectedBranch && selectedBatch && selectedType && currentSemester;
+  };
+
+  const isTimetableDisabled = !isRequiredFieldsSelected();
 
   // State for all teachers (id -> name)
   const [teacherMap, setTeacherMap] = useState({});
   // State for all fetched courses
   const [allCourses, setAllCourses] = useState([]);
 
+  // Fetch branches on component mount
+  useEffect(() => {
+    const branchesData = getBranches();
+    setBranches(branchesData);
+  }, []);
+
+  // Fetch batches when branch and semester change
+  useEffect(() => {
+    let unsubscribe = null;
+
+    if (selectedBranch && currentSemester) {
+      setBatchesLoading(true);
+      
+      // Set up real-time listener for batches
+      unsubscribe = subscribeToBatches(selectedBranch, currentSemester, (batchData) => {
+        setAvailableBatches(batchData);
+        setBatchesLoading(false);
+      });
+
+      // Also load initial data
+      loadBatches();
+    } else {
+      setAvailableBatches([]);
+    }
+
+    // Cleanup listener on unmount or when dependencies change
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [selectedBranch, currentSemester]);
+
+  const loadBatches = async () => {
+    try {
+      const batchData = await getBatches(selectedBranch, currentSemester, true); // Force sync
+      setAvailableBatches(batchData);
+      
+      if (batchData.length === 0) {
+        showInfo(`No batches found for the selected branch and semester. You may need to create batches first.`);
+      }
+    } catch (error) {
+      console.error('Failed to load batches:', error);
+      showError('Failed to load batches. Please try again.');
+    } finally {
+      setBatchesLoading(false);
+    }
+  };
+
   // Fetch all teachers and build a map (id -> name)
   useEffect(() => {
-    async function fetchTeachers() {
-      const snap = await getDocs(collection(db, 'teachers'));
-      const map = {};
-      snap.docs.forEach(doc => {
-        const data = doc.data();
-        map[data.id || doc.id] = data.name;
-      });
-      setTeacherMap(map);
+    async function loadTeachers() {
+      const teacherMap = await fetchTeachersMap(db, collection, getDocs);
+      setTeacherMap(teacherMap);
     }
-    fetchTeachers();
+    loadTeachers();
   }, []);
 
   // Fetch all courses from Firestore (store raw)
   useEffect(() => {
-    if (!currentSemester) {
-      setAllCourses([]);
-      return;
+    async function loadCourses() {
+      const courses = await fetchCourses(db, collection, getDocs, query, where, currentSemester);
+      setAllCourses(courses);
     }
-    async function fetchCourses() {
-      const q = query(collection(db, 'courses'), where('semester', '==', currentSemester));
-      const snap = await getDocs(q);
-      setAllCourses(snap.docs.map(doc => doc.data()));
-    }
-    fetchCourses();
+    loadCourses();
   }, [currentSemester]);
 
   // Map courses to courseBlocks whenever teacherMap or allCourses changes
   useEffect(() => {
-    // Assign unique color per course code
-    allCourses.forEach(course => {
-      if (!courseColorMap[course.code]) {
-        courseColorMap[course.code] = courseColors[colorIndex % courseColors.length];
-        colorIndex++;
-      }
-    });
-    // Flatten courses by teacher (facultyList is array of teacher IDs)
-    const blocks = [];
-    allCourses.forEach(course => {
-      const color = courseColorMap[course.code];
-      if (Array.isArray(course.facultyList)) {
-        course.facultyList.forEach(teacherId => {
-          blocks.push({
-            code: course.code,
-            title: course.title,
-            weeklyHours: course.weeklyHours,
-            teacherId,
-            teacherName: teacherMap[teacherId] || teacherId,
-            color,
-            id: `${course.code}-${teacherId}`,
-            duration: course.duration || ''
-          });
-        });
-      } else if (course.facultyList) {
-        blocks.push({
-          code: course.code,
-          title: course.title,
-          weeklyHours: course.weeklyHours,
-          teacherId: course.facultyList,
-          teacherName: teacherMap[course.facultyList] || course.facultyList,
-          color,
-          id: `${course.code}-${course.facultyList}`,
-          duration: course.duration || ''
-        });
-      }
-    });
+    const blocks = mapCoursesToBlocks(allCourses, teacherMap, courseColors);
     setCourseBlocks(blocks);
   }, [allCourses, teacherMap]);
 
@@ -198,16 +229,16 @@ export default function TimetableBuilder() {
 
   // Fetch rooms from Firestore on mount
   useEffect(() => {
-    async function fetchRooms() {
-      const snap = await getDocs(collection(db, 'rooms'));
-      const allRooms = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      setRooms(allRooms);
-      // Always set selectedRoom to a valid room if not present or if the current selectedRoom is not in the new list
-      if (!selectedRoom || !allRooms.find(r => r.id === selectedRoom.id)) {
-        setSelectedRoom(allRooms[0] || null);
+    async function loadRooms() {
+      const roomsData = await fetchRooms(db, collection, getDocs);
+      setRooms(roomsData);
+      
+      // Set initial selected room
+      if (!selectedRoom || !roomsData.find(r => r.id === selectedRoom.id)) {
+        setSelectedRoom(roomsData[0] || null);
       }
     }
-    fetchRooms();
+    loadRooms();
   }, []);
 
   // Ensure selectedRoom is always valid when rooms change
@@ -219,62 +250,47 @@ export default function TimetableBuilder() {
     }
   }, [rooms]);
 
-  // Selected values for normalized timetable
-  const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedBatch, setSelectedBatch] = useState('');
-  const [selectedType, setSelectedType] = useState('');
+  // Effect to clear selected batch when no batches are available
+  useEffect(() => {
+    if (selectedBranch && currentSemester && !batchesLoading && availableBatches.length === 0) {
+      // Clear batch selection if no batches are available for the selected branch/semester
+      setSelectedBatch('');
+    }
+  }, [selectedBranch, currentSemester, batchesLoading, availableBatches]);
+
+  // Reset selected batch when branch changes to avoid invalid combinations
+  useEffect(() => {
+    if (selectedBranch && availableBatches.length > 0) {
+      // If current batch is not in the new batch list, reset it
+      if (selectedBatch && !availableBatches.find(batch => batch.name === selectedBatch)) {
+        setSelectedBatch('');
+      }
+    }
+  }, [selectedBranch, availableBatches]);
 
   // Firestore real-time listener for timetable (per tab)
   useEffect(() => {
-    if (!currentSemester || !selectedBranch || !selectedBatch || !selectedType) return;
-    const timetableQuery = query(
-      collection(db, 'timetables'),
-      where('semester', '==', currentSemester),
-      where('branch', '==', selectedBranch),
-      where('batch', '==', selectedBatch),
-      where('type', '==', selectedType)
-    );
-    const unsub = onSnapshot(timetableQuery, (snapshot) => {
-      if (!snapshot.empty) {
-        const docData = snapshot.docs[0].data();
-        setTimetablesData(prev => ({ ...prev, [activeTabId]: docData.schedule || initializeEmptyTimetable() }));
-      } else {
-        // If not found, initialize empty
-        setTimetablesData(prev => ({ ...prev, [activeTabId]: initializeEmptyTimetable() }));
+    const unsubscribe = setupTimetableListener({
+      db, collection, query, where, onSnapshot,
+      currentSemester, selectedBranch, selectedBatch, selectedType,
+      callback: (scheduleData) => {
+        setTimetablesData(prev => ({ ...prev, [activeTabId]: scheduleData }));
       }
     });
-    return () => unsub();
+    
+    return unsubscribe;
   }, [currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
-
-  // Utility to deeply replace undefined with null in an object
-  function replaceUndefinedWithNull(obj) {
-    if (Array.isArray(obj)) return obj.map(replaceUndefinedWithNull);
-    if (obj && typeof obj === 'object') {
-      const newObj = {};
-      for (const key in obj) {
-        const value = obj[key];
-        newObj[key] = value === undefined ? null : replaceUndefinedWithNull(value);
-      }
-      return newObj;
-    }
-    return obj;
-  }
 
   // Write timetable changes to Firestore
   useEffect(() => {
-    if (!currentSemester || !selectedBranch || !selectedBatch || !selectedType) return;
     const currentSchedule = timetablesData[activeTabId];
-    if (!currentSchedule) return;
-    const timetableDocId = `${currentSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
-    // Replace undefined with null before saving
-    const safeSchedule = replaceUndefinedWithNull(currentSchedule);
-    setDoc(doc(db, 'timetables', timetableDocId), {
-      semester: currentSemester,
-      branch: selectedBranch,
-      batch: selectedBatch,
-      type: selectedType,
-      schedule: safeSchedule
-    }, { merge: true });
+    if (currentSchedule) {
+      saveTimetableToFirestore({
+        db, doc, setDoc,
+        currentSemester, selectedBranch, selectedBatch, selectedType,
+        scheduleData: currentSchedule
+      });
+    }
   }, [timetablesData, currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
 
   // Initialize empty timetable data and check screen size on component mount
@@ -304,29 +320,29 @@ export default function TimetableBuilder() {
 
   // Add a new tab
   const addNewTab = () => {
-    const newTabId = nextTabId;
     const initialData = initializeEmptyTimetable();
+    const tabConfig = tabOperations.createNewTab(nextTabId, initialData);
     
     // Add new tab
     setTabs(prevTabs => [
       ...prevTabs.map(tab => ({ ...tab, isActive: false })),
-      createTab(newTabId, `New Timetable ${newTabId}`)
+      tabConfig.newTab
     ]);
     
     // Set the new tab as active
-    setActiveTabId(newTabId);
+    setActiveTabId(nextTabId);
     
     // Initialize data for the new tab
-    setTimetablesData(prev => ({ ...prev, [newTabId]: initialData }));
-    setConflictsData(prev => ({ ...prev, [newTabId]: [] }));
+    setTimetablesData(prev => ({ ...prev, [nextTabId]: initialData }));
+    setConflictsData(prev => ({ ...prev, [nextTabId]: [] }));
     
     // Initialize history for the new tab
-    addToHistory(newTabId, initialData);
+    addToHistory(nextTabId, initialData);
     
     // Reset fields
-    setSelectedBranch('');
-    setSelectedBatch('');
-    setSelectedType('');
+    setSelectedBranch(tabConfig.resetFields.selectedBranch);
+    setSelectedBatch(tabConfig.resetFields.selectedBatch);
+    setSelectedType(tabConfig.resetFields.selectedType);
     
     // Increment next tab id
     setNextTabId(prevId => prevId + 1);
@@ -334,7 +350,7 @@ export default function TimetableBuilder() {
 
   // Switch to a tab
   const switchTab = (tabId) => {
-    setTabs(prevTabs => updateTabsOnSwitch(prevTabs, tabId));
+    setTabs(prevTabs => tabOperations.switchTab(prevTabs, tabId));
     setActiveTabId(tabId);
   };
 
@@ -342,19 +358,16 @@ export default function TimetableBuilder() {
   const closeTab = (tabId, event) => {
     event.stopPropagation();
     
-    // Don't close if it's the only tab
-    if (tabs.length === 1) return;
+    const result = tabOperations.closeTab(tabs, tabId, activeTabId);
+    if (!result) return; // Don't close if it's the only tab
     
     // If closing the active tab, switch to another tab first
-    if (tabId === activeTabId) {
-      const activeIndex = tabs.findIndex(tab => tab.id === activeTabId);
-      const newActiveIndex = activeIndex === 0 ? 1 : activeIndex - 1;
-      const newActiveTabId = tabs[newActiveIndex].id;
-      switchTab(newActiveTabId);
+    if (result.newActiveTabId !== activeTabId) {
+      setActiveTabId(result.newActiveTabId);
     }
     
     // Remove the tab
-    setTabs(prevTabs => prevTabs.filter(tab => tab.id !== tabId));
+    setTabs(result.tabs);
     
     // Clean up data
     setTimetablesData(prev => {
@@ -406,34 +419,31 @@ export default function TimetableBuilder() {
     const tabHistory = historyData[tabId] || [];
     const tabHistoryIndex = historyIndices[tabId] || -1;
     
-    // Remove any future states if we're not at the end of the history
-    const newHistory = tabHistory.slice(0, tabHistoryIndex + 1);
-    newHistory.push(deepCopy(data));
-    
-    setHistoryData(prev => ({ ...prev, [tabId]: newHistory }));
-    setHistoryIndices(prev => ({ ...prev, [tabId]: newHistory.length - 1 }));
+    const result = historyManager.addToHistory(tabHistory, tabHistoryIndex, data);
+    setHistoryData(prev => ({ ...prev, [tabId]: result.history }));
+    setHistoryIndices(prev => ({ ...prev, [tabId]: result.historyIndex }));
   };
 
   // Handle undo
   const handleUndo = () => {
-    if (historyIndex > 0) {
-      const newIndex = historyIndex - 1;
-      setHistoryIndices(prev => ({ ...prev, [activeTabId]: newIndex }));
+    const result = historyManager.undo(history, historyIndex);
+    if (result) {
+      setHistoryIndices(prev => ({ ...prev, [activeTabId]: result.historyIndex }));
       setTimetablesData(prev => ({ 
         ...prev, 
-        [activeTabId]: deepCopy(history[newIndex])
+        [activeTabId]: result.data
       }));
     }
   };
 
   // Handle redo
   const handleRedo = () => {
-    if (historyIndex < history.length - 1) {
-      const newIndex = historyIndex + 1;
-      setHistoryIndices(prev => ({ ...prev, [activeTabId]: newIndex }));
+    const result = historyManager.redo(history, historyIndex);
+    if (result) {
+      setHistoryIndices(prev => ({ ...prev, [activeTabId]: result.historyIndex }));
       setTimetablesData(prev => ({ 
         ...prev, 
-        [activeTabId]: deepCopy(history[newIndex])
+        [activeTabId]: result.data
       }));
     }
   };
@@ -457,15 +467,12 @@ export default function TimetableBuilder() {
   const handleDeleteCourse = (day, slot, e) => {
     e.stopPropagation(); // Prevent drag events from triggering
     
-    const newTimetable = deleteCourse(timetableData, day, slot);
-    setTimetablesData(prev => ({ ...prev, [activeTabId]: newTimetable }));
-    
-    // Filter conflicts related to this cell if any
-    const newConflicts = filterConflictsAfterDeletion(conflicts, day, slot);
-    setConflictsData(prev => ({ ...prev, [activeTabId]: newConflicts }));
+    const result = dragDropOperations.deleteCourse(timetableData, day, slot, conflicts);
+    setTimetablesData(prev => ({ ...prev, [activeTabId]: result.timetable }));
+    setConflictsData(prev => ({ ...prev, [activeTabId]: result.conflicts }));
     
     // Add to history
-    addToHistory(activeTabId, newTimetable);
+    addToHistory(activeTabId, result.timetable);
   };
 
   // Handle drop on a timetable cell
@@ -474,39 +481,17 @@ export default function TimetableBuilder() {
     e.stopPropagation();
     
     if (draggedCourse) {
-      // If dragging from the left panel, selectedRoom may be null
-      let roomToAssign = selectedRoom;
-      if (!roomToAssign || !roomToAssign.id) {
-        // Assign a default/empty room if not set
-        roomToAssign = { id: '', name: '', capacity: '', availability: '' };
-      }
-      // Update the timetable with the dropped course
-      const newTimetable = updateTimetableOnDrop(
-        timetableData, day, slot, draggedCourse, roomToAssign, dragSourceInfo
-      );
+      const result = dragDropOperations.handleDrop({
+        timetableData, day, slot, draggedCourse, selectedRoom,
+        dragSourceInfo, conflicts
+      });
       
-      // If this is a re-drag from another cell, update conflicts related to source
-      let updatedConflicts = conflicts;
-      if (dragSourceInfo) {
-        updatedConflicts = filterConflictsAfterMove(
-          conflicts, dragSourceInfo.day, dragSourceInfo.slot
-        );
-      }
-      
-      // Check for conflicts at the destination
-      const newConflicts = checkConflicts(newTimetable, day, slot, draggedCourse, roomToAssign);
-      setConflictsData(prev => ({ 
-        ...prev, 
-        [activeTabId]: [...updatedConflicts.filter(
-          c => !(c.day === day && c.slot === slot)
-        ), ...newConflicts]
-      }));
-      
-      // Update timetable data
-      setTimetablesData(prev => ({ ...prev, [activeTabId]: newTimetable }));
+      // Update timetable and conflicts
+      setTimetablesData(prev => ({ ...prev, [activeTabId]: result.timetable }));
+      setConflictsData(prev => ({ ...prev, [activeTabId]: result.conflicts }));
       
       // Add to history
-      addToHistory(activeTabId, newTimetable);
+      addToHistory(activeTabId, result.timetable);
       
       // Reset dragging state
       setIsDragging(false);
@@ -590,30 +575,7 @@ export default function TimetableBuilder() {
   }, [isEditingTab, editTabName]);
 
   // Grouped course blocks by course
-  const groupedCourseBlocks = allCourses.map(course => {
-    const color = courseColorMap[course.code] || courseColors[colorIndex++ % courseColors.length];
-    return {
-      code: course.code,
-      title: course.title,
-      weeklyHours: course.weeklyHours,
-      duration: course.duration || '',
-      blocks: Array.isArray(course.facultyList)
-        ? course.facultyList.map(teacherId => ({
-            teacherId,
-            teacherName: teacherMap[teacherId] || null,
-            color,
-            id: `${course.code}-${teacherId}`
-          }))
-        : course.facultyList
-          ? [{
-              teacherId: course.facultyList,
-              teacherName: teacherMap[course.facultyList] || null,
-              color,
-              id: `${course.code}-${course.facultyList}`
-            }]
-          : []
-    };
-  });
+  const groupedCourseBlocks = groupCourseBlocks(allCourses, teacherMap, courseColors);
 
   return (
     <div className={`space-y-4 ${isZoomed ? 'scale-90 origin-top transition-all duration-300' : ''}`}>
@@ -623,17 +585,25 @@ export default function TimetableBuilder() {
         {/* Undo/Redo and Zoom Buttons */}
         <div className="flex items-center gap-2">
           <button 
-            onClick={handleUndo} 
-            disabled={historyIndex <= 0}
-            className={`p-1 rounded-lg ${historyIndex <= 0 ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-100'}`}
+            onClick={() => !isTimetableDisabled && handleUndo()} 
+            disabled={historyIndex <= 0 || isTimetableDisabled}
+            className={`p-1 rounded-lg ${
+              historyIndex <= 0 || isTimetableDisabled 
+                ? 'text-gray-400 cursor-not-allowed' 
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
             title="Undo"
           >
             <FiArrowLeft size={18} />
           </button>
           <button 
-            onClick={handleRedo} 
-            disabled={historyIndex >= history.length - 1}
-            className={`p-1 rounded-lg ${historyIndex >= history.length - 1 ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 hover:bg-gray-100'}`}
+            onClick={() => !isTimetableDisabled && handleRedo()} 
+            disabled={historyIndex >= history.length - 1 || isTimetableDisabled}
+            className={`p-1 rounded-lg ${
+              historyIndex >= history.length - 1 || isTimetableDisabled 
+                ? 'text-gray-400 cursor-not-allowed' 
+                : 'text-gray-700 hover:bg-gray-100'
+            }`}
             title="Redo"
           >
             <FiArrowRight size={18} />
@@ -668,20 +638,46 @@ export default function TimetableBuilder() {
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 px-2 py-1 text-xs"
             >
               <option value="">Select branch</option>
-              {branch.map(branchItem => <option key={branchItem} value={branchItem}>{branchItem}</option>)}
+              {branches.map(branchItem => (
+                <option key={branchItem.id} value={branchItem.id}>
+                  {branchItem.name}
+                </option>
+              ))}
             </select>
           </div>
           
           {/* Batch Filter */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">Batch</label>
+            <label className="block text-xs font-medium text-gray-700 mb-1">
+              Batch
+              {batchesLoading && (
+                <span className="ml-1 text-xs text-blue-500">(Loading...)</span>
+              )}
+              {!batchesLoading && selectedBranch && currentSemester && availableBatches.length === 0 && (
+                <span className="ml-1 text-xs text-amber-600">(No batches available)</span>
+              )}
+            </label>
             <select
               value={selectedBatch}
               onChange={e => setSelectedBatch(e.target.value)}
               className="w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 px-2 py-1 text-xs"
+              disabled={!selectedBranch || batchesLoading}
             >
-              <option value="">Select batch</option>
-              {batch.map(batchItem => <option key={batchItem} value={batchItem}>{batchItem}</option>)}
+              <option value="">
+                {!selectedBranch 
+                  ? 'Select branch first' 
+                  : batchesLoading 
+                    ? 'Loading batches...'
+                    : availableBatches.length === 0
+                      ? 'No batches available'
+                      : 'Select batch'
+                }
+              </option>
+              {availableBatches.map(batchItem => (
+                <option key={batchItem.id} value={batchItem.name}>
+                  {batchItem.name}
+                </option>
+              ))}
             </select>
           </div>
           
@@ -701,17 +697,31 @@ export default function TimetableBuilder() {
           {/* View Toggle */}
           <div className="ml-auto">
             <label className="block text-xs font-medium text-gray-500 mb-1">View Mode</label>
-            <div className="flex rounded-lg border border-gray-300 overflow-hidden">
+            <div className={`flex rounded-lg border border-gray-300 overflow-hidden ${isTimetableDisabled ? 'opacity-60' : ''}`}>
               <button
-                className={`px-2 py-1 flex items-center gap-1 ${viewMode === 'week' ? 'bg-indigo-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                onClick={() => setViewMode('week')}
+                className={`px-2 py-1 flex items-center gap-1 ${
+                  isTimetableDisabled
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : viewMode === 'week' 
+                      ? 'bg-indigo-500 text-white' 
+                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+                onClick={() => !isTimetableDisabled && setViewMode('week')}
+                disabled={isTimetableDisabled}
               >
                 <FiGrid size={14} />
                 <span className="text-xs">Week</span>
               </button>
               <button
-                className={`px-2 py-1 flex items-center gap-1 ${viewMode === 'day' ? 'bg-indigo-500 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'}`}
-                onClick={() => setViewMode('day')}
+                className={`px-2 py-1 flex items-center gap-1 ${
+                  isTimetableDisabled
+                    ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    : viewMode === 'day' 
+                      ? 'bg-indigo-500 text-white' 
+                      : 'bg-white text-gray-700 hover:bg-gray-50'
+                }`}
+                onClick={() => !isTimetableDisabled && setViewMode('day')}
+                disabled={isTimetableDisabled}
               >
                 <FiList size={14} />
                 <span className="text-xs">Day</span>
@@ -720,11 +730,33 @@ export default function TimetableBuilder() {
           </div>
         </div>
       </div>
+
+      {/* Information Panel for Empty Batches */}
+      {selectedBranch && currentSemester && !batchesLoading && availableBatches.length === 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-4">
+          <div className="flex items-center gap-3">
+            <div className="bg-amber-100 p-2 rounded-full">
+              <FiAlertTriangle className="text-amber-600" size={16} />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-amber-800 mb-1">
+                No Batches Available
+              </h3>
+              <p className="text-sm text-amber-700">
+                No batches have been created for <strong>{branches.find(b => b.id === selectedBranch)?.name}</strong> in <strong>{currentSemester}</strong>.
+              </p>
+              <p className="text-xs text-amber-600 mt-1">
+                Please create batches in the <strong>Batch Management</strong> section before building timetables.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Main Content Area */}
       <div className={`flex ${responsive.gapSize}`}>
         {/* Left Panel: Course Blocks */}
-        <div className={`${responsive.courseBlockWidth} flex-shrink-0 bg-white rounded-xl shadow-sm p-3 overflow-y-auto max-h-[calc(100vh-220px)]`}>
+        <div className={`${responsive.courseBlockWidth} flex-shrink-0 bg-white rounded-xl shadow-sm p-3 overflow-y-auto max-h-[calc(100vh-220px)] ${isTimetableDisabled ? 'opacity-60' : ''}`}>
           <h2 className="text-sm font-semibold text-gray-700 mb-2">Course Blocks</h2>
           <div className="space-y-1">
             {groupedCourseBlocks.map(course => (
@@ -733,11 +765,15 @@ export default function TimetableBuilder() {
                 {course.blocks.length > 0 ? course.blocks.map(block => (
                   <motion.div
                     key={block.id}
-                    className={`p-2 rounded-lg border ${getCourseColorClass(block)} cursor-grab hover:shadow-sm transition mb-1`}
-                    draggable
-                    onDragStart={(e) => handleDragStart(e, { ...course, teacherId: block.teacherId, teacherName: block.teacherName })}
-                    onDragEnd={handleDragEnd}
-                    whileHover={{ scale: 1.01 }}
+                    className={`p-2 rounded-lg border ${getCourseColorClass(block)} transition mb-1 ${
+                      isTimetableDisabled 
+                        ? 'cursor-not-allowed opacity-60' 
+                        : 'cursor-grab hover:shadow-sm'
+                    }`}
+                    draggable={!isTimetableDisabled}
+                    onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, { ...course, teacherId: block.teacherId, teacherName: block.teacherName }) : undefined}
+                    onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
+                    whileHover={!isTimetableDisabled ? { scale: 1.01 } : undefined}
                   >
                     <div className="flex justify-between items-start">
                       <span className="font-semibold text-xs">{course.code}</span>
@@ -763,7 +799,38 @@ export default function TimetableBuilder() {
         </div>
         
         {/* Center Panel: Timetable Grid */}
-        <div className="flex-1 bg-white rounded-xl shadow-sm p-3 overflow-x-auto overflow-y-hidden min-w-[60%]">
+        <div className={`flex-1 bg-white rounded-xl shadow-sm p-3 overflow-x-auto overflow-y-hidden min-w-[60%] relative ${isTimetableDisabled ? 'opacity-50' : ''}`}>
+          {/* Disabled Overlay */}
+          {isTimetableDisabled && (
+            <div className="absolute inset-0 bg-gray-50/80 backdrop-blur-[1px] z-10 flex items-center justify-center rounded-xl">
+              <div className="text-center p-4 bg-white rounded-lg shadow-md border max-w-sm">
+                <FiAlertTriangle className="mx-auto text-amber-500 mb-2" size={24} />
+                <h3 className="font-semibold text-gray-800 mb-2">Timetable Builder Disabled</h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  Please select all required fields to enable the timetable builder:
+                </p>
+                <div className="text-xs text-left space-y-1 text-gray-700">
+                  <div className={`flex items-center gap-2 ${currentSemester ? 'text-green-600' : 'text-amber-600'}`}>
+                    {currentSemester ? <FiCheck size={12} /> : <FiX size={12} />}
+                    <span>Current Semester</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${selectedBranch ? 'text-green-600' : 'text-amber-600'}`}>
+                    {selectedBranch ? <FiCheck size={12} /> : <FiX size={12} />}
+                    <span>Branch/Section</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${selectedBatch ? 'text-green-600' : 'text-amber-600'}`}>
+                    {selectedBatch ? <FiCheck size={12} /> : <FiX size={12} />}
+                    <span>Batch</span>
+                  </div>
+                  <div className={`flex items-center gap-2 ${selectedType ? 'text-green-600' : 'text-amber-600'}`}>
+                    {selectedType ? <FiCheck size={12} /> : <FiX size={12} />}
+                    <span>Type</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          
           {/* Tabs */}
           <div className="mb-3 border-b pb-2 w-full">
             <div className="flex w-full overflow-hidden">
@@ -771,14 +838,19 @@ export default function TimetableBuilder() {
                 {tabs.map(tab => (
                   <div 
                     key={tab.id} 
-                    className={`flex items-center gap-1 px-2 py-1 rounded-t-lg cursor-pointer text-xs
-                      ${tab.isActive ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+                    className={`flex items-center gap-1 px-2 py-1 rounded-t-lg text-xs
+                      ${isTimetableDisabled 
+                        ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                        : tab.isActive 
+                          ? 'bg-indigo-500 text-white cursor-pointer' 
+                          : 'bg-gray-200 text-gray-700 hover:bg-gray-300 cursor-pointer'
+                      }`}
                     style={{ 
                       maxWidth: isMobile ? '100px' : '130px',
                       flexGrow: 0,
                       flexShrink: 0
                     }}
-                    onClick={() => switchTab(tab.id)}
+                    onClick={() => !isTimetableDisabled && switchTab(tab.id)}
                   >
                     {isEditingTab === tab.id ? (
                       <div ref={tabEditRef} className="flex items-center gap-1">
@@ -787,8 +859,13 @@ export default function TimetableBuilder() {
                           value={editTabName} 
                           onChange={(e) => setEditTabName(e.target.value)} 
                           className="px-1 py-0.5 rounded-lg border border-gray-300 focus:ring-1 focus:ring-indigo-500 focus:outline-none text-xs w-16"
+                          disabled={isTimetableDisabled}
                         />
-                        <button onClick={saveTabName} className="text-gray-700 hover:text-gray-900">
+                        <button 
+                          onClick={saveTabName} 
+                          className={`${isTimetableDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-gray-700 hover:text-gray-900'}`}
+                          disabled={isTimetableDisabled}
+                        >
                           <FiCheck size={12} />
                         </button>
                       </div>
@@ -797,14 +874,16 @@ export default function TimetableBuilder() {
                         <span className="truncate block flex-1 text-xs">{tab.name}</span>
                         <div className="flex items-center gap-1 flex-shrink-0 ml-1">
                           <button 
-                            onClick={(e) => startEditingTab(tab.id, e)} 
-                            className="text-gray-400 hover:text-gray-600 hidden md:block"
+                            onClick={(e) => !isTimetableDisabled && startEditingTab(tab.id, e)} 
+                            className={`hidden md:block ${isTimetableDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600'}`}
+                            disabled={isTimetableDisabled}
                           >
                             <FiEdit2 size={12} />
                           </button>
                           <button 
-                            onClick={(e) => closeTab(tab.id, e)} 
-                            className="text-gray-400 hover:text-gray-600"
+                            onClick={(e) => !isTimetableDisabled && closeTab(tab.id, e)} 
+                            className={`${isTimetableDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600'}`}
+                            disabled={isTimetableDisabled}
                           >
                             <FiX size={12} />
                           </button>
@@ -814,8 +893,13 @@ export default function TimetableBuilder() {
                   </div>
                 ))}
                 <button 
-                  onClick={addNewTab} 
-                  className="px-2 py-1 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 flex items-center gap-1 flex-shrink-0 ml-1 text-xs"
+                  onClick={() => !isTimetableDisabled && addNewTab()} 
+                  className={`px-2 py-1 rounded-lg flex items-center gap-1 flex-shrink-0 ml-1 text-xs ${
+                    isTimetableDisabled 
+                      ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+                      : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                  }`}
+                  disabled={isTimetableDisabled}
                 >
                   <FiPlus size={12} />
                   <span className="hidden md:inline">New Tab</span>
@@ -834,21 +918,30 @@ export default function TimetableBuilder() {
               <div className="flex items-center gap-1">
                 <button 
                   onClick={() => {
-                    const currentIndex = weekDays.indexOf(currentDay);
-                    if (currentIndex > 0) {
-                      setCurrentDay(weekDays[currentIndex - 1]);
+                    if (!isTimetableDisabled) {
+                      const currentIndex = weekDays.indexOf(currentDay);
+                      if (currentIndex > 0) {
+                        setCurrentDay(weekDays[currentIndex - 1]);
+                      }
                     }
                   }}
-                  disabled={currentDay === weekDays[0]}
-                  className={`p-1 rounded-full ${currentDay === weekDays[0] ? 'text-gray-300' : 'text-gray-700 hover:bg-gray-100'}`}
+                  disabled={currentDay === weekDays[0] || isTimetableDisabled}
+                  className={`p-1 rounded-full ${
+                    currentDay === weekDays[0] || isTimetableDisabled 
+                      ? 'text-gray-300' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
                 >
                   <FiChevronLeft size={16} />
                 </button>
                 
                 <select 
                   value={currentDay}
-                  onChange={(e) => setCurrentDay(e.target.value)}
-                  className="px-2 py-1 text-xs rounded-lg border border-gray-300 focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white"
+                  onChange={(e) => !isTimetableDisabled && setCurrentDay(e.target.value)}
+                  className={`px-2 py-1 text-xs rounded-lg border border-gray-300 focus:ring-1 focus:ring-indigo-500 focus:outline-none bg-white ${
+                    isTimetableDisabled ? 'text-gray-400 cursor-not-allowed' : ''
+                  }`}
+                  disabled={isTimetableDisabled}
                 >
                   {weekDays.map(day => (
                     <option key={day} value={day}>{day}</option>
@@ -857,13 +950,19 @@ export default function TimetableBuilder() {
                 
                 <button 
                   onClick={() => {
-                    const currentIndex = weekDays.indexOf(currentDay);
-                    if (currentIndex < weekDays.length - 1) {
-                      setCurrentDay(weekDays[currentIndex + 1]);
+                    if (!isTimetableDisabled) {
+                      const currentIndex = weekDays.indexOf(currentDay);
+                      if (currentIndex < weekDays.length - 1) {
+                        setCurrentDay(weekDays[currentIndex + 1]);
+                      }
                     }
                   }}
-                  disabled={currentDay === weekDays[weekDays.length - 1]}
-                  className={`p-1 rounded-full ${currentDay === weekDays[weekDays.length - 1] ? 'text-gray-300' : 'text-gray-700 hover:bg-gray-100'}`}
+                  disabled={currentDay === weekDays[weekDays.length - 1] || isTimetableDisabled}
+                  className={`p-1 rounded-full ${
+                    currentDay === weekDays[weekDays.length - 1] || isTimetableDisabled 
+                      ? 'text-gray-300' 
+                      : 'text-gray-700 hover:bg-gray-100'
+                  }`}
                 >
                   <FiChevronRight size={16} />
                 </button>
@@ -907,21 +1006,27 @@ export default function TimetableBuilder() {
                         );
                         return (
                           <td key={`${day}-${slot}`} className="py-1 px-1 border-b border-gray-100 text-center relative" 
-                              onDragOver={handleDragOver} 
-                              onDrop={(e) => handleDrop(e, day, slot)}>
+                              onDragOver={!isTimetableDisabled ? handleDragOver : undefined} 
+                              onDrop={!isTimetableDisabled ? (e) => handleDrop(e, day, slot) : undefined}>
                             {courseInSlot && courseInSlot.code ? (
                               <div 
-                                className={`p-1 rounded-lg ${getCourseColorClass(courseInSlot)} border cursor-grab relative 
+                                className={`p-1 rounded-lg ${getCourseColorClass(courseInSlot)} border relative 
                                           ${getCellHeight(viewMode)} max-w-[100px] mx-auto group
-                                          ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}`}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, courseInSlot, true, day, slot)}
-                                onDragEnd={handleDragEnd}
+                                          ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}
+                                          ${isTimetableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-grab'}`}
+                                draggable={!isTimetableDisabled}
+                                onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, courseInSlot, true, day, slot) : undefined}
+                                onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
                               >
                                 <button 
-                                  onClick={(e) => handleDeleteCourse(day, slot, e)}
-                                  className="absolute top-0 right-0 -mt-1 -mr-1 text-gray-500 hover:text-red-600 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm"
+                                  onClick={(e) => !isTimetableDisabled && handleDeleteCourse(day, slot, e)}
+                                  className={`absolute top-0 right-0 -mt-1 -mr-1 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm ${
+                                    isTimetableDisabled 
+                                      ? 'text-gray-400 cursor-not-allowed' 
+                                      : 'text-gray-500 hover:text-red-600'
+                                  }`}
                                   title="Remove course"
+                                  disabled={isTimetableDisabled}
                                 >
                                   <FiX size={10} />
                                 </button>
@@ -965,20 +1070,26 @@ export default function TimetableBuilder() {
                         
                         return (
                           <td className="py-1 px-2 border-b border-gray-100 text-center relative" 
-                              onDragOver={handleDragOver} 
-                              onDrop={(e) => handleDrop(e, currentDay, slot)}>
+                              onDragOver={!isTimetableDisabled ? handleDragOver : undefined} 
+                              onDrop={!isTimetableDisabled ? (e) => handleDrop(e, currentDay, slot) : undefined}>
                             {courseInSlot ? (
                               <div 
-                                className={`p-2 rounded-lg ${getCourseColorClass(courseInSlot)} border cursor-grab relative max-w-[280px] mx-auto group
-                                          ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}`}
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, courseInSlot, true, currentDay, slot)}
-                                onDragEnd={handleDragEnd}
+                                className={`p-2 rounded-lg ${getCourseColorClass(courseInSlot)} border relative max-w-[280px] mx-auto group
+                                          ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}
+                                          ${isTimetableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-grab'}`}
+                                draggable={!isTimetableDisabled}
+                                onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, courseInSlot, true, currentDay, slot) : undefined}
+                                onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
                               >
                                 <button 
-                                  onClick={(e) => handleDeleteCourse(currentDay, slot, e)}
-                                  className="absolute top-0 right-0 -mt-1 -mr-1 text-gray-600 hover:text-red-600 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm"
+                                  onClick={(e) => !isTimetableDisabled && handleDeleteCourse(currentDay, slot, e)}
+                                  className={`absolute top-0 right-0 -mt-1 -mr-1 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm ${
+                                    isTimetableDisabled 
+                                      ? 'text-gray-400 cursor-not-allowed' 
+                                      : 'text-gray-600 hover:text-red-600'
+                                  }`}
                                   title="Remove course"
+                                  disabled={isTimetableDisabled}
                                 >
                                   <FiX size={10} />
                                 </button>
@@ -998,11 +1109,15 @@ export default function TimetableBuilder() {
                               </div>
                             ) : (
                               <div 
-                                className="h-14 max-w-[280px] mx-auto border border-dashed border-gray-200 rounded-lg flex items-center justify-center"
-                                onDragOver={handleDragOver}
-                                onDrop={(e) => handleDrop(e, currentDay, slot)}
+                                className={`h-14 max-w-[280px] mx-auto border border-dashed rounded-lg flex items-center justify-center ${
+                                  isTimetableDisabled 
+                                    ? 'border-gray-100 cursor-not-allowed' 
+                                    : 'border-gray-200'
+                                }`}
+                                onDragOver={!isTimetableDisabled ? handleDragOver : undefined}
+                                onDrop={!isTimetableDisabled ? (e) => handleDrop(e, currentDay, slot) : undefined}
                               >
-                                {isDragging && (
+                                {isDragging && !isTimetableDisabled && (
                                   <div className="text-xs text-gray-400">Drop here</div>
                                 )}
                               </div>
@@ -1105,8 +1220,13 @@ export default function TimetableBuilder() {
       {/* Action Buttons */}
       <div className="flex flex-wrap justify-between gap-2">
         <button 
-          onClick={handleClearWeek}
-          className="px-3 py-2 rounded-lg bg-gray-200 text-gray-700 hover:bg-gray-300 transition flex items-center gap-1 text-xs"
+          onClick={() => !isTimetableDisabled && handleClearWeek()}
+          className={`px-3 py-2 rounded-lg transition flex items-center gap-1 text-xs ${
+            isTimetableDisabled 
+              ? 'bg-gray-200 text-gray-400 cursor-not-allowed' 
+              : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+          }`}
+          disabled={isTimetableDisabled}
         >
           <FiRefreshCw size={14} />
           <span>Clear Week</span>
@@ -1114,21 +1234,28 @@ export default function TimetableBuilder() {
         
         <div className="flex gap-2">
           <button 
-            onClick={handleSaveTimetable}
-            className="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition flex items-center gap-1 text-xs"
+            onClick={() => !isTimetableDisabled && handleSaveTimetable()}
+            className={`px-3 py-2 rounded-lg transition flex items-center gap-1 text-xs ${
+              isTimetableDisabled 
+                ? 'bg-gray-400 text-gray-300 cursor-not-allowed' 
+                : 'bg-indigo-600 text-white hover:bg-indigo-700'
+            }`}
+            disabled={isTimetableDisabled}
           >
             <FiSave size={14} />
             <span>Save</span>
           </button>
           
           <button 
-            onClick={handlePublishTimetable}
+            onClick={() => !isTimetableDisabled && handlePublishTimetable()}
             className={`px-3 py-2 rounded-lg transition flex items-center gap-1 text-xs ${
-              conflicts.length > 0 
-                ? 'bg-gray-400 text-white cursor-not-allowed' 
-                : 'bg-green-600 text-white hover:bg-green-700'
+              isTimetableDisabled 
+                ? 'bg-gray-400 text-gray-300 cursor-not-allowed'
+                : conflicts.length > 0 
+                  ? 'bg-gray-400 text-white cursor-not-allowed' 
+                  : 'bg-green-600 text-white hover:bg-green-700'
             }`}
-            disabled={conflicts.length > 0}
+            disabled={isTimetableDisabled || conflicts.length > 0}
           >
             <FiUpload size={14} />
             <span>Publish</span>

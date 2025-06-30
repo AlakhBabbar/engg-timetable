@@ -99,7 +99,12 @@ export const timeSlots = [
 // Days of the week (reduced for better fit)
 export const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-// Initialize empty timetable data
+// Business Logic Functions for TimetableBuilder Component
+
+/**
+ * Initialize empty timetable structure with all days and time slots
+ * @returns {Object} Empty timetable data structure
+ */
 export const initializeEmptyTimetable = () => {
   const initialData = {};
   weekDays.forEach(day => {
@@ -109,6 +114,443 @@ export const initializeEmptyTimetable = () => {
     });
   });
   return initialData;
+};
+
+/**
+ * Fetch teachers from Firestore and build a name mapping
+ * @param {Object} db - Firestore database instance
+ * @param {Function} collection - Firestore collection function
+ * @param {Function} getDocs - Firestore getDocs function
+ * @returns {Promise<Object>} Map of teacher IDs to names
+ */
+export const fetchTeachersMap = async (db, collection, getDocs) => {
+  try {
+    const snap = await getDocs(collection(db, 'teachers'));
+    const map = {};
+    snap.docs.forEach(doc => {
+      const data = doc.data();
+      map[data.id || doc.id] = data.name;
+    });
+    return map;
+  } catch (error) {
+    console.error('Error fetching teachers:', error);
+    return {};
+  }
+};
+
+/**
+ * Fetch courses from Firestore for a specific semester
+ * @param {Object} db - Firestore database instance
+ * @param {Function} collection - Firestore collection function
+ * @param {Function} getDocs - Firestore getDocs function
+ * @param {Function} query - Firestore query function
+ * @param {Function} where - Firestore where function
+ * @param {string} semester - Current semester
+ * @returns {Promise<Array>} Array of course data
+ */
+export const fetchCourses = async (db, collection, getDocs, query, where, semester) => {
+  try {
+    if (!semester) return [];
+    const q = query(collection(db, 'courses'), where('semester', '==', semester));
+    const snap = await getDocs(q);
+    return snap.docs.map(doc => doc.data());
+  } catch (error) {
+    console.error('Error fetching courses:', error);
+    return [];
+  }
+};
+
+/**
+ * Map courses to course blocks with teacher information
+ * @param {Array} allCourses - Raw course data from Firestore
+ * @param {Object} teacherMap - Map of teacher IDs to names
+ * @param {Array} courseColors - Available color palette
+ * @returns {Array} Processed course blocks
+ */
+export const mapCoursesToBlocks = (allCourses, teacherMap, courseColors) => {
+  const courseColorMap = {};
+  let colorIndex = 0;
+  
+  // Assign unique color per course code
+  allCourses.forEach(course => {
+    if (!courseColorMap[course.code]) {
+      courseColorMap[course.code] = courseColors[colorIndex % courseColors.length];
+      colorIndex++;
+    }
+  });
+  
+  // Flatten courses by teacher
+  const blocks = [];
+  allCourses.forEach(course => {
+    const color = courseColorMap[course.code];
+    if (Array.isArray(course.facultyList)) {
+      course.facultyList.forEach(teacherId => {
+        blocks.push({
+          code: course.code,
+          title: course.title,
+          weeklyHours: course.weeklyHours,
+          teacherId,
+          teacherName: teacherMap[teacherId] || teacherId,
+          color,
+          id: `${course.code}-${teacherId}`,
+          duration: course.duration || ''
+        });
+      });
+    } else if (course.facultyList) {
+      blocks.push({
+        code: course.code,
+        title: course.title,
+        weeklyHours: course.weeklyHours,
+        teacherId: course.facultyList,
+        teacherName: teacherMap[course.facultyList] || course.facultyList,
+        color,
+        id: `${course.code}-${course.facultyList}`,
+        duration: course.duration || ''
+      });
+    }
+  });
+  
+  return blocks;
+};
+
+/**
+ * Fetch rooms from Firestore
+ * @param {Object} db - Firestore database instance
+ * @param {Function} collection - Firestore collection function
+ * @param {Function} getDocs - Firestore getDocs function
+ * @returns {Promise<Array>} Array of room data
+ */
+export const fetchRooms = async (db, collection, getDocs) => {
+  try {
+    const snap = await getDocs(collection(db, 'rooms'));
+    return snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  } catch (error) {
+    console.error('Error fetching rooms:', error);
+    return [];
+  }
+};
+
+/**
+ * Set up real-time listener for timetable data
+ * @param {Object} params - Parameters object
+ * @param {Object} params.db - Firestore database instance
+ * @param {Function} params.collection - Firestore collection function
+ * @param {Function} params.query - Firestore query function
+ * @param {Function} params.where - Firestore where function
+ * @param {Function} params.onSnapshot - Firestore onSnapshot function
+ * @param {string} params.currentSemester - Current semester
+ * @param {string} params.selectedBranch - Selected branch
+ * @param {string} params.selectedBatch - Selected batch
+ * @param {string} params.selectedType - Selected type
+ * @param {Function} params.callback - Callback function for data updates
+ * @returns {Function} Unsubscribe function
+ */
+export const setupTimetableListener = ({
+  db, collection, query, where, onSnapshot,
+  currentSemester, selectedBranch, selectedBatch, selectedType,
+  callback
+}) => {
+  if (!currentSemester || !selectedBranch || !selectedBatch || !selectedType) {
+    return () => {}; // Return empty unsubscribe function
+  }
+  
+  const timetableQuery = query(
+    collection(db, 'timetables'),
+    where('semester', '==', currentSemester),
+    where('branch', '==', selectedBranch),
+    where('batch', '==', selectedBatch),
+    where('type', '==', selectedType)
+  );
+  
+  return onSnapshot(timetableQuery, (snapshot) => {
+    if (!snapshot.empty) {
+      const docData = snapshot.docs[0].data();
+      callback(docData.schedule || initializeEmptyTimetable());
+    } else {
+      callback(initializeEmptyTimetable());
+    }
+  });
+};
+
+/**
+ * Save timetable data to Firestore
+ * @param {Object} params - Parameters object
+ * @param {Object} params.db - Firestore database instance
+ * @param {Function} params.doc - Firestore doc function
+ * @param {Function} params.setDoc - Firestore setDoc function
+ * @param {string} params.currentSemester - Current semester
+ * @param {string} params.selectedBranch - Selected branch
+ * @param {string} params.selectedBatch - Selected batch
+ * @param {string} params.selectedType - Selected type
+ * @param {Object} params.scheduleData - Timetable schedule data
+ * @returns {Promise<void>}
+ */
+export const saveTimetableToFirestore = async ({
+  db, doc, setDoc,
+  currentSemester, selectedBranch, selectedBatch, selectedType,
+  scheduleData
+}) => {
+  if (!currentSemester || !selectedBranch || !selectedBatch || !selectedType || !scheduleData) {
+    return;
+  }
+  
+  const timetableDocId = `${currentSemester}-${selectedBranch}-${selectedBatch}-${selectedType}`;
+  const safeSchedule = replaceUndefinedWithNull(scheduleData);
+  
+  try {
+    await setDoc(doc(db, 'timetables', timetableDocId), {
+      semester: currentSemester,
+      branch: selectedBranch,
+      batch: selectedBatch,
+      type: selectedType,
+      schedule: safeSchedule
+    }, { merge: true });
+  } catch (error) {
+    console.error('Error saving timetable to Firestore:', error);
+  }
+};
+
+/**
+ * Group course blocks by course for UI display
+ * @param {Array} allCourses - Raw course data
+ * @param {Object} teacherMap - Map of teacher IDs to names
+ * @param {Array} courseColors - Available color palette
+ * @returns {Array} Grouped course blocks
+ */
+export const groupCourseBlocks = (allCourses, teacherMap, courseColors) => {
+  const courseColorMap = {};
+  let colorIndex = 0;
+  
+  return allCourses.map(course => {
+    const color = courseColorMap[course.code] || courseColors[colorIndex++ % courseColors.length];
+    courseColorMap[course.code] = color;
+    
+    return {
+      code: course.code,
+      title: course.title,
+      weeklyHours: course.weeklyHours,
+      duration: course.duration || '',
+      blocks: Array.isArray(course.facultyList)
+        ? course.facultyList.map(teacherId => ({
+            teacherId,
+            teacherName: teacherMap[teacherId] || null,
+            color,
+            id: `${course.code}-${teacherId}`
+          }))
+        : course.facultyList
+          ? [{
+              teacherId: course.facultyList,
+              teacherName: teacherMap[course.facultyList] || null,
+              color,
+              id: `${course.code}-${course.facultyList}`
+            }]
+          : []
+    };
+  });
+};
+
+/**
+ * Handle tab management operations
+ */
+export const tabOperations = {
+  /**
+   * Create a new tab
+   * @param {number} nextTabId - Next available tab ID
+   * @param {Object} initialData - Initial timetable data
+   * @returns {Object} New tab configuration
+   */
+  createNewTab: (nextTabId, initialData) => {
+    return {
+      newTab: {
+        id: nextTabId,
+        name: `New Timetable ${nextTabId}`,
+        isActive: true
+      },
+      initialData,
+      resetFields: {
+        selectedBranch: '',
+        selectedBatch: '',
+        selectedType: ''
+      }
+    };
+  },
+
+  /**
+   * Switch active tab
+   * @param {Array} tabs - Current tabs array
+   * @param {number} targetTabId - Target tab ID
+   * @returns {Array} Updated tabs array
+   */
+  switchTab: (tabs, targetTabId) => {
+    return tabs.map(tab => ({
+      ...tab,
+      isActive: tab.id === targetTabId
+    }));
+  },
+
+  /**
+   * Close a tab and clean up data
+   * @param {Array} tabs - Current tabs array
+   * @param {number} tabId - Tab ID to close
+   * @param {number} activeTabId - Currently active tab ID
+   * @returns {Object} Updated state data
+   */
+  closeTab: (tabs, tabId, activeTabId) => {
+    if (tabs.length === 1) {
+      return null; // Don't close if it's the only tab
+    }
+
+    const updatedTabs = tabs.filter(tab => tab.id !== tabId);
+    let newActiveTabId = activeTabId;
+
+    // If closing the active tab, switch to another tab
+    if (tabId === activeTabId) {
+      const activeIndex = tabs.findIndex(tab => tab.id === activeTabId);
+      const newActiveIndex = activeIndex === 0 ? 1 : activeIndex - 1;
+      newActiveTabId = tabs[newActiveIndex].id;
+    }
+
+    return {
+      tabs: updatedTabs,
+      newActiveTabId
+    };
+  }
+};
+
+/**
+ * History management for undo/redo functionality
+ */
+export const historyManager = {
+  /**
+   * Add state to history
+   * @param {Array} history - Current history array
+   * @param {number} historyIndex - Current history index
+   * @param {Object} data - Data to add to history
+   * @returns {Object} Updated history state
+   */
+  addToHistory: (history, historyIndex, data) => {
+    const newHistory = history.slice(0, historyIndex + 1);
+    newHistory.push(deepCopy(data));
+    return {
+      history: newHistory,
+      historyIndex: newHistory.length - 1
+    };
+  },
+
+  /**
+   * Perform undo operation
+   * @param {Array} history - History array
+   * @param {number} historyIndex - Current history index
+   * @returns {Object|null} Previous state or null if no undo available
+   */
+  undo: (history, historyIndex) => {
+    if (historyIndex > 0) {
+      const newIndex = historyIndex - 1;
+      return {
+        data: deepCopy(history[newIndex]),
+        historyIndex: newIndex
+      };
+    }
+    return null;
+  },
+
+  /**
+   * Perform redo operation
+   * @param {Array} history - History array
+   * @param {number} historyIndex - Current history index
+   * @returns {Object|null} Next state or null if no redo available
+   */
+  redo: (history, historyIndex) => {
+    if (historyIndex < history.length - 1) {
+      const newIndex = historyIndex + 1;
+      return {
+        data: deepCopy(history[newIndex]),
+        historyIndex: newIndex
+      };
+    }
+    return null;
+  }
+};
+
+/**
+ * Drag and drop operations for timetable
+ */
+export const dragDropOperations = {
+  /**
+   * Handle course deletion from timetable
+   * @param {Object} timetableData - Current timetable data
+   * @param {string} day - Day of the week
+   * @param {string} slot - Time slot
+   * @param {Array} conflicts - Current conflicts array
+   * @returns {Object} Updated timetable and conflicts
+   */
+  deleteCourse: (timetableData, day, slot, conflicts) => {
+    const newTimetable = deleteCourse(timetableData, day, slot);
+    const newConflicts = filterConflictsAfterDeletion(conflicts, day, slot);
+    return {
+      timetable: newTimetable,
+      conflicts: newConflicts
+    };
+  },
+
+  /**
+   * Handle course drop on timetable
+   * @param {Object} params - Parameters object
+   * @returns {Object} Updated timetable and conflicts
+   */
+  handleDrop: ({
+    timetableData, day, slot, draggedCourse, selectedRoom,
+    dragSourceInfo, conflicts
+  }) => {
+    // Ensure room is properly set
+    let roomToAssign = selectedRoom;
+    if (!roomToAssign || !roomToAssign.id) {
+      roomToAssign = { id: '', name: '', capacity: '', availability: '' };
+    }
+
+    // Update timetable
+    const newTimetable = updateTimetableOnDrop(
+      timetableData, day, slot, draggedCourse, roomToAssign, dragSourceInfo
+    );
+
+    // Handle conflicts
+    let updatedConflicts = conflicts;
+    if (dragSourceInfo) {
+      updatedConflicts = filterConflictsAfterMove(
+        conflicts, dragSourceInfo.day, dragSourceInfo.slot
+      );
+    }
+
+    // Check for new conflicts
+    const newConflicts = checkConflicts(newTimetable, day, slot, draggedCourse, roomToAssign);
+    const finalConflicts = [
+      ...updatedConflicts.filter(c => !(c.day === day && c.slot === slot)),
+      ...newConflicts
+    ];
+
+    return {
+      timetable: newTimetable,
+      conflicts: finalConflicts
+    };
+  }
+};
+
+/**
+ * Utility to deeply replace undefined with null in an object
+ * @param {*} obj - Object to process
+ * @returns {*} Processed object with undefined replaced by null
+ */
+export const replaceUndefinedWithNull = (obj) => {
+  if (obj && typeof obj === 'object') {
+    Object.keys(obj).forEach(key => {
+      if (obj[key] === undefined) {
+        obj[key] = null;
+      } else {
+        replaceUndefinedWithNull(obj[key]);
+      }
+    });
+  }
+  return obj;
 };
 
 // Check for conflicts before dropping a course
@@ -265,8 +707,6 @@ export const getCompactCourseDisplay = (course, isCompact) => {
     room: `Room: ${course.room}`
   };
 };
-
-// Additional business logic functions moved from TimetableBuilder.jsx
 
 // Delete course from timetable
 export const deleteCourse = (timetableData, day, slot) => {
