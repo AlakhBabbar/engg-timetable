@@ -126,11 +126,11 @@ export default function TTInchargeLayout() {
                 className="flex items-center gap-2 cursor-pointer"
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
               >
-                <img
+                {/* <img
                   src="https://via.placeholder.com/40"
                   alt="Profile"
                   className="rounded-full h-10 w-10 object-cover border-2 border-indigo-500"
-                />
+                /> */}
                 <div className="hidden md:block">
                   <p className="text-sm font-medium">{user?.name || 'TT Incharge'}</p>
                   <p className="text-xs text-gray-500">{user?.department || 'Department'}</p>

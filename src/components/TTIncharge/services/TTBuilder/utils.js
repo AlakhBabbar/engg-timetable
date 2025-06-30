@@ -77,7 +77,7 @@ export const getAbbreviatedDay = (day) => {
  * @returns {string} CSS height class
  */
 export const getCellHeight = (isCompact = false) => {
-  return isCompact ? 'h-12' : 'h-16';
+  return isCompact ? 'h-14' : 'h-18'; // Slightly increased to accommodate 3 lines of compact data
 };
 
 /**
@@ -432,5 +432,123 @@ export const getBrowserInfo = () => {
     isMobile: /mobile|android|iphone|ipad/i.test(ua),
     isTablet: /tablet|ipad/i.test(ua),
     isDesktop: !/mobile|android|iphone|ipad|tablet/i.test(ua)
+  };
+};
+
+/**
+ * Abbreviate teacher name to a compact format
+ * @param {string} teacherName - Full teacher name
+ * @param {number} maxLength - Maximum length for the abbreviated name
+ * @returns {string} Abbreviated teacher name
+ */
+export const abbreviateTeacherName = (teacherName, maxLength = 8) => {
+  if (!teacherName || teacherName === 'No teacher') return 'No T';
+  
+  const nameParts = teacherName.trim().split(' ');
+  if (nameParts.length === 1) {
+    // Single name, truncate if too long
+    return nameParts[0].length > maxLength 
+      ? nameParts[0].substring(0, maxLength - 1) + '.'
+      : nameParts[0];
+  }
+  
+  // Multiple parts: First name + last initial
+  const firstName = nameParts[0];
+  const lastInitial = nameParts[nameParts.length - 1]?.charAt(0)?.toUpperCase() || '';
+  
+  const abbreviated = `${firstName} ${lastInitial}.`;
+  
+  // If still too long, truncate first name
+  if (abbreviated.length > maxLength) {
+    const truncatedFirst = firstName.substring(0, maxLength - 3);
+    return `${truncatedFirst} ${lastInitial}.`;
+  }
+  
+  return abbreviated;
+};
+
+/**
+ * Abbreviate room name/number to a compact format
+ * @param {string} roomName - Room name or number
+ * @param {number} maxLength - Maximum length for room abbreviation
+ * @returns {string} Abbreviated room name
+ */
+export const abbreviateRoomName = (roomName, maxLength = 6) => {
+  if (!roomName || roomName === 'No room') return 'NR';
+  
+  // If it's a number-based room (e.g., "Room 101", "Lab-205")
+  const numberMatch = roomName.match(/(\d+)/);
+  if (numberMatch) {
+    const roomNumber = numberMatch[1];
+    
+    // Check for common prefixes
+    if (roomName.toLowerCase().includes('lab')) {
+      return `L${roomNumber}`;
+    } else if (roomName.toLowerCase().includes('room')) {
+      return `R${roomNumber}`;
+    } else if (roomName.toLowerCase().includes('hall')) {
+      return `H${roomNumber}`;
+    } else {
+      return roomNumber;
+    }
+  }
+  
+  // For non-numeric rooms, use initials or truncate
+  const words = roomName.split(/[\s-_]/);
+  if (words.length > 1) {
+    // Use initials from multiple words
+    const initials = words.map(word => word.charAt(0).toUpperCase()).join('');
+    return initials.length <= maxLength ? initials : initials.substring(0, maxLength);
+  }
+  
+  // Single word, truncate if needed
+  return roomName.length > maxLength 
+    ? roomName.substring(0, maxLength - 1) + '.'
+    : roomName;
+};
+
+/**
+ * Abbreviate course title to a compact format
+ * @param {string} courseTitle - Full course title
+ * @param {number} maxLength - Maximum length for course title
+ * @returns {string} Abbreviated course title
+ */
+export const abbreviateCourseTitle = (courseTitle, maxLength = 12) => {
+  if (!courseTitle) return '';
+  
+  if (courseTitle.length <= maxLength) return courseTitle;
+  
+  // Try to use initials from words
+  const words = courseTitle.split(' ');
+  if (words.length > 1) {
+    const initials = words.map(word => word.charAt(0).toUpperCase()).join('');
+    if (initials.length <= maxLength) return initials;
+  }
+  
+  // Fallback to truncation
+  return courseTitle.substring(0, maxLength - 1) + '.';
+};
+
+/**
+ * Get compact display format for timetable cell data
+ * @param {Object} course - Course data object
+ * @param {boolean} isMobile - Whether to use mobile-specific formatting
+ * @returns {Object} Formatted display data
+ */
+export const getCompactCellDisplay = (course, isMobile = false) => {
+  if (!course) return null;
+  
+  const maxTeacherLength = isMobile ? 6 : 8;
+  const maxRoomLength = isMobile ? 4 : 6;
+  const maxTitleLength = isMobile ? 8 : 12;
+  
+  return {
+    code: course.code || 'N/A',
+    teacher: abbreviateTeacherName(course.teacher?.name || course.teacherName, maxTeacherLength),
+    teacherFull: course.teacher?.name || course.teacherName || 'No teacher assigned',
+    room: abbreviateRoomName(course.roomNumber || course.room, maxRoomLength),
+    roomFull: course.roomNumber || course.room || 'No room assigned',
+    title: abbreviateCourseTitle(course.title, maxTitleLength),
+    titleFull: course.title || 'No title'
   };
 };

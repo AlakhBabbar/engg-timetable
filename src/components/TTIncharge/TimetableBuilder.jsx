@@ -18,7 +18,7 @@ import {
   getCompactTimeFormat, getAbbreviatedDay, getCellHeight, 
   getResponsiveClasses, getCompactCourseDisplay, deleteCourse,
   updateTimetableOnDrop, filterConflictsAfterDeletion, filterConflictsAfterMove,
-  createTab, updateTabsOnSwitch, deepCopy,
+  createTab, updateTabsOnSwitch, deepCopy, getCompactCellDisplay,
   // New business logic imports
   fetchTeachersMap, fetchCourses, mapCoursesToBlocks, fetchRooms,
   setupTimetableListener, saveTimetableToFirestore, groupCourseBlocks,
@@ -959,13 +959,18 @@ export default function TimetableBuilder() {
                     onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
                     whileHover={!isTimetableDisabled ? { scale: 1.01 } : undefined}
                   >
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start mb-1">
                       <span className="font-semibold text-xs">{course.code}</span>
                       <span className="text-xs px-1 py-0.5 rounded-full bg-white/50">{course.duration || ''}h</span>
                     </div>
-                    <div className="text-xs mt-1 flex justify-between items-center">
-                      <span className="truncate text-xs" title={block.teacherName || ''}>{block.teacherName || 'null'}</span>
-                      <span className="font-mono text-xs">{course.weeklyHours}</span>
+                    <div className="text-xs flex justify-between items-center">
+                      <span className="truncate flex-1 mr-1" title={block.teacherName || 'No teacher assigned'}>
+                        {block.teacherName?.length > 12 
+                          ? block.teacherName.substring(0, 12) + '...' 
+                          : block.teacherName || 'No teacher'
+                        }
+                      </span>
+                      <span className="font-mono text-xs text-gray-600">{course.weeklyHours}h</span>
                     </div>
                   </motion.div>
                 )) : (
@@ -1217,42 +1222,52 @@ export default function TimetableBuilder() {
                               onDragLeave={!isTimetableDisabled ? handleDragLeave : undefined}
                               onDrop={!isTimetableDisabled ? (e) => handleDrop(e, day, slot) : undefined}>
                             {courseInSlot && courseInSlot.code ? (
-                              <div 
-                                className={`p-1 rounded-lg ${getCourseColorClass(courseInSlot)} border relative 
-                                          ${getCellHeight(viewMode)} max-w-[100px] mx-auto group
-                                          ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}
-                                          ${isTimetableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-grab'}`}
-                                draggable={!isTimetableDisabled}
-                                onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, courseInSlot, true, day, slot) : undefined}
-                                onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
-                              >
-                                <button 
-                                  onClick={(e) => !isTimetableDisabled && handleDeleteCourse(day, slot, e)}
-                                  className={`absolute top-0 right-0 -mt-1 -mr-1 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm ${
-                                    isTimetableDisabled 
-                                      ? 'text-gray-400 cursor-not-allowed' 
-                                      : 'text-gray-500 hover:text-red-600'
-                                  }`}
-                                  title="Remove course"
-                                  disabled={isTimetableDisabled}
-                                >
-                                  <FiX size={10} />
-                                </button>
-                                <div className="flex justify-between items-start">
-                                  <span className="font-semibold text-xs">{courseInSlot.code}</span>
-                                  {hasConflict && (
-                                    <FiAlertTriangle className="text-red-500 text-xs" />
-                                  )}
-                                </div>
-                                <div className="text-xs mt-0.5 truncate" title={courseInSlot.teacher?.name || ''}>
-                                  {isMobile ? (courseInSlot.teacher?.name?.split(' ')[1] || '') : (courseInSlot.teacher?.name || '')}
-                                </div>
-                                {!isCompactView && (
-                                  <div className="text-xs mt-0.5">
-                                    <span>{courseInSlot.roomNumber || courseInSlot.room || ''}</span>
+                              (() => {
+                                const compactData = getCompactCellDisplay(courseInSlot, isMobile);
+                                return (
+                                  <div 
+                                    className={`p-1 rounded-lg ${getCourseColorClass(courseInSlot)} border relative 
+                                              ${getCellHeight(viewMode)} max-w-[100px] mx-auto group
+                                              ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}
+                                              ${isTimetableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-grab'}`}
+                                    draggable={!isTimetableDisabled}
+                                    onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, courseInSlot, true, day, slot) : undefined}
+                                    onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
+                                  >
+                                    <button 
+                                      onClick={(e) => !isTimetableDisabled && handleDeleteCourse(day, slot, e)}
+                                      className={`absolute top-0 right-0 -mt-1 -mr-1 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm ${
+                                        isTimetableDisabled 
+                                          ? 'text-gray-400 cursor-not-allowed' 
+                                          : 'text-gray-500 hover:text-red-600'
+                                      }`}
+                                      title="Remove course"
+                                      disabled={isTimetableDisabled}
+                                    >
+                                      <FiX size={10} />
+                                    </button>
+                                    
+                                    {/* Compact layout with all info in short form */}
+                                    <div className="space-y-0.5">
+                                      {/* Course code and conflict indicator */}
+                                      <div className="flex justify-between items-center">
+                                        <span className="font-semibold text-xs leading-tight">{compactData.code}</span>
+                                        {hasConflict && <FiAlertTriangle className="text-red-500" size={10} />}
+                                      </div>
+                                      
+                                      {/* Teacher name */}
+                                      <div className="text-xs leading-tight text-gray-700" title={compactData.teacherFull}>
+                                        {compactData.teacher}
+                                      </div>
+                                      
+                                      {/* Room (always show in compact format) */}
+                                      <div className="text-xs leading-tight text-gray-600" title={compactData.roomFull}>
+                                        {compactData.room}
+                                      </div>
+                                    </div>
                                   </div>
-                                )}
-                              </div>
+                                );
+                              })()
                             ) : (
                               <div
                                 className={`${getCellHeight(viewMode)} w-full max-w-[100px] mx-auto border border-dashed border-gray-200 rounded-lg flex items-center justify-center`}
@@ -1281,40 +1296,56 @@ export default function TimetableBuilder() {
                               onDragOver={!isTimetableDisabled ? handleDragOver : undefined} 
                               onDrop={!isTimetableDisabled ? (e) => handleDrop(e, currentDay, slot) : undefined}>
                             {courseInSlot ? (
-                              <div 
-                                className={`p-2 rounded-lg ${getCourseColorClass(courseInSlot)} border relative max-w-[280px] mx-auto group
-                                          ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}
-                                          ${isTimetableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-grab'}`}
-                                draggable={!isTimetableDisabled}
-                                onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, courseInSlot, true, currentDay, slot) : undefined}
-                                onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
-                              >
-                                <button 
-                                  onClick={(e) => !isTimetableDisabled && handleDeleteCourse(currentDay, slot, e)}
-                                  className={`absolute top-0 right-0 -mt-1 -mr-1 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm ${
-                                    isTimetableDisabled 
-                                      ? 'text-gray-400 cursor-not-allowed' 
-                                      : 'text-gray-600 hover:text-red-600'
-                                  }`}
-                                  title="Remove course"
-                                  disabled={isTimetableDisabled}
-                                >
-                                  <FiX size={10} />
-                                </button>
-                                <div className="flex justify-between items-start">
-                                  <span className="font-semibold text-xs">{courseInSlot.code}</span>
-                                  {hasConflict && (
-                                    <FiAlertTriangle className="text-red-500 text-xs" />
-                                  )}
-                                </div>
-                                <h3 className="text-xs mt-0.5 font-medium line-clamp-1">{courseInSlot.title}</h3>
-                                <div className="text-xs mt-1">
-                                  <div className="flex justify-between">
-                                    <span className="truncate text-xs">{courseInSlot.teacher.name}</span>
-                                    <span className="text-xs">Room: {courseInSlot.room}</span>
+                              (() => {
+                                const compactData = getCompactCellDisplay(courseInSlot, isMobile);
+                                return (
+                                  <div 
+                                    className={`p-2 rounded-lg ${getCourseColorClass(courseInSlot)} border relative max-w-[280px] mx-auto group
+                                              ${hasConflict ? 'ring-1 ring-red-500 animate-pulse' : ''}
+                                              ${isTimetableDisabled ? 'cursor-not-allowed opacity-60' : 'cursor-grab'}`}
+                                    draggable={!isTimetableDisabled}
+                                    onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, courseInSlot, true, currentDay, slot) : undefined}
+                                    onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
+                                  >
+                                    <button 
+                                      onClick={(e) => !isTimetableDisabled && handleDeleteCourse(currentDay, slot, e)}
+                                      className={`absolute top-0 right-0 -mt-1 -mr-1 transition opacity-0 group-hover:opacity-100 bg-white rounded-full w-4 h-4 flex items-center justify-center shadow-sm ${
+                                        isTimetableDisabled 
+                                          ? 'text-gray-400 cursor-not-allowed' 
+                                          : 'text-gray-600 hover:text-red-600'
+                                      }`}
+                                      title="Remove course"
+                                      disabled={isTimetableDisabled}
+                                    >
+                                      <FiX size={10} />
+                                    </button>
+                                    
+                                    {/* Compact layout for day view */}
+                                    <div className="space-y-1">
+                                      {/* Course code and conflict indicator */}
+                                      <div className="flex justify-between items-center">
+                                        <span className="font-semibold text-sm">{compactData.code}</span>
+                                        {hasConflict && <FiAlertTriangle className="text-red-500" size={12} />}
+                                      </div>
+                                      
+                                      {/* Course title */}
+                                      <div className="text-xs font-medium text-gray-800 leading-tight" title={compactData.titleFull}>
+                                        {compactData.title}
+                                      </div>
+                                      
+                                      {/* Teacher and room in a compact row */}
+                                      <div className="flex justify-between items-center text-xs">
+                                        <span className="text-gray-700 truncate flex-1 mr-2" title={compactData.teacherFull}>
+                                          {compactData.teacher}
+                                        </span>
+                                        <span className="text-gray-600 font-mono" title={compactData.roomFull}>
+                                          {compactData.room}
+                                        </span>
+                                      </div>
+                                    </div>
                                   </div>
-                                </div>
-                              </div>
+                                );
+                              })()
                             ) : (
                               <div 
                                 className={`h-14 max-w-[280px] mx-auto border border-dashed rounded-lg flex items-center justify-center ${

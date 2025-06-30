@@ -39,8 +39,13 @@ export const addCourseToTimetable = (timetableData, day, slot, course, room) => 
   
   newTimetable[day][slot] = {
     ...course,
+    teacher: {
+      id: course.teacherId,
+      name: course.teacherName
+    },
     room: room?.id || room?.number || '',
     roomName: room?.name || room?.type || '',
+    roomNumber: room?.id || room?.number || '',
     timeSlot: slot,
     dayOfWeek: day
   };
