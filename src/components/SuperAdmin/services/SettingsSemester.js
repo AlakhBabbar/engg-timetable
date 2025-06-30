@@ -15,6 +15,13 @@ import {
   writeBatch
 } from '../../../firebase/config.js';
 
+// Import semester utilities
+import { 
+  getCurrentSemesterPeriod,
+  getSemesterNumbersForPeriod,
+  parseSemesterString 
+} from '../../../services/SemesterService.js';
+
 // Collection references
 const SEMESTERS_COLLECTION = 'semesters';
 const SETTINGS_COLLECTION = 'settings';
@@ -233,4 +240,121 @@ export const formatSemesterName = (semesterName) => {
   // If can't parse to valid semester number, return warning format
   console.warn(`Invalid semester format: "${semesterName}". Expected format: "Semester X" where X is 1-8`);
   return semesterName;
+};
+
+/**
+ * Determine which semesters should be active based on current date
+ * @param {Array} semesters - Array of available semesters
+ * @returns {Array} - Array of semesters that should be active
+ */
+export const determineCurrentSemesters = (semesters) => {
+  if (!semesters || semesters.length === 0) return [];
+  
+  const currentPeriod = getCurrentSemesterPeriod();
+  const currentPeriodNumbers = getSemesterNumbersForPeriod(currentPeriod);
+  
+  // Find ALL semesters that match the current period
+  const currentPeriodSemesters = semesters.filter(semester => {
+    const parsed = parseSemesterString(semester.name);
+    return parsed.isValid && currentPeriodNumbers.includes(parsed.number);
+  });
+  
+  if (currentPeriodSemesters.length > 0) {
+    // Return ALL current period semesters, not just one
+    return currentPeriodSemesters;
+  }
+  
+  // If no current period semesters exist, return the most recently created semester
+  const sortedByDate = [...semesters].sort((a, b) => 
+    new Date(b.createdAt) - new Date(a.createdAt)
+  );
+  
+  return sortedByDate.length > 0 ? [sortedByDate[0]] : [];
+};
+
+/**
+ * Automatically update active semesters based on current date and available semesters
+ * @returns {Promise<Array>} - Array of newly activated semesters
+ */
+export const autoUpdateActiveSemesters = async () => {
+  try {
+    // Get all semesters
+    const allSemesters = await fetchSemesters();
+    
+    if (allSemesters.length === 0) {
+      console.log('No semesters available for auto-activation');
+      return [];
+    }
+    
+    // Determine which semesters should be active
+    const targetSemesters = determineCurrentSemesters(allSemesters);
+    
+    if (targetSemesters.length === 0) {
+      console.log('Could not determine appropriate semesters for auto-activation');
+      return [];
+    }
+    
+    // Get currently active semesters
+    const currentlyActive = allSemesters.filter(sem => sem.status === 'active');
+    const targetIds = targetSemesters.map(sem => sem.id);
+    const currentlyActiveIds = currentlyActive.map(sem => sem.id);
+    
+    // Check if the target semesters are already the same as currently active
+    const sameActivation = targetIds.length === currentlyActiveIds.length && 
+                          targetIds.every(id => currentlyActiveIds.includes(id));
+    
+    if (sameActivation) {
+      const semesterNames = targetSemesters.map(sem => sem.name).join(', ');
+      console.log(`Semesters "${semesterNames}" are already active`);
+      return targetSemesters;
+    }
+    
+    // Update active semesters using batch operation
+    const batch = writeBatch(db);
+    
+    // Set all semesters to inactive first, then activate the target ones
+    allSemesters.forEach(semester => {
+      const semRef = doc(db, SEMESTERS_COLLECTION, semester.id);
+      const shouldBeActive = targetIds.includes(semester.id);
+      batch.update(semRef, { 
+        status: shouldBeActive ? 'active' : 'inactive',
+        updatedAt: serverTimestamp()
+      });
+    });
+    
+    // Update settings document with current semesters (use first one as primary)
+    const settingsRef = collection(db, SETTINGS_COLLECTION);
+    const settingsQuery = query(settingsRef, orderBy('createdAt', 'desc'), where('type', '==', 'global'));
+    const settingsSnapshot = await getDocs(settingsQuery);
+    
+    if (!settingsSnapshot.empty) {
+      const settingsDoc = settingsSnapshot.docs[0];
+      batch.update(doc(db, SETTINGS_COLLECTION, settingsDoc.id), {
+        currentSemester: targetSemesters[0].id, // Primary semester
+        activeSemesters: targetIds, // All active semester IDs
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // Create new settings document if it doesn't exist
+      const newSettingsRef = doc(collection(db, SETTINGS_COLLECTION));
+      batch.set(newSettingsRef, {
+        type: 'global',
+        currentSemester: targetSemesters[0].id,
+        activeSemesters: targetIds,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+    
+    // Commit the batch
+    await batch.commit();
+    
+    const semesterNames = targetSemesters.map(sem => sem.name).join(', ');
+    console.log(`Auto-activated semesters: "${semesterNames}"`);
+    return targetSemesters.map(sem => ({ ...sem, status: 'active' }));
+    
+  } catch (error) {
+    console.error('Error in auto-updating active semesters:', error);
+    throw error;
+  }
 };

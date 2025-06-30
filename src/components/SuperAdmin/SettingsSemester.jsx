@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react';
-import { FiPlus, FiTrash2, FiCheck, FiX, FiEdit2, FiCalendar, FiAlertCircle, FiSave, FiInfo } from 'react-icons/fi';
+import { FiPlus, FiTrash2, FiCheck, FiX, FiEdit2, FiCalendar, FiAlertCircle, FiSave, FiInfo, FiRefreshCw } from 'react-icons/fi';
 import { 
   fetchSemesters, 
   addSemester, 
   updateSemester, 
   deleteSemester,
-  updateActiveSemester
+  updateActiveSemester,
+  autoUpdateActiveSemesters
 } from './services/SettingsSemester';
 
 // Import our enhanced semester service
@@ -25,7 +26,7 @@ export default function SettingsSemester() {
   const [error, setError] = useState(null);
   const [newSemester, setNewSemester] = useState('');
   const [editingSemester, setEditingSemester] = useState(null);
-  const [activeSemesterId, setActiveSemesterId] = useState(null);
+  const [activeSemesterIds, setActiveSemesterIds] = useState([]);
   const [savingChanges, setSavingChanges] = useState(false);
   const [successMessage, setSuccessMessage] = useState('');
   const [showSemesterGuide, setShowSemesterGuide] = useState(false);
@@ -58,10 +59,38 @@ export default function SettingsSemester() {
         const semestersData = await fetchSemesters();
         setSemesters(semestersData);
         
-        // Set active semester
-        const activeSemester = semestersData.find(sem => sem.status === 'active');
-        if (activeSemester) {
-          setActiveSemesterId(activeSemester.id);
+        // Auto-update active semesters based on current date
+        if (semestersData.length > 0) {
+          try {
+            const autoActivatedSemesters = await autoUpdateActiveSemesters();
+            if (autoActivatedSemesters.length > 0) {
+              // Update local state to reflect the auto-activated semesters
+              const activatedIds = autoActivatedSemesters.map(sem => sem.id);
+              setSemesters(prev => prev.map(sem => ({
+                ...sem,
+                status: activatedIds.includes(sem.id) ? 'active' : 'inactive'
+              })));
+              setActiveSemesterIds(activatedIds);
+              
+              // Show success message if different semesters were activated
+              const previouslyActiveIds = semestersData.filter(sem => sem.status === 'active').map(sem => sem.id);
+              const isDifferentActivation = activatedIds.length !== previouslyActiveIds.length || 
+                                          !activatedIds.every(id => previouslyActiveIds.includes(id));
+              
+              if (isDifferentActivation) {
+                const semesterNames = autoActivatedSemesters.map(sem => sem.name).join(', ');
+                setSuccessMessage(`Auto-activated "${semesterNames}" based on current date`);
+                setTimeout(() => setSuccessMessage(''), 5000);
+              }
+            }
+          } catch (autoError) {
+            console.error('Error auto-activating semesters:', autoError);
+            // Still set the currently active semesters if auto-activation fails
+            const activeSemesters = semestersData.filter(sem => sem.status === 'active');
+            if (activeSemesters.length > 0) {
+              setActiveSemesterIds(activeSemesters.map(sem => sem.id));
+            }
+          }
         }
       } catch (error) {
         console.error('Error loading semesters:', error);
@@ -81,8 +110,32 @@ export default function SettingsSemester() {
     try {
       setSavingChanges(true);
       const newSemesterObj = await addSemester(semesterName);
-      setSemesters([...semesters, newSemesterObj]);
-      setSuccessMessage(`Semester ${semesterNumber} added successfully`);
+      setSemesters(prev => [...prev, newSemesterObj]);
+      
+      // Auto-update active semesters after adding new semester
+      try {
+        const autoActivatedSemesters = await autoUpdateActiveSemesters();
+        if (autoActivatedSemesters.length > 0) {
+          const activatedIds = autoActivatedSemesters.map(sem => sem.id);
+          setSemesters(prev => prev.map(sem => ({
+            ...sem,
+            status: activatedIds.includes(sem.id) ? 'active' : 'inactive'
+          })));
+          setActiveSemesterIds(activatedIds);
+          
+          if (activatedIds.includes(newSemesterObj.id)) {
+            setSuccessMessage(`Semester ${semesterNumber} added and auto-activated`);
+          } else {
+            setSuccessMessage(`Semester ${semesterNumber} added successfully`);
+          }
+        } else {
+          setSuccessMessage(`Semester ${semesterNumber} added successfully`);
+        }
+      } catch (autoError) {
+        console.error('Error auto-activating after add:', autoError);
+        setSuccessMessage(`Semester ${semesterNumber} added successfully`);
+      }
+      
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error adding semester:', error);
@@ -101,9 +154,33 @@ export default function SettingsSemester() {
     try {
       setSavingChanges(true);
       const newSemesterObj = await addSemester(newSemester);
-      setSemesters([...semesters, newSemesterObj]);
+      setSemesters(prev => [...prev, newSemesterObj]);
       setNewSemester('');
-      setSuccessMessage('Semester added successfully');
+      
+      // Auto-update active semesters after adding new semester
+      try {
+        const autoActivatedSemesters = await autoUpdateActiveSemesters();
+        if (autoActivatedSemesters.length > 0) {
+          const activatedIds = autoActivatedSemesters.map(sem => sem.id);
+          setSemesters(prev => prev.map(sem => ({
+            ...sem,
+            status: activatedIds.includes(sem.id) ? 'active' : 'inactive'
+          })));
+          setActiveSemesterIds(activatedIds);
+          
+          if (activatedIds.includes(newSemesterObj.id)) {
+            setSuccessMessage('Semester added and auto-activated');
+          } else {
+            setSuccessMessage('Semester added successfully');
+          }
+        } else {
+          setSuccessMessage('Semester added successfully');
+        }
+      } catch (autoError) {
+        console.error('Error auto-activating after add:', autoError);
+        setSuccessMessage('Semester added successfully');
+      }
+      
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error adding semester:', error);
@@ -168,24 +245,33 @@ export default function SettingsSemester() {
     }
   };
 
-  // Handle setting active semester
-  const handleSetActiveSemester = async (semesterId) => {
+  // Handle manually refreshing automatic semester activation
+  const handleRefreshActiveSemesters = async () => {
     try {
       setSavingChanges(true);
-      await updateActiveSemester(semesterId);
+      const autoActivatedSemesters = await autoUpdateActiveSemesters();
       
-      // Update local state
-      setSemesters(semesters.map(sem => ({
-        ...sem,
-        status: sem.id === semesterId ? 'active' : 'inactive'
-      })));
+      if (autoActivatedSemesters.length > 0) {
+        const activatedIds = autoActivatedSemesters.map(sem => sem.id);
+        setSemesters(prev => prev.map(sem => ({
+          ...sem,
+          status: activatedIds.includes(sem.id) ? 'active' : 'inactive'
+        })));
+        setActiveSemesterIds(activatedIds);
+        
+        const semesterNames = autoActivatedSemesters.map(sem => sem.name).join(', ');
+        setSuccessMessage(`Auto-activated "${semesterNames}" based on current date`);
+      } else {
+        setError('No appropriate semesters found for current date');
+      }
       
-      setActiveSemesterId(semesterId);
-      setSuccessMessage('Active semester updated successfully');
-      setTimeout(() => setSuccessMessage(''), 3000);
+      setTimeout(() => {
+        setSuccessMessage('');
+        setError(null);
+      }, 3000);
     } catch (error) {
-      console.error('Error updating active semester:', error);
-      setError('Failed to update active semester. Please try again.');
+      console.error('Error refreshing active semesters:', error);
+      setError('Failed to refresh active semesters. Please try again.');
       setTimeout(() => setError(null), 3000);
     } finally {
       setSavingChanges(false);
@@ -211,32 +297,43 @@ export default function SettingsSemester() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-lg font-medium text-gray-700">
-              Current Period: {currentPeriod === 'odd' ? 'July to December (Odd Semesters)' : 'January to June (Even Semesters)'}
+              Current Period: {currentPeriod === 'odd' ? 'July to December (Odd Semesters)' : 'January to May (Even Semesters)'}
             </h2>
             <p className="text-sm text-gray-600 mt-1">
               Available semester numbers for this period: {availableSemesters.join(', ')}
             </p>
             <p className="text-xs text-gray-500 mt-1">
-              Standard format: "Semester 1" through "Semester 8"
+              Active semester is automatically determined based on current date and available semesters
             </p>
           </div>
-          <button 
-            onClick={toggleSemesterGuide}
-            className="text-blue-600 hover:text-blue-800 flex items-center"
-          >
-            <FiInfo className="mr-1" /> Info
-          </button>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleRefreshActiveSemesters}
+              disabled={savingChanges}
+              className="flex items-center gap-2 px-3 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 disabled:opacity-50"
+            >
+              <FiRefreshCw className={savingChanges ? 'animate-spin' : ''} />
+              <span className="text-sm">Refresh Active</span>
+            </button>
+            <button 
+              onClick={toggleSemesterGuide}
+              className="text-blue-600 hover:text-blue-800 flex items-center"
+            >
+              <FiInfo className="mr-1" /> Info
+            </button>
+          </div>
         </div>
         
         {showSemesterGuide && (
           <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
-            <p className="font-medium text-blue-700 mb-2">Semester System:</p>
+            <p className="font-medium text-blue-700 mb-2">Automatic Semester Activation:</p>
             <ul className="list-disc pl-5 space-y-1 text-blue-700">
-              <li><strong>Format:</strong> Only "Semester 1" through "Semester 8" are supported</li>
-              <li><strong>Odd Semesters (1, 3, 5, 7):</strong> July to December</li>
-              <li><strong>Even Semesters (2, 4, 6, 8):</strong> January to June</li>
-              <li><strong>Current Period:</strong> Based on today's date, showing relevant semesters</li>
-              <li><strong>All Semesters:</strong> Complete 8-semester program structure</li>
+              <li><strong>Auto-Activation:</strong> The system automatically activates the most appropriate semester based on the current date</li>
+              <li><strong>July-December:</strong> Odd semesters (1, 3, 5, 7) are prioritized</li>
+              <li><strong>January-May:</strong> Even semesters (2, 4, 6, 8) are prioritized</li>
+              <li><strong>Selection Logic:</strong> If multiple semesters exist for the current period, the highest numbered one is activated</li>
+              <li><strong>Fallback:</strong> If no current period semesters exist, the most recently created semester is activated</li>
+              <li><strong>Manual Refresh:</strong> Use the "Refresh Active" button to re-check and update the active semester</li>
             </ul>
           </div>
         )}
@@ -395,7 +492,7 @@ export default function SettingsSemester() {
                             {semesterType}
                           </span>
                           <span className="ml-2 text-xs text-gray-500">
-                            {semesterType === 'Odd' ? '(Jul-Dec)' : '(Jan-Jun)'}
+                            {semesterType === 'Odd' ? '(Jul-Dec)' : '(Jan-May)'}
                           </span>
                         </div>
                       </td>
@@ -418,21 +515,14 @@ export default function SettingsSemester() {
                             </>
                           ) : (
                             <>
-                              {semester.status !== 'active' ? (
-                                <button
-                                  onClick={() => handleSetActiveSemester(semester.id)}
-                                  className="p-1 text-blue-600 hover:text-blue-800 transition"
-                                  disabled={savingChanges}
-                                >
-                                  <span className="flex items-center gap-1">
-                                    <FiCheck size={18} /> 
-                                    <span className="text-sm">Set Active</span>
-                                  </span>
-                                </button>
-                              ) : (
+                              {semester.status === 'active' ? (
                                 <span className="p-1 text-green-600 flex items-center gap-1">
                                   <FiCheck size={18} /> 
-                                  <span className="text-sm font-medium">Active</span>
+                                  <span className="text-sm font-medium">Auto-Active</span>
+                                </span>
+                              ) : (
+                                <span className="p-1 text-gray-500 flex items-center gap-1">
+                                  <span className="text-sm">Inactive</span>
                                 </span>
                               )}
                               <button
@@ -463,12 +553,17 @@ export default function SettingsSemester() {
         
         {/* Help Text */}
         <div className="mt-6 p-4 bg-blue-50 rounded-lg">
-          <h3 className="text-sm font-semibold text-blue-700 mb-1">About Semester Settings</h3>
-          <p className="text-sm text-blue-600">
-            The active semester will be used as the default selection across the entire platform.
-            All departments, faculty, and timetable builders will see the active semester by default.
-            You cannot delete the currently active semester.
+          <h3 className="text-sm font-semibold text-blue-700 mb-1">About Automatic Semester Activation</h3>
+          <p className="text-sm text-blue-600 mb-2">
+            The system automatically determines and activates the most appropriate semester based on the current date and academic calendar.
           </p>
+          <ul className="text-sm text-blue-600 list-disc pl-5 space-y-1">
+            <li>July-December: System prioritizes odd semesters (1, 3, 5, 7)</li>
+            <li>January-May: System prioritizes even semesters (2, 4, 6, 8)</li>
+            <li>The active semester is used as the default across the entire platform</li>
+            <li>You cannot delete the currently active semester</li>
+            <li>Use "Refresh Active" to manually trigger re-evaluation of the active semester</li>
+          </ul>
         </div>
       </div>
     </div>

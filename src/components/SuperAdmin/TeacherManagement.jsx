@@ -832,136 +832,147 @@ export default function TeacherManagement() {
       
       {/* Teachers Table */}
       <div className="overflow-x-auto rounded-2xl shadow-xl">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gradient-to-r from-indigo-100 to-purple-100">
-            <tr>
-              <th className="px-6 py-3 text-left">
-                <input
-                  type="checkbox"
-                  checked={currentTeachers.length > 0 && currentTeachers.every(teacher => selectedTeachers.has(teacher.id))}
-                  onChange={handleSelectAll}
-                  className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
-                />
-              </th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Name</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Department</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Expertise</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Qualification</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Experience (Years)</th>
-              <th className="px-6 py-3 text-left text-xs font-semibold text-gray-700 uppercase">Status</th>
-              <th className="px-6 py-3 text-right text-xs font-semibold text-gray-700 uppercase">Actions</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {currentTeachers.length === 0 ? (
+        <div className="min-w-full inline-block align-middle">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gradient-to-r from-indigo-100 to-purple-100">
               <tr>
-                <td colSpan="8" className="px-6 py-12 text-center">
-                  <div className="flex flex-col items-center justify-center">
-                    <FiSearch className="h-12 w-12 text-gray-400 mb-4" />
-                    <h3 className="text-lg font-medium text-gray-900 mb-2">
-                      {searchTerm ? 'No teachers found' : 'No teachers available'}
-                    </h3>
-                    <p className="text-gray-500 max-w-md">
-                      {searchTerm ? (
-                        <>
-                          No teachers match your search for "{searchTerm}". Try adjusting your search terms or{' '}
-                          <button
-                            onClick={clearSearch}
-                            className="text-indigo-600 hover:text-indigo-800 underline"
-                          >
-                            clear the search
-                          </button>
-                          .
-                        </>
-                      ) : (
-                        'Get started by adding your first teacher to the system.'
-                      )}
-                    </p>
-                    {!searchTerm && (
-                      <button
-                        onClick={() => openModal()}
-                        className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center"
-                      >
-                        <FiPlus size={16} className="mr-2" />
-                        Add First Teacher
-                      </button>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            ) : (
-              currentTeachers.map((teacher, idx) => (
-              <tr key={teacher.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
-                <td className="px-6 py-4 whitespace-nowrap">
+                <th className="px-3 py-3 text-left w-12">
                   <input
                     type="checkbox"
-                    checked={selectedTeachers.has(teacher.id)}
-                    onChange={() => handleTeacherSelect(teacher.id)}
+                    checked={currentTeachers.length > 0 && currentTeachers.every(teacher => selectedTeachers.has(teacher.id))}
+                    onChange={handleSelectAll}
                     className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
                   />
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <div className={`w-9 h-9 rounded-full flex items-center justify-center text-white font-medium ${TeacherManagementService.getAvatarBg(teacher.name)}`}>
-                      {TeacherManagementService.getInitials(teacher.name)}
-                    </div>
-                    <div className="ml-3">
-                      <div className="text-sm font-medium text-gray-900">{teacher.name}</div>
-                      <div className="text-sm text-gray-500">{teacher.email}</div>
-                    </div>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <FiLayers className="text-gray-500 mr-2" />
-                    <span>{teacher.department}</span>
-                  </div>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex flex-wrap gap-1">
-                    {teacher.expertise && teacher.expertise.map((item) => (
-                      <span 
-                        key={item}
-                        className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded-full"
-                      >
-                        {item}
-                      </span>
-                    ))}
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <div className="flex items-center">
-                    <FiAward className="text-amber-500 mr-2" />
-                    <span>{teacher.qualification}</span>
-                  </div>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  {teacher.experience} years
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap">
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${teacher.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {teacher.active ? 'Active' : 'Inactive'}
-                  </span>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-right">
-                  <button 
-                    onClick={() => openModal(teacher)}
-                    className="text-indigo-600 hover:text-indigo-900 mx-1"
-                  >
-                    <FiEdit2 size={18} />
-                  </button>
-                  <button 
-                    onClick={() => handleDelete(teacher.id)}
-                    className="text-red-600 hover:text-red-900 mx-1"
-                  >
-                    <FiTrash2 size={18} />
-                  </button>
-                </td>
+                </th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase min-w-[200px]">Name</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase min-w-[120px]">Department</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase min-w-[150px]">Expertise</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase min-w-[120px]">Qualification</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase min-w-[100px]">Experience</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase min-w-[80px]">Status</th>
+                <th className="px-4 py-3 text-right text-xs font-semibold text-gray-700 uppercase min-w-[100px]">Actions</th>
               </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {currentTeachers.length === 0 ? (
+                <tr>
+                  <td colSpan="8" className="px-6 py-12 text-center">
+                    <div className="flex flex-col items-center justify-center">
+                      <FiSearch className="h-12 w-12 text-gray-400 mb-4" />
+                      <h3 className="text-lg font-medium text-gray-900 mb-2">
+                        {searchTerm ? 'No teachers found' : 'No teachers available'}
+                      </h3>
+                      <p className="text-gray-500 max-w-md">
+                        {searchTerm ? (
+                          <>
+                            No teachers match your search for "{searchTerm}". Try adjusting your search terms or{' '}
+                            <button
+                              onClick={clearSearch}
+                              className="text-indigo-600 hover:text-indigo-800 underline"
+                            >
+                              clear the search
+                            </button>
+                            .
+                          </>
+                        ) : (
+                          'Get started by adding your first teacher to the system.'
+                        )}
+                      </p>
+                      {!searchTerm && (
+                        <button
+                          onClick={() => openModal()}
+                          className="mt-4 px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition flex items-center"
+                        >
+                          <FiPlus size={16} className="mr-2" />
+                          Add First Teacher
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                currentTeachers.map((teacher, idx) => (
+                <tr key={teacher.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
+                  <td className="px-3 py-4 whitespace-nowrap">
+                    <input
+                      type="checkbox"
+                      checked={selectedTeachers.has(teacher.id)}
+                      onChange={() => handleTeacherSelect(teacher.id)}
+                      className="w-4 h-4 text-indigo-600 bg-gray-100 border-gray-300 rounded focus:ring-indigo-500 focus:ring-2"
+                    />
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white font-medium text-xs ${TeacherManagementService.getAvatarBg(teacher.name)}`}>
+                        {TeacherManagementService.getInitials(teacher.name)}
+                      </div>
+                      <div className="ml-3 min-w-0">
+                        <div className="text-sm font-medium text-gray-900 truncate">{teacher.name}</div>
+                        <div className="text-xs text-gray-500 truncate">{teacher.email}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <FiLayers className="text-gray-500 mr-2 flex-shrink-0" size={14} />
+                      <span className="text-sm truncate">{teacher.department}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4">
+                    <div className="flex flex-wrap gap-1 max-w-[150px]">
+                      {teacher.expertise && teacher.expertise.slice(0, 2).map((item) => (
+                        <span 
+                          key={item}
+                          className="bg-blue-100 text-blue-800 text-xs font-medium px-2 py-0.5 rounded-full truncate"
+                        >
+                          {item}
+                        </span>
+                      ))}
+                      {teacher.expertise && teacher.expertise.length > 2 && (
+                        <span className="text-xs text-gray-500">
+                          +{teacher.expertise.length - 2} more
+                        </span>
+                      )}
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <div className="flex items-center">
+                      <FiAward className="text-amber-500 mr-2 flex-shrink-0" size={14} />
+                      <span className="text-sm truncate">{teacher.qualification}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap text-sm">
+                    {teacher.experience} years
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap">
+                    <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-medium ${teacher.active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                      {teacher.active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4 whitespace-nowrap text-right">
+                    <div className="flex justify-end space-x-2">
+                      <button 
+                        onClick={() => openModal(teacher)}
+                        className="text-indigo-600 hover:text-indigo-900 p-1"
+                        title="Edit teacher"
+                      >
+                        <FiEdit2 size={16} />
+                      </button>
+                      <button 
+                        onClick={() => handleDelete(teacher.id)}
+                        className="text-red-600 hover:text-red-900 p-1"
+                        title="Delete teacher"
+                      >
+                        <FiTrash2 size={16} />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Pagination Controls */}

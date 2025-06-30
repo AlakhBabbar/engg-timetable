@@ -39,7 +39,7 @@ export const getCurrentAcademicYear = (date = new Date()) => {
 /**
  * Determine if current date is in odd or even semester period
  * Odd semesters (1,3,5,7): July to December
- * Even semesters (2,4,6,8): January to June
+ * Even semesters (2,4,6,8): January to May
  * @param {Date} date - Date to check (defaults to current date)
  * @returns {string} 'odd' or 'even'
  */
@@ -50,9 +50,13 @@ export const getCurrentSemesterPeriod = (date = new Date()) => {
   if (month >= 6 && month <= 11) {
     return 'odd';
   } 
-  // January (0) to June (5) is even semester period
-  else {
+  // January (0) to May (4) is even semester period
+  else if (month >= 0 && month <= 4) {
     return 'even';
+  }
+  // June (5) is a transition period - could be considered odd semester preparation
+  else {
+    return 'odd'; // June defaults to odd semester preparation
   }
 };
 
@@ -252,6 +256,45 @@ export const getSelectedSemesterFromStorage = () => {
     return localStorage.getItem('selectedSemester');
   } catch (error) {
     console.error('Error getting selected semester from storage:', error);
+    return null;
+  }
+};
+
+/**
+ * Automatically determine and activate the appropriate semesters based on current date
+ * This is the main function that other components should use for auto-activation
+ * @returns {Promise<Array>} The activated semesters array
+ */
+export const autoActivateSemesterBasedOnDate = async () => {
+  try {
+    // Import the auto-activation function from SettingsSemester service
+    const { autoUpdateActiveSemesters } = await import('../components/SuperAdmin/services/SettingsSemester.js');
+    
+    const activatedSemesters = await autoUpdateActiveSemesters();
+    
+    if (activatedSemesters.length > 0) {
+      // Store the first auto-activated semester in local storage as primary
+      storeSelectedSemester(activatedSemesters[0].name);
+    }
+    
+    return activatedSemesters;
+  } catch (error) {
+    console.error('Error in auto-activating semesters based on date:', error);
+    return [];
+  }
+};
+
+/**
+ * Get the current active semester with automatic fallback (backward compatibility)
+ * This function returns the primary active semester (first one) from the active semesters
+ * @returns {Promise<Object|null>} Primary active semester or null
+ */
+export const getCurrentActiveSemesterWithAutoFallback = async () => {
+  try {
+    const activeSemesters = await getCurrentActiveSemestersWithAutoFallback();
+    return activeSemesters.length > 0 ? activeSemesters[0] : null;
+  } catch (error) {
+    console.error('Error getting current active semester with auto fallback:', error);
     return null;
   }
 };

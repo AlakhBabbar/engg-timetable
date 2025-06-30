@@ -91,15 +91,16 @@ export default function SuperAdminLayout() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gradient-to-br from-gray-50 to-gray-100">
-      <aside className={`transition-all duration-300 ${sidebarOpen ? 'w-56' : 'w-20'} bg-white shadow-xl flex flex-col rounded-tr-3xl rounded-br-3xl`}>
+    <div className="flex h-screen bg-gradient-to-br from-gray-50 to-gray-100 overflow-hidden">
+      {/* Fixed Sidebar */}
+      <aside className={`transition-all duration-300 ${sidebarOpen ? 'w-56' : 'w-20'} bg-white shadow-xl flex flex-col rounded-tr-3xl rounded-br-3xl fixed left-0 top-0 h-full z-30`}>
         <div className="flex items-center justify-between p-4 border-b">
           <h1 className={`font-bold text-lg transition-opacity duration-300 ${sidebarOpen ? 'opacity-100' : 'opacity-0 hidden'}`}>Admin</h1>
           <button onClick={() => setSidebarOpen(!sidebarOpen)}>
             <FiMenu size={20} />
           </button>
         </div>
-        <nav className="flex-1 p-2 space-y-2">
+        <nav className="flex-1 p-2 space-y-2 overflow-y-auto">
           {navItems.map((item) => {
             const isActive = location.pathname.startsWith(item.path);
             return (
@@ -116,8 +117,10 @@ export default function SuperAdminLayout() {
         </nav>
       </aside>
 
-      <div className="flex-1 flex flex-col">
-        <header className="flex items-center justify-between bg-white shadow p-4 rounded-bl-3xl">
+      {/* Main Content Area */}
+      <div className={`flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-56' : 'ml-20'} flex-1 h-full`}>
+        {/* Fixed Header */}
+        <header className="flex items-center justify-between bg-white shadow p-4 rounded-bl-3xl fixed top-0 right-0 z-20 transition-all duration-300" style={{left: sidebarOpen ? '224px' : '80px'}}>
           <div className="flex items-center gap-3 bg-gray-100 px-4 py-2 rounded-full">
             <FiSearch />
             <input
@@ -142,7 +145,7 @@ export default function SuperAdminLayout() {
               </button>
               
               {profileDropdownOpen && (
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
+                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-30">
                   <div className="px-4 py-3 border-b">
                     <p className="text-sm font-medium">{user?.name || user?.displayName || 'Admin User'}</p>
                     <p className="text-xs text-gray-500">{user?.email}</p>
@@ -162,7 +165,8 @@ export default function SuperAdminLayout() {
           </div>
         </header>
 
-        <main className="flex-1 p-6">
+        {/* Scrollable Main Content */}
+        <main className="flex-1 p-6 mt-20 overflow-y-auto">
           <Outlet />
         </main>
       </div>
