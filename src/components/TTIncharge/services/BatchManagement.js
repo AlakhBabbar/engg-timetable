@@ -15,6 +15,7 @@ import {
   serverTimestamp,
   generateId 
 } from '../../../firebase/config';
+import { getAllSemesterNumbers } from '../../../services/SemesterService';
 
 // Collection name for batches in Firestore
 const BATCHES_COLLECTION = 'batches';
@@ -108,9 +109,6 @@ export const getBranches = () => {
  * @returns {Array} Array of semester strings
  */
 export const getSemesters = () => {
-  // Import the enhanced semester functions
-  const { getAllSemesterNumbers } = require('../../../services/SemesterService');
-  
   // Get all semester numbers and format them consistently
   const allNumbers = getAllSemesterNumbers();
   return allNumbers.map(num => `Semester ${num}`);

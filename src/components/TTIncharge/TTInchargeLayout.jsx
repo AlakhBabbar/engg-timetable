@@ -17,20 +17,16 @@ import {
 } from 'react-icons/fi';
 import { AuthContext } from '../../App';
 import { useTTInchargeLayout } from './services/TTInchargeLayout';
+import SemesterDropdown from '../common/SemesterDropdown';
 
 export default function TTInchargeLayout() {
   const { user, setUser } = useContext(AuthContext);
   
   const {
     activeSidebarItem,
-    semesterDropdownOpen,
-    setSemesterDropdownOpen,
     profileDropdownOpen,
     setProfileDropdownOpen,
-    selectedSemester,
-    setSelectedSemester,
     sidebarCollapsed,
-    availableSemesters,
     handleLogout,
     toggleSidebar,
     sidebarItems,
@@ -103,37 +99,10 @@ export default function TTInchargeLayout() {
               <FiMenu size={20} />
             </button>
             <h2 className="text-xl font-semibold text-gray-800">Timetable Management</h2>
-            <div className="relative semester-dropdown">
-              <div 
-                className="ml-4 flex items-center border rounded-lg px-3 py-1 cursor-pointer hover:bg-gray-50"
-                onClick={() => setSemesterDropdownOpen(!semesterDropdownOpen)}
-              >
-                <span className="text-gray-600 mr-1">{selectedSemester}</span>
-                {semesterDropdownOpen ? 
-                  <FiChevronUp className="text-gray-500" /> : 
-                  <FiChevronDown className="text-gray-500" />
-                }
-              </div>
-              
-              {semesterDropdownOpen && (
-                <div className="absolute top-full left-4 mt-1 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
-                  {availableSemesters.map((semester) => (
-                    <div
-                      key={semester}
-                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                        selectedSemester === semester ? 'bg-indigo-50 text-indigo-600' : ''
-                      }`}
-                      onClick={() => {
-                        setSelectedSemester(semester);
-                        setSemesterDropdownOpen(false);
-                      }}
-                    >
-                      {semester}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SemesterDropdown 
+              variant="header" 
+              showOnlyActive={true}
+            />
           </div>
           
           {/* Rest of the header content */}

@@ -5,6 +5,7 @@ import { auth, signOut, onAuthStateChanged } from '../../firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
 import RateLimitStatusMonitor from '../common/RateLimitStatusMonitor';
+import SemesterDropdown from '../common/SemesterDropdown';
 
 const navItems = [
   { label: 'Dashboard', icon: <FiGrid />, path: '/admin/dashboard' },
@@ -121,12 +122,18 @@ export default function SuperAdminLayout() {
       <div className={`flex flex-col transition-all duration-300 ${sidebarOpen ? 'ml-56' : 'ml-20'} flex-1 h-full`}>
         {/* Fixed Header */}
         <header className="flex items-center justify-between bg-white shadow p-4 rounded-bl-3xl fixed top-0 right-0 z-20 transition-all duration-300" style={{left: sidebarOpen ? '224px' : '80px'}}>
-          <div className="flex items-center gap-3 bg-gray-100 px-4 py-2 rounded-full">
-            <FiSearch />
-            <input
-              type="text"
-              placeholder="Search..."
-              className="bg-transparent outline-none w-32 md:w-64"
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 bg-gray-100 px-4 py-2 rounded-full">
+              <FiSearch />
+              <input
+                type="text"
+                placeholder="Search..."
+                className="bg-transparent outline-none w-32 md:w-64"
+              />
+            </div>
+            <SemesterDropdown 
+              variant="header" 
+              showOnlyActive={true}
             />
           </div>
           <div className="flex items-center gap-4">

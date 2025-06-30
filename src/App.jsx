@@ -30,6 +30,8 @@ import BatchManagement from './components/TTIncharge/BatchManagement'
 import { getCurrentUser, checkSession, initializeAuth } from './components/Auth/services/Login'
 // Import Firebase auth for auth state changes
 import { auth, onAuthStateChanged } from './firebase/config.js'
+// Import Semester Context
+import { SemesterProvider } from './context/SemesterContext'
 
 // Create Authentication Context
 export const AuthContext = createContext(null);
@@ -134,68 +136,70 @@ function App() {
 
   return (
     <AuthContext.Provider value={{ user, setUser, loading, sessionChecked }}>
-      <Router>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/super-admin-registration" element={<SuperAdminRegistration />} />
+      <SemesterProvider>
+        <Router>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/super-admin-registration" element={<SuperAdminRegistration />} />
 
-          <Route path="/" element={<Navigate to="/login" replace />} />
+            <Route path="/" element={<Navigate to="/login" replace />} />
 
-          {/* HOD Routes with /hod/* path prefix */}
-          <Route 
-            path="/hod/*" 
-            element={
-              <ProtectedRoute allowedRoles={['hod']}>
-                <HODLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="dashboard" element={<HODDashboard />} />
-            <Route path="courses" element={<CourseManagement />} />
-            <Route path="assign-faculty" element={<FacultyAssignment />} />
-            <Route path="reports" element={<FacultyLoadReports/>} />
-            <Route path="timetable" element={<TimetableViewer />} />
-          </Route>
+            {/* HOD Routes with /hod/* path prefix */}
+            <Route 
+              path="/hod/*" 
+              element={
+                <ProtectedRoute allowedRoles={['hod']}>
+                  <HODLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="dashboard" element={<HODDashboard />} />
+              <Route path="courses" element={<CourseManagement />} />
+              <Route path="assign-faculty" element={<FacultyAssignment />} />
+              <Route path="reports" element={<FacultyLoadReports/>} />
+              <Route path="timetable" element={<TimetableViewer />} />
+            </Route>
 
-          {/* TT Incharge Routes with /tt/* path prefix */}
-          <Route 
-            path="/tt/*" 
-            element={
-              <ProtectedRoute allowedRoles={['tt_incharge']}>
-                <TTInchargeLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="dashboard" element={<TTInchargeDashboard />} />
-            <Route path="timetable-builder" element={<TimetableBuilder/> } />
-            <Route path="conflicts" element={<Conflicts />} />
-            <Route path="rooms" element={<RoomAvailability />} />
-            <Route path="room-availability" element={<RoomAvailability />} />
-            <Route path="faculty-timetable" element={<FacultyTimetable />} />
-            <Route path="batch-management" element={<BatchManagement />} />
-          </Route>
+            {/* TT Incharge Routes with /tt/* path prefix */}
+            <Route 
+              path="/tt/*" 
+              element={
+                <ProtectedRoute allowedRoles={['tt_incharge']}>
+                  <TTInchargeLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="dashboard" element={<TTInchargeDashboard />} />
+              <Route path="timetable-builder" element={<TimetableBuilder/> } />
+              <Route path="conflicts" element={<Conflicts />} />
+              <Route path="rooms" element={<RoomAvailability />} />
+              <Route path="room-availability" element={<RoomAvailability />} />
+              <Route path="faculty-timetable" element={<FacultyTimetable />} />
+              <Route path="batch-management" element={<BatchManagement />} />
+            </Route>
 
-          {/* SuperAdmin Routes with /admin/* path prefix */}
-          <Route 
-            path="/admin/*" 
-            element={
-              <ProtectedRoute allowedRoles={['superadmin']}>
-                <SuperAdminLayout />
-              </ProtectedRoute>
-            }
-          >
-            <Route path="dashboard" element={<SuperAdminDashboard />} />
-            <Route path="users" element={<UserManagement />} />
-            <Route path="faculty" element={<TeacherManagement />} />
-            <Route path="courses" element={<SuperAdminCourseManagement />} />
-            <Route path="departments" element={<DepartmentManagement />} />
-            <Route path="rooms" element={<RoomManagement />} />
-            <Route path="reports" element={<ReportsAnalytics />} />
-            <Route path="settings" element={<SettingsSemester />} />
-          </Route>
-        </Routes>
-      </Router>
+            {/* SuperAdmin Routes with /admin/* path prefix */}
+            <Route 
+              path="/admin/*" 
+              element={
+                <ProtectedRoute allowedRoles={['superadmin']}>
+                  <SuperAdminLayout />
+                </ProtectedRoute>
+              }
+            >
+              <Route path="dashboard" element={<SuperAdminDashboard />} />
+              <Route path="users" element={<UserManagement />} />
+              <Route path="faculty" element={<TeacherManagement />} />
+              <Route path="courses" element={<SuperAdminCourseManagement />} />
+              <Route path="departments" element={<DepartmentManagement />} />
+              <Route path="rooms" element={<RoomManagement />} />
+              <Route path="reports" element={<ReportsAnalytics />} />
+              <Route path="settings" element={<SettingsSemester />} />
+            </Route>
+          </Routes>
+        </Router>
+      </SemesterProvider>
     </AuthContext.Provider>
   )
 }

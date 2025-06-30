@@ -4,27 +4,16 @@ import { logoutUser } from '../../Auth/services/Login';
 
 export const useTTInchargeLayout = (setUser) => {
   const [activeSidebarItem, setActiveSidebarItem] = useState('Dashboard');
-  const [semesterDropdownOpen, setSemesterDropdownOpen] = useState(false);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   
-  // List of available semesters
-  const availableSemesters = [
-    'Semester 7',
-    'Semester 6',
-    'Semester 5',
-    'Semester 4'
-  ];
+  // Remove hardcoded semester logic - now handled by context
   
   // Close dropdowns when clicking outside
   useEffect(() => {
     const closeDropdowns = (e) => {
-      if (!e.target.closest('.semester-dropdown')) {
-        setSemesterDropdownOpen(false);
-      }
       if (!e.target.closest('.profile-dropdown')) {
         setProfileDropdownOpen(false);
       }
@@ -111,14 +100,9 @@ export const useTTInchargeLayout = (setUser) => {
 
   return {
     activeSidebarItem,
-    semesterDropdownOpen,
-    setSemesterDropdownOpen,
     profileDropdownOpen,
     setProfileDropdownOpen,
-    selectedSemester,
-    setSelectedSemester,
     sidebarCollapsed,
-    availableSemesters,
     handleLogout,
     toggleSidebar,
     sidebarItems,

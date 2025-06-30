@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FiPlus, FiTrash2, FiCheck, FiX, FiEdit2, FiCalendar, FiAlertCircle, FiSave, FiInfo, FiRefreshCw } from 'react-icons/fi';
+import { useSemester } from '../../context/SemesterContext';
 import { 
   fetchSemesters, 
   addSemester, 
@@ -21,6 +22,7 @@ import {
 } from '../../services/SemesterService';
 
 export default function SettingsSemester() {
+  const { refreshSemesters } = useSemester(); // Hook to refresh semester context
   const [semesters, setSemesters] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -49,6 +51,15 @@ export default function SettingsSemester() {
       return (semesterNumber % 2 === 1) ? 'Odd' : 'Even';
     }
     return 'Unknown';
+  };
+  
+  // Helper function to refresh semester context after changes
+  const refreshContextAfterChange = async () => {
+    try {
+      await refreshSemesters();
+    } catch (error) {
+      console.error('Error refreshing semester context:', error);
+    }
   };
 
   // Fetch semesters on component mount
@@ -136,6 +147,9 @@ export default function SettingsSemester() {
         setSuccessMessage(`Semester ${semesterNumber} added successfully`);
       }
       
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error adding semester:', error);
@@ -181,6 +195,9 @@ export default function SettingsSemester() {
         setSuccessMessage('Semester added successfully');
       }
       
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error adding semester:', error);
@@ -214,6 +231,10 @@ export default function SettingsSemester() {
       ));
       setEditingSemester(null);
       setSuccessMessage('Semester updated successfully');
+      
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error updating semester:', error);
@@ -235,6 +256,10 @@ export default function SettingsSemester() {
       await deleteSemester(semesterId);
       setSemesters(semesters.filter(sem => sem.id !== semesterId));
       setSuccessMessage('Semester deleted successfully');
+      
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
       setTimeout(() => setSuccessMessage(''), 3000);
     } catch (error) {
       console.error('Error deleting semester:', error);
@@ -261,6 +286,9 @@ export default function SettingsSemester() {
         
         const semesterNames = autoActivatedSemesters.map(sem => sem.name).join(', ');
         setSuccessMessage(`Auto-activated "${semesterNames}" based on current date`);
+        
+        // Refresh semester context after changes
+        await refreshContextAfterChange();
       } else {
         setError('No appropriate semesters found for current date');
       }

@@ -1,26 +1,34 @@
 // filepath: /Users/nihalsarandasduggirala/Downloads/engg-timetable/src/components/HODLayout.jsx
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import { FiBell, FiSearch, FiChevronDown, FiChevronUp, FiLogOut } from 'react-icons/fi';
 import { AuthContext } from '../../App';
 import { useHODLayout } from './services/HODLayout';
 import RateLimitStatusMonitor from '../common/RateLimitStatusMonitor';
+import SemesterDropdown from '../common/SemesterDropdown';
 
 export default function HODLayout() {
   const { user, setUser } = useContext(AuthContext);
   const {
     activeSidebarItem,
-    semesterDropdownOpen,
-    profileDropdownOpen,
-    selectedSemester,
-    availableSemesters,
     sidebarItems,
     handleNavigation,
-    handleLogout,
-    toggleSemesterDropdown,
-    toggleProfileDropdown,
-    selectSemester
+    handleLogout
   } = useHODLayout(user, setUser);
+  
+  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const closeDropdown = (e) => {
+      if (!e.target.closest('.profile-dropdown')) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    
+    document.addEventListener('mousedown', closeDropdown);
+    return () => document.removeEventListener('mousedown', closeDropdown);
+  }, []);
 
   // Render sidebar icon component
   const renderIcon = (item) => {
@@ -58,34 +66,10 @@ export default function HODLayout() {
         <header className="bg-white shadow flex items-center justify-between p-4 fixed top-0 right-0 left-20 lg:left-64 z-10">
           <div className="flex items-center">
             <h2 className="text-xl font-semibold text-gray-800">{user?.department || 'Department'}</h2>
-            <div className="relative semester-dropdown">
-              <div 
-                className="ml-4 flex items-center border rounded-lg px-3 py-1 cursor-pointer hover:bg-gray-50"
-                onClick={toggleSemesterDropdown}
-              >
-                <span className="text-gray-600 mr-1">{selectedSemester}</span>
-                {semesterDropdownOpen ? 
-                  <FiChevronUp className="text-gray-500" /> : 
-                  <FiChevronDown className="text-gray-500" />
-                }
-              </div>
-              
-              {semesterDropdownOpen && (
-                <div className="absolute top-full left-4 mt-1 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
-                  {availableSemesters.map((semester) => (
-                    <div
-                      key={semester}
-                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                        selectedSemester === semester ? 'bg-teal-50 text-teal-600' : ''
-                      }`}
-                      onClick={() => selectSemester(semester)}
-                    >
-                      {semester}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SemesterDropdown 
+              variant="header" 
+              showOnlyActive={true}
+            />
           </div>
           <div className="flex items-center gap-5">
             <div className="relative">
@@ -105,7 +89,7 @@ export default function HODLayout() {
             <div className="relative profile-dropdown">
               <div 
                 className="flex items-center gap-2 cursor-pointer"
-                onClick={toggleProfileDropdown}
+                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
               >
                 <img
                   src="https://via.placeholder.com/40"
