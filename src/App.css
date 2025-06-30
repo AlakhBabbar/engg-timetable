@@ -56,3 +56,44 @@
 .animate-fade-in-up {
   animation: fade-in-up 0.3s ease-out;
 }
+
+/* Login page animations */
+@keyframes flow {
+  0%, 100% {
+    transform: translateX(0px) translateY(0px);
+  }
+  50% {
+    transform: translateX(10px) translateY(-10px);
+  }
+}
+
+@keyframes flow-reverse {
+  0%, 100% {
+    transform: translateX(0px) translateY(0px);
+  }
+  50% {
+    transform: translateX(-10px) translateY(10px);
+  }
+}
+
+.animate-flow {
+  animation: flow 8s ease-in-out infinite;
+}
+
+.animate-flow-reverse {
+  animation: flow-reverse 8s ease-in-out infinite;
+}
+
+/* Timetable grid animations */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.1;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 4s ease-in-out infinite;
+}
