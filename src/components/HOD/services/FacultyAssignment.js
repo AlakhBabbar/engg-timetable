@@ -21,6 +21,7 @@ import { logActivity } from './HODDashboard';
 // Collection references - aligned with TeacherManagement
 const FACULTY_COLLECTION = 'teachers'; // Changed from 'faculty' to 'teachers' to match TeacherManagement
 const COURSES_COLLECTION = 'courses';
+const DEPARTMENTS_COLLECTION = 'departments';
 
 // Local state management for unsaved changes
 let localAssignmentState = {
@@ -34,61 +35,142 @@ let localAssignmentState = {
 
 /**
  * Fetch courses from Firebase (renamed to avoid confusion with local state)
- * @param {string} departmentId - Department ID
+ * Includes both department-specific courses and common courses
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @param {string} semester - Optional semester filter
  * @returns {Promise<Array>} - Array of courses
  */
-export const fetchCoursesFromFirebase = async (departmentId, semester = null) => {
+export const fetchCoursesFromFirebase = async (departmentName, semester = null) => {
   return retryOperation(async () => {
     const coursesRef = collection(db, COURSES_COLLECTION);
-    let coursesQuery;
     
-    if (semester) {
-      coursesQuery = query(
-        coursesRef, 
-        where('department', '==', departmentId),
-        where('semester', '==', semester),
-        orderBy('code')
-      );
-    } else {
-      coursesQuery = query(
-        coursesRef, 
-        where('department', '==', departmentId),
-        orderBy('code')
-      );
+    // First, find the department ID from the department name and identify common department ID
+    let departmentId = null;
+    let commonDepartmentId = null;
+    
+    try {
+      const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
+      const departmentsSnapshot = await getDocs(departmentsRef);
+      
+      for (const deptDoc of departmentsSnapshot.docs) {
+        const deptData = deptDoc.data();
+        
+        // Check if this is the user's department
+        if (deptData.name === departmentName) {
+          departmentId = deptDoc.id;
+        }
+        
+        // Check if this is the common department (look for various common department names)
+        if (deptData.name && (
+          deptData.name.toLowerCase() === 'common' ||
+          deptData.name.toLowerCase() === 'common department' ||
+          deptData.name.toLowerCase() === 'general' ||
+          deptData.name.toLowerCase() === 'shared'
+        )) {
+          commonDepartmentId = deptDoc.id;
+        }
+      }
+      
+      if (!departmentId && departmentName !== 'common') {
+        console.warn(`Department "${departmentName}" not found in database`);
+      }
+    } catch (deptError) {
+      console.error('fetchCoursesFromFirebase: Error finding department IDs:', deptError);
     }
     
-    const snapshot = await getDocs(coursesQuery);
+    // Create queries for both department-specific and common courses
+    const queries = [];
     
-    return snapshot.docs.map(doc => {
-      const data = doc.data();
-      return {
-        id: doc.id,
-        code: data.code || '',
-        title: data.title || '',
-        semester: data.semester || '',
-        weeklyHours: data.weeklyHours || '',
-        faculty: data.faculty || null, // Keep for backward compatibility
-        facultyList: data.facultyList || (data.faculty ? [data.faculty] : []), // Array of faculty IDs
-        tags: data.tags || [],
-        department: data.department || departmentId,
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt
-      };
+    // Add department-specific query if we found a department ID
+    if (departmentId) {
+      if (semester) {
+        queries.push(getDocs(query(coursesRef, 
+          where('department', '==', departmentId),
+          where('semester', '==', semester),
+          orderBy('code')
+        )));
+      } else {
+        queries.push(getDocs(query(coursesRef, 
+          where('department', '==', departmentId),
+          orderBy('code')
+        )));
+      }
+    }
+    
+    // Add common courses queries (try multiple variations)
+    if (semester) {
+      queries.push(getDocs(query(coursesRef, where('department', '==', 'common'), where('semester', '==', semester))));
+      queries.push(getDocs(query(coursesRef, where('department', '==', 'Common'), where('semester', '==', semester))));
+      queries.push(getDocs(query(coursesRef, where('department', '==', 'COMMON'), where('semester', '==', semester))));
+      
+      // Also query using the common department ID if we found one
+      if (commonDepartmentId) {
+        queries.push(getDocs(query(coursesRef, where('department', '==', commonDepartmentId), where('semester', '==', semester))));
+      }
+    } else {
+      queries.push(getDocs(query(coursesRef, where('department', '==', 'common'))));
+      queries.push(getDocs(query(coursesRef, where('department', '==', 'Common'))));
+      queries.push(getDocs(query(coursesRef, where('department', '==', 'COMMON'))));
+      
+      // Also query using the common department ID if we found one
+      if (commonDepartmentId) {
+        queries.push(getDocs(query(coursesRef, where('department', '==', commonDepartmentId))));
+      }
+    }
+    
+    // Execute all queries
+    const snapshots = await Promise.all(queries);
+    
+    // Combine all course documents
+    const allCourseDocs = [];
+    snapshots.forEach(snapshot => {
+      allCourseDocs.push(...snapshot.docs);
     });
+    
+    // Remove duplicates based on course ID
+    const uniqueCourses = new Map();
+    
+    allCourseDocs.forEach(doc => {
+      if (!uniqueCourses.has(doc.id)) {
+        const data = doc.data();
+        
+        // Determine if this is a common course
+        const isCommon = data.department === 'common' || 
+                        data.department === 'Common' || 
+                        data.department === 'COMMON' ||
+                        (commonDepartmentId && data.department === commonDepartmentId);
+        
+        uniqueCourses.set(doc.id, {
+          id: doc.id,
+          code: data.code || '',
+          title: data.title || '',
+          semester: data.semester || '',
+          weeklyHours: data.weeklyHours || '',
+          faculty: data.faculty || null, // Keep for backward compatibility
+          facultyList: data.facultyList || (data.faculty ? [data.faculty] : []), // Array of faculty IDs
+          tags: data.tags || [],
+          department: data.department || departmentId,
+          isCommon: isCommon, // Flag to identify common courses
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt
+        });
+      }
+    });
+    
+    return Array.from(uniqueCourses.values()).sort((a, b) => a.code.localeCompare(b.code));
   });
 };
 
 /**
  * Fetch courses from local state (main function for components to use)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @param {string} semester - Optional semester filter
  * @returns {Promise<Array>} - Array of courses from local state
  */
-export const fetchCourses = async (departmentId, semester = null) => {
+export const fetchCourses = async (departmentName, semester = null) => {
   // Initialize if not already done
   if (!localAssignmentState.isInitialized) {
-    await initializeLocalState(departmentId);
+    await initializeLocalState(departmentName);
   }
   
   const courses = Array.from(localAssignmentState.courses.values());
@@ -103,15 +185,37 @@ export const fetchCourses = async (departmentId, semester = null) => {
 
 /**
  * Fetch faculty from Firebase (renamed to avoid confusion with local state)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @returns {Promise<Array>} - Array of faculty members
  */
-export const fetchFacultyFromFirebase = async (departmentId) => {
+export const fetchFacultyFromFirebase = async (departmentName) => {
   return retryOperation(async () => {
     const facultyRef = collection(db, FACULTY_COLLECTION);
     
-    // Get both department ID and full name for flexible filtering
-    const fullDepartmentName = getDepartmentName(departmentId);
+    // First, find the department ID from the department name
+    let departmentId = null;
+    try {
+      const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
+      const departmentsSnapshot = await getDocs(departmentsRef);
+      
+      for (const deptDoc of departmentsSnapshot.docs) {
+        const deptData = deptDoc.data();
+        if (deptData.name === departmentName) {
+          departmentId = deptDoc.id;
+          break;
+        }
+      }
+      
+      if (!departmentId) {
+        console.warn(`Department "${departmentName}" not found in database`);
+        // Fallback: use department name as ID
+        departmentId = departmentName;
+      }
+    } catch (deptError) {
+      console.error('fetchFacultyFromFirebase: Error finding department ID:', deptError);
+      // Fallback: use department name as ID
+      departmentId = departmentName;
+    }
     
     // Try to query with both department formats
     let snapshot;
@@ -119,13 +223,13 @@ export const fetchFacultyFromFirebase = async (departmentId) => {
       // First try with full department name (TeacherManagement format)
       const facultyQuery = query(
         facultyRef, 
-        where('department', '==', fullDepartmentName),
+        where('department', '==', departmentName),
         orderBy('name')
       );
       snapshot = await getDocs(facultyQuery);
       
       // If no results, try with department ID
-      if (snapshot.empty && fullDepartmentName !== departmentId) {
+      if (snapshot.empty && departmentName !== departmentId) {
         const facultyQueryById = query(
           facultyRef, 
           where('department', '==', departmentId),
@@ -141,7 +245,7 @@ export const fetchFacultyFromFirebase = async (departmentId) => {
       
       const filteredDocs = allSnapshot.docs.filter(doc => {
         const data = doc.data();
-        return data.department === fullDepartmentName || data.department === departmentId;
+        return data.department === departmentName || data.department === departmentId;
       });
       
       // Sort client-side
@@ -194,13 +298,13 @@ export const fetchFacultyFromFirebase = async (departmentId) => {
 
 /**
  * Fetch faculty from local state (main function for components to use)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @returns {Promise<Array>} - Array of faculty members from local state
  */
-export const fetchFaculty = async (departmentId) => {
+export const fetchFaculty = async (departmentName) => {
   // Initialize if not already done
   if (!localAssignmentState.isInitialized) {
-    await initializeLocalState(departmentId);
+    await initializeLocalState(departmentName);
   }
   
   return Array.from(localAssignmentState.faculty.values());
@@ -208,19 +312,43 @@ export const fetchFaculty = async (departmentId) => {
 
 /**
  * Calculate time slots from weekly hours string
- * @param {string} weeklyHours - String representing weekly hours (e.g., "3L+1T+2P")
+ * @param {string|number} weeklyHours - String representing weekly hours (e.g., "3L+1T+2P") or number
  * @returns {number} - Total hours
  */
 export const getTimeSlots = (weeklyHours) => {
-  const lectureMatch = weeklyHours.match(/(\d+)L/);
-  const tutorialMatch = weeklyHours.match(/(\d+)T/);
-  const practicalMatch = weeklyHours.match(/(\d+)P/);
+  // Handle null, undefined, or empty values
+  if (!weeklyHours || weeklyHours === '') {
+    return 0;
+  }
   
-  const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
-  const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
-  const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
+  // Convert to string if it's a number
+  let weeklyHoursStr = String(weeklyHours).trim();
   
-  return lectureHours + tutorialHours + practicalHours;
+  // Handle empty string after trimming
+  if (!weeklyHoursStr) {
+    return 0;
+  }
+  
+  // If it's just a number (no L/T/P format), return the number
+  if (/^\d+$/.test(weeklyHoursStr)) {
+    return parseInt(weeklyHoursStr) || 0;
+  }
+  
+  try {
+    // Parse the L+T+P format
+    const lectureMatch = weeklyHoursStr.match(/(\d+)L/);
+    const tutorialMatch = weeklyHoursStr.match(/(\d+)T/);
+    const practicalMatch = weeklyHoursStr.match(/(\d+)P/);
+    
+    const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
+    const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
+    const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
+    
+    return lectureHours + tutorialHours + practicalHours;
+  } catch (error) {
+    console.error('Error parsing weekly hours:', weeklyHours, error);
+    return 0;
+  }
 };
 
 /**
@@ -295,7 +423,7 @@ export const filterFacultyBySearch = (faculty, searchQuery) => {
 
 /**
  * Assign a faculty member to a course in local state (no Firebase update until save)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @param {string} courseId - Course ID
  * @param {string} facultyId - Faculty ID
  * @param {boolean} replace - If true, replace all existing faculty; if false, add to existing
@@ -444,7 +572,7 @@ export const assignFacultyToCourse = async (departmentId, courseId, facultyId, r
 
 /**
  * Remove a faculty member from a course in local state (no Firebase update until save)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @param {string} courseId - Course ID
  * @param {string} facultyId - Faculty ID to remove
  * @returns {Promise<Object>} - Result of the removal
@@ -552,7 +680,7 @@ export const removeFacultyFromCourse = async (departmentId, courseId, facultyId)
 
 /**
  * Automatically assign faculty to courses based on expertise match (operates on local state)
- * @param {string} departmentId - Department ID 
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @param {Array} courses - Array of courses (optional, uses local state if not provided)
  * @param {Array} faculty - Array of faculty members (optional, uses local state if not provided)
  * @param {boolean} allowMultiple - Allow multiple faculty per course
@@ -689,7 +817,7 @@ export const autoAssignFaculty = async (departmentId, courses = null, faculty = 
 
 /**
  * Save all pending faculty assignments to Firebase (batch operation)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @returns {Promise<Object>} - Result of the save operation
  */
 export const saveAssignments = async (departmentId) => {
@@ -1166,7 +1294,7 @@ export const retryOperation = async (operation, maxRetries = 3, baseDelay = 1000
 
 /**
  * Map department ID to full department name for compatibility
- * @param {string} departmentId - Department ID or name
+ * @param {string} departmentName - Department name or ID
  * @returns {string} - Full department name
  */
 export const getDepartmentName = (departmentId) => {
@@ -1285,7 +1413,7 @@ export const getCoursesForFaculty = async (facultyId) => {
 
 /**
  * Swap faculty assignments between two courses
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @param {string} courseId1 - First course ID
  * @param {string} courseId2 - Second course ID
  * @returns {Promise<Object>} - Result of the swap operation
@@ -1375,22 +1503,22 @@ export const swapFacultyAssignments = async (departmentId, courseId1, courseId2)
  * USAGE EXAMPLES FOR LOCAL STATE FACULTY ASSIGNMENTS:
  * 
  * 1. Initialize local state (call first):
- *    await initializeLocalState(departmentId)
+ *    await initializeLocalState(departmentName)
  * 
  * 2. Get current data from local state:
  *    const { courses, faculty, hasUnsavedChanges } = getLocalState()
  * 
  * 3. Assign primary faculty to a course (local only):
- *    await assignFacultyToCourse(departmentId, courseId, facultyId, true)
+ *    await assignFacultyToCourse(departmentName, courseId, facultyId, true)
  * 
  * 4. Add additional faculty to a course (local only):
- *    await assignFacultyToCourse(departmentId, courseId, facultyId, false)
+ *    await assignFacultyToCourse(departmentName, courseId, facultyId, false)
  * 
  * 5. Remove specific faculty from a course (local only):
- *    await removeFacultyFromCourse(departmentId, courseId, facultyId)
+ *    await removeFacultyFromCourse(departmentName, courseId, facultyId)
  * 
  * 6. Auto-assign with multiple faculty support (local only):
- *    await autoAssignFaculty(departmentId, null, null, true)
+ *    await autoAssignFaculty(departmentName, null, null, true)
  * 
  * 7. Check for unsaved changes:
  *    const hasChanges = hasUnsavedChanges()
@@ -1399,10 +1527,10 @@ export const swapFacultyAssignments = async (departmentId, courseId1, courseId2)
  *    const summary = getPendingChangesSummary()
  * 
  * 9. Save all changes to Firebase:
- *    await saveAssignments(departmentId)
+ *    await saveAssignments(departmentName)
  * 
  * 10. Discard all changes and reset:
- *     await discardChanges(departmentId)
+ *     await discardChanges(departmentName)
  * 
  * 11. Reset to original state:
  *     resetLocalState()
@@ -1412,15 +1540,15 @@ export const swapFacultyAssignments = async (departmentId, courseId1, courseId2)
 
 /**
  * Initialize local state with data from Firebase
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @returns {Promise<void>}
  */
-export const initializeLocalState = async (departmentId) => {
+export const initializeLocalState = async (departmentName) => {
   try {
     // Fetch fresh data from Firebase
     const [courses, faculty] = await Promise.all([
-      fetchCoursesFromFirebase(departmentId),
-      fetchFacultyFromFirebase(departmentId)
+      fetchCoursesFromFirebase(departmentName),
+      fetchFacultyFromFirebase(departmentName)
     ]);
     
     // Initialize local state
@@ -1493,13 +1621,13 @@ export const resetLocalState = () => {
 
 /**
  * Discard all pending changes and reset to original Firebase state
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @returns {Promise<void>}
  */
-export const discardChanges = async (departmentId) => {
+export const discardChanges = async (departmentName) => {
   try {
     // Re-initialize from Firebase to get fresh data
-    await initializeLocalState(departmentId);
+    await initializeLocalState(departmentName);
     console.log('All pending changes discarded, state reset to Firebase data');
   } catch (error) {
     console.error('Error discarding changes:', error);
@@ -1584,13 +1712,13 @@ const updateFacultyLoadLocal = (facultyId, hoursChange) => {
 
 /**
  * Clear all faculty assignments from all courses (operates on local state)
- * @param {string} departmentId - Department ID
+ * @param {string} departmentName - Department name (e.g., "Computer Science")
  * @returns {Promise<Object>} - Result of the clear operation
  */
-export const clearAllAssignments = async (departmentId) => {
+export const clearAllAssignments = async (departmentName) => {
   try {
     if (!localAssignmentState.isInitialized) {
-      await initializeLocalState(departmentId);
+      await initializeLocalState(departmentName);
     }
     
     let clearedCount = 0;

@@ -1,5 +1,5 @@
 import { useState, useEffect, useContext } from 'react';
-import { FiAlertCircle, FiCheck, FiRefreshCw, FiStar, FiUsers, FiLoader, FiDatabase, FiX } from 'react-icons/fi';
+import { FiAlertCircle, FiCheck, FiRefreshCw, FiStar, FiUsers, FiLoader, FiDatabase, FiX, FiInfo } from 'react-icons/fi';
 import { motion } from 'framer-motion';
 import { AuthContext } from '../../App'; // Import AuthContext from App.jsx
 import { 
@@ -172,11 +172,19 @@ const CourseCard = ({ course, isSelected, onClick, faculty, onRemoveFaculty }) =
       whileTap={{ scale: 0.98 }}
       onClick={onClick}
       className={`p-4 border rounded-xl cursor-pointer transition-all duration-200
-                 ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'bg-white hover:shadow-md'}`}
+                 ${isSelected ? 'ring-2 ring-blue-500 bg-blue-50' : 'bg-white hover:shadow-md'}
+                 ${course.isCommon ? 'border-l-4 border-l-orange-400' : ''}`}
     >
       <div className="flex items-start justify-between">
         <div className="flex-1">
-          <h3 className="text-blue-700 font-medium">{course.code}</h3>
+          <div className="flex items-center gap-2">
+            <h3 className="text-blue-700 font-medium">{course.code}</h3>
+            {course.isCommon && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                Common
+              </span>
+            )}
+          </div>
           <h4 className="font-medium text-gray-800 mt-1">{course.title}</h4>
           <p className="text-sm text-gray-500 mt-1">
             {course.semester} • {course.weeklyHours}
@@ -290,7 +298,7 @@ export default function FacultyAssignment() {
   const { selectedSemester, availableSemesters, loading: loadingSemesters, selectSemester } = useSemester();
   
   // Get department from authenticated HOD user
-  const departmentId = user?.department || 'Computer Science'; // Default fallback
+  const departmentName = user?.department || 'Computer Science'; // Default fallback
   
   // Load data from Firebase on component mount
   useEffect(() => {
@@ -316,15 +324,15 @@ export default function FacultyAssignment() {
         
         // Fetch existing data from Firebase for HOD's department
         const [coursesData, facultyData] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         
         setCourses(coursesData);
         setFaculty(facultyData);
         setFilteredFaculty(facultyData);
         
-        console.log(`Loaded ${coursesData.length} courses and ${facultyData.length} faculty members from Firebase for department: ${departmentId}`);
+        console.log(`Loaded ${coursesData.length} courses and ${facultyData.length} faculty members from Firebase for department: ${departmentName}`);
       } catch (error) {
         console.error('Error loading data:', error);
         setConnectionError(true);
@@ -339,7 +347,7 @@ export default function FacultyAssignment() {
     };
     
     loadData();
-  }, [departmentId, user?.department, showError]);
+  }, [departmentName, user?.department, showError]);
   
   // Clear course selection when semester changes from context
   useEffect(() => {
@@ -435,13 +443,13 @@ export default function FacultyAssignment() {
     if (!selectedCourse) return;
     
     try {
-      const result = await assignFacultyToCourse(departmentId, selectedCourse.id, facultyId, replace);
+      const result = await assignFacultyToCourse(departmentName, selectedCourse.id, facultyId, replace);
       
       if (result.success) {
         // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         setCourses(updatedCourses);
         setFaculty(updatedFaculty);
@@ -466,13 +474,13 @@ export default function FacultyAssignment() {
 
   const handleRemoveFaculty = async (courseId, facultyId) => {
     try {
-      const result = await removeFacultyFromCourse(departmentId, courseId, facultyId);
+      const result = await removeFacultyFromCourse(departmentName, courseId, facultyId);
       
       if (result.success) {
         // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         setCourses(updatedCourses);
         setFaculty(updatedFaculty);
@@ -504,13 +512,13 @@ export default function FacultyAssignment() {
       // Filter courses by selected semester for auto-assignment
       const semesterCourses = selectedSemester ? courses.filter(c => c.semester === selectedSemester) : courses;
       
-      const result = await autoAssignFaculty(departmentId, semesterCourses, faculty);
+      const result = await autoAssignFaculty(departmentName, semesterCourses, faculty);
       
       if (result.success) {
         // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         setCourses(updatedCourses);
         setFaculty(updatedFaculty);
@@ -540,7 +548,7 @@ export default function FacultyAssignment() {
   const handleSaveAssignments = async () => {
     try {
       setSaving(true);
-      const result = await saveAssignments(departmentId);
+      const result = await saveAssignments(departmentName);
       
       if (result.success) {
         setShowSavedMessage(true);
@@ -563,13 +571,13 @@ export default function FacultyAssignment() {
   const handleInitializeSampleData = async () => {
     try {
       setInitializingData(true);
-      const initSuccess = await initializeAllSampleData(departmentId);
+      const initSuccess = await initializeAllSampleData(departmentName);
       
       if (initSuccess) {
         // Refetch data after initialization
         const [coursesData, facultyData] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         setCourses(coursesData);
         setFaculty(facultyData);
@@ -595,13 +603,13 @@ export default function FacultyAssignment() {
     
     try {
       setInitializingData(true);
-      const initSuccess = await initializeSampleCoursesForSemester(departmentId, selectedSemester);
+      const initSuccess = await initializeSampleCoursesForSemester(departmentName, selectedSemester);
       
       if (initSuccess) {
         // Refetch data after initialization
         const [coursesData, facultyData] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         setCourses(coursesData);
         setFaculty(facultyData);
@@ -638,8 +646,8 @@ export default function FacultyAssignment() {
       }
       
       const [coursesData, facultyData] = await Promise.all([
-        fetchCourses(departmentId),
-        fetchFaculty(departmentId)
+        fetchCourses(departmentName),
+        fetchFaculty(departmentName)
       ]);
       
       setCourses(coursesData);
@@ -668,13 +676,13 @@ export default function FacultyAssignment() {
     
     try {
       setClearingAssignments(true);
-      const result = await clearAllAssignments(departmentId);
+      const result = await clearAllAssignments(departmentName);
       
       if (result.success) {
         // Get updated data from local state (no Firebase refetch needed)
         const [updatedCourses, updatedFaculty] = await Promise.all([
-          fetchCourses(departmentId),
-          fetchFaculty(departmentId)
+          fetchCourses(departmentName),
+          fetchFaculty(departmentName)
         ]);
         setCourses(updatedCourses);
         setFaculty(updatedFaculty);
@@ -708,12 +716,12 @@ export default function FacultyAssignment() {
     
     try {
       setDiscardingChanges(true);
-      await discardChanges(departmentId);
+      await discardChanges(departmentName);
       
       // Get reverted data from local state (service handles the revert to original Firebase state)
       const [originalCourses, originalFaculty] = await Promise.all([
-        fetchCourses(departmentId),
-        fetchFaculty(departmentId)
+        fetchCourses(departmentName),
+        fetchFaculty(departmentName)
       ]);
       setCourses(originalCourses);
       setFaculty(originalFaculty);
@@ -861,7 +869,7 @@ export default function FacultyAssignment() {
         <div className="flex items-center gap-2 text-sm">
           <FiDatabase className="text-teal-600" />
           <span className="text-gray-600">
-           Department: {departmentId}
+           Department: {departmentName}
           </span>
           {user?.name && (
             <span className="text-blue-600 font-medium">
@@ -897,6 +905,16 @@ export default function FacultyAssignment() {
           </div>
         )}
       </div>
+      
+      {/* Common courses info */}
+      {courses.some(course => course.isCommon) && (
+        <div className="mb-4 flex items-center gap-2 text-sm text-orange-600 bg-orange-50 px-3 py-2 rounded-lg border border-orange-200">
+          <FiInfo />
+          <span>
+            📚 <strong>Common courses</strong> (marked with orange border) are shared across departments and can be assigned faculty from your department.
+          </span>
+        </div>
+      )}
       
       {/* Search Bar */}
       <div className="mb-6">
