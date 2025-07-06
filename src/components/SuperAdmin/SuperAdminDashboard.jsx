@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { FiUsers, FiCalendar, FiAlertTriangle } from 'react-icons/fi';
 import { BsBuilding } from 'react-icons/bs';
+import { useNavigate } from 'react-router-dom';
 import SuperAdminDashboardService, { 
   getDashboardMetrics, 
   fetchDashboardStats,
@@ -12,11 +13,14 @@ import SuperAdminDashboardService, {
   getDepartmentDistribution,
   getRoomUtilization
 } from './services/SuperAdminDashboard';
+import { getCollegeStats } from './services/CollegeManagement';
 
 export default function SuperAdminDashboard() {
+  const navigate = useNavigate();
   const [metrics, setMetrics] = useState({
     totalUsers: 0,
     totalDepartments: 0,
+    totalColleges: 0,
     activeSemesters: 0,
     conflictsToday: 0
   });
@@ -43,18 +47,21 @@ export default function SuperAdminDashboard() {
         const statsPromise = fetchDashboardStats();
         const departmentPromise = getDepartmentDistribution();
         const roomUtilizationPromise = getRoomUtilization();
+        const collegeStatsPromise = getCollegeStats();
         
         // Wait for all promises to resolve
-        const [stats, departments, rooms] = await Promise.all([
+        const [stats, departments, rooms, collegeStats] = await Promise.all([
           statsPromise,
           departmentPromise,
-          roomUtilizationPromise
+          roomUtilizationPromise,
+          collegeStatsPromise
         ]);
         
         // Update state with real data
         setMetrics({
           totalUsers: stats.totalTeachers || 0,
           totalDepartments: stats.totalDepartments || 0,
+          totalColleges: collegeStats.totalColleges || 0,
           activeSemesters: 2, // Hardcoded for now, would come from API
           conflictsToday: 3  // Hardcoded for now, would come from API
         });
@@ -76,6 +83,7 @@ export default function SuperAdminDashboard() {
   const handleAddNewUser = () => addNewUser();
   const handleGenerateReport = () => generateReport();
   const handleManageSemester = () => manageSemester();
+  const handleManageColleges = () => navigate('/admin/colleges');
 
   return (
     <div className="space-y-6">
@@ -86,7 +94,7 @@ export default function SuperAdminDashboard() {
       )}
       
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-6">
         <div className="bg-white rounded-3xl shadow-xl p-6 flex items-center">
           <div className="p-3 bg-blue-100 rounded-full mr-4">
             <FiUsers className="text-blue-600 text-2xl" />
@@ -98,6 +106,22 @@ export default function SuperAdminDashboard() {
                 <span className="inline-block w-12 h-6 bg-gray-200 animate-pulse rounded"></span>
               ) : (
                 metrics.totalUsers
+              )}
+            </p>
+          </div>
+        </div>
+        
+        <div className="bg-white rounded-3xl shadow-xl p-6 flex items-center">
+          <div className="p-3 bg-indigo-100 rounded-full mr-4">
+            <BsBuilding className="text-indigo-600 text-2xl" />
+          </div>
+          <div>
+            <h2 className="text-sm text-gray-500 font-medium">Total Colleges</h2>
+            <p className="text-2xl font-bold">
+              {isLoading ? (
+                <span className="inline-block w-12 h-6 bg-gray-200 animate-pulse rounded"></span>
+              ) : (
+                metrics.totalColleges
               )}
             </p>
           </div>
@@ -246,6 +270,13 @@ export default function SuperAdminDashboard() {
           disabled={isLoading}
         >
           <span>➕</span> Add New User
+        </button>
+        <button 
+          onClick={handleManageColleges}
+          className="px-6 py-3 rounded-full bg-gradient-to-r from-purple-500 to-pink-500 text-white font-semibold hover:opacity-90 transition flex items-center gap-2"
+          disabled={isLoading}
+        >
+          <span>🏛️</span> Manage Colleges
         </button>
         <button 
           onClick={handleGenerateReport}

@@ -1,6 +1,7 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useState, useEffect } from 'react';
 import { FiMenu, FiBell, FiSearch, FiUser, FiUsers, FiGrid, FiLayers, FiHome, FiFileText, FiSettings, FiBookOpen, FiLogOut, FiChevronDown, FiChevronUp, FiBook } from 'react-icons/fi';
+import { BsBuilding } from 'react-icons/bs';
 import { auth, signOut, onAuthStateChanged } from '../../firebase/config';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../../firebase/config';
@@ -12,6 +13,7 @@ const navItems = [
   { label: 'Users', icon: <FiUsers />, path: '/admin/users' },
   { label: 'Faculty', icon: <FiUser />, path: '/admin/faculty' },
   { label: 'Courses', icon: <FiBook />, path: '/admin/courses' },
+  { label: 'Colleges', icon: <BsBuilding />, path: '/admin/colleges' },
   { label: 'Departments', icon: <FiLayers />, path: '/admin/departments' },
   { label: 'Rooms', icon: <FiHome />, path: '/admin/rooms' },
   { label: 'Reports', icon: <FiFileText />, path: '/admin/reports' },

@@ -12,6 +12,7 @@ import RoomManagement from './components/SuperAdmin/RoomManagement'
 import ReportsAnalytics from './components/SuperAdmin/ReportsAnalytics'
 import SettingsSemester from './components/SuperAdmin/SettingsSemester'
 import SuperAdminCourseManagement from './components/SuperAdmin/SuperAdminCourseManagement'
+import CollegeManagement from './components/SuperAdmin/CollegeManagement'
 import HODDashboard from './components/HOD/HODDashboard'
 import CourseManagement from './components/HOD/CourseManagement'
 import HODLayout from './components/HOD/HODLayout'
@@ -196,6 +197,7 @@ function App() {
               <Route path="users" element={<UserManagement />} />
               <Route path="faculty" element={<TeacherManagement />} />
               <Route path="courses" element={<SuperAdminCourseManagement />} />
+              <Route path="colleges" element={<CollegeManagement />} />
               <Route path="departments" element={<DepartmentManagement />} />
               <Route path="rooms" element={<RoomManagement />} />
               <Route path="reports" element={<ReportsAnalytics />} />
