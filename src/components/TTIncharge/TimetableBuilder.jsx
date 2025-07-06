@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FiSave, FiUpload, FiTrash2, FiFilter, FiChevronDown,
@@ -53,9 +53,17 @@ export default function TimetableBuilder() {
   const [isEditingTab, setIsEditingTab] = useState(null);
   const [editTabName, setEditTabName] = useState("");
   
-  // State for filters
-  const [selectedDepartment, setSelectedDepartment] = useState(null);
-  const [selectedFaculty, setSelectedFaculty] = useState(null);
+  // Per-tab state for filters and configurations
+  const [tabConfigs, setTabConfigs] = useState({
+    1: {
+      selectedBranch: '',
+      selectedBatch: '',
+      selectedType: '',
+      selectedDepartment: null,
+      selectedFaculty: null,
+      selectedRoom: roomsData[0] || null
+    }
+  });
   
   // State for view mode
   const [viewMode, setViewMode] = useState('week'); 
@@ -63,9 +71,6 @@ export default function TimetableBuilder() {
   
   // State for the timetable grid
   const [timetablesData, setTimetablesData] = useState({});
-  
-  // Selected room
-  const [selectedRoom, setSelectedRoom] = useState(roomsData[0]);
   
   // Conflicts
   const [conflictsData, setConflictsData] = useState({});
@@ -79,7 +84,25 @@ export default function TimetableBuilder() {
   const [historyData, setHistoryData] = useState({});
   const [historyIndices, setHistoryIndices] = useState({});
 
-  // Helper to get current tab's data
+  // Helper to get current tab's data and configuration
+  const currentTabConfig = tabConfigs[activeTabId] || {
+    selectedBranch: '',
+    selectedBatch: '',
+    selectedType: '',
+    selectedDepartment: null,
+    selectedFaculty: null,
+    selectedRoom: null
+  };
+  
+  const {
+    selectedBranch,
+    selectedBatch,
+    selectedType,
+    selectedDepartment,
+    selectedFaculty,
+    selectedRoom
+  } = currentTabConfig;
+  
   const timetableData = timetablesData[activeTabId] || {};
   const conflicts = conflictsData[activeTabId] || [];
   const history = historyData[activeTabId] || [];
@@ -109,19 +132,32 @@ export default function TimetableBuilder() {
   const [availableBatches, setAvailableBatches] = useState([]);
   const [batchesLoading, setBatchesLoading] = useState(false);
   
-  // Selected values for normalized timetable
-  const [selectedBranch, setSelectedBranch] = useState('');
-  const [selectedBatch, setSelectedBatch] = useState('');
-  const [selectedType, setSelectedType] = useState('');
-  
   const type=['Full-Time', 'Part-Time']
 
-  // Validation for required fields
-  const isRequiredFieldsSelected = () => {
+  // Validation for required fields (memoized to prevent infinite loops)
+  const isRequiredFieldsSelected = useCallback(() => {
     return selectedBranch && selectedBatch && selectedType && currentSemester;
-  };
+  }, [selectedBranch, selectedBatch, selectedType, currentSemester]);
 
   const isTimetableDisabled = !isRequiredFieldsSelected();
+
+  // Helper functions to update tab configurations (memoized to prevent infinite loops)
+  const updateTabConfig = useCallback((tabId, updates) => {
+    setTabConfigs(prev => ({
+      ...prev,
+      [tabId]: {
+        ...prev[tabId],
+        ...updates
+      }
+    }));
+  }, []);
+
+  const setSelectedBranch = useCallback((value) => updateTabConfig(activeTabId, { selectedBranch: value }), [updateTabConfig, activeTabId]);
+  const setSelectedBatch = useCallback((value) => updateTabConfig(activeTabId, { selectedBatch: value }), [updateTabConfig, activeTabId]);
+  const setSelectedType = useCallback((value) => updateTabConfig(activeTabId, { selectedType: value }), [updateTabConfig, activeTabId]);
+  const setSelectedDepartment = useCallback((value) => updateTabConfig(activeTabId, { selectedDepartment: value }), [updateTabConfig, activeTabId]);
+  const setSelectedFaculty = useCallback((value) => updateTabConfig(activeTabId, { selectedFaculty: value }), [updateTabConfig, activeTabId]);
+  const setSelectedRoom = useCallback((value) => updateTabConfig(activeTabId, { selectedRoom: value }), [updateTabConfig, activeTabId]);
 
   // State for all teachers (id -> name)
   const [teacherMap, setTeacherMap] = useState({});
@@ -186,7 +222,7 @@ export default function TimetableBuilder() {
     setBranches(branchesData);
   }, []);
 
-  // Fetch batches when branch and semester change
+  // Fetch batches when branch and semester change for current tab
   useEffect(() => {
     let unsubscribe = null;
 
@@ -213,7 +249,8 @@ export default function TimetableBuilder() {
     };
   }, [selectedBranch, currentSemester]);
 
-  const loadBatches = async () => {
+  // Memoized loadBatches function to prevent infinite loops
+  const loadBatches = useCallback(async () => {
     try {
       const batchData = await getBatches(selectedBranch, currentSemester, true); // Force sync
       setAvailableBatches(batchData);
@@ -227,7 +264,7 @@ export default function TimetableBuilder() {
     } finally {
       setBatchesLoading(false);
     }
-  };
+  }, [selectedBranch, currentSemester, showInfo, showError]);
 
   // Fetch all teachers and build a map (id -> name)
   useEffect(() => {
@@ -257,12 +294,30 @@ export default function TimetableBuilder() {
   useEffect(() => {
     const initialData = initializeEmptyTimetable();
     
-    // Initialize data for the first tab
-    setTimetablesData({ 1: initialData });
-    setConflictsData({ 1: [] });
+    // Initialize data for the first tab only if not already initialized
+    setTimetablesData(prev => {
+      if (!prev[1]) {
+        return { ...prev, 1: initialData };
+      }
+      return prev;
+    });
     
-    // Initialize history for the first tab
-    addToHistory(1, initialData);
+    setConflictsData(prev => {
+      if (!prev[1]) {
+        return { ...prev, 1: [] };
+      }
+      return prev;
+    });
+    
+    // Initialize history for the first tab only if not already initialized  
+    setHistoryData(prevHistory => {
+      if (!prevHistory[1]) {
+        const result = historyManager.addToHistory([], -1, initialData);
+        setHistoryIndices(prevIndices => ({ ...prevIndices, 1: result.historyIndex }));
+        return { ...prevHistory, 1: result.history };
+      }
+      return prevHistory;
+    });
     
     // Check screen size
     const checkScreenSize = () => {
@@ -286,21 +341,27 @@ export default function TimetableBuilder() {
     async function loadRooms() {
       const roomsData = await fetchRooms(db, collection, getDocs);
       setRooms(roomsData);
-      
-      // Set initial selected room
-      if (!selectedRoom || !roomsData.find(r => r.id === selectedRoom.id)) {
-        setSelectedRoom(roomsData[0] || null);
-      }
     }
     loadRooms();
   }, []);
 
-  // Ensure selectedRoom is always valid when rooms change
+  // Set initial selected room for tabs when rooms change
   useEffect(() => {
     if (rooms.length > 0) {
-      if (!selectedRoom || !rooms.find(r => r.id === selectedRoom.id)) {
-        setSelectedRoom(rooms[0]);
-      }
+      const defaultRoom = rooms[0];
+      setTabConfigs(prev => {
+        const updated = { ...prev };
+        let hasChanges = false;
+        
+        Object.keys(updated).forEach(tabId => {
+          if (!updated[tabId].selectedRoom || !rooms.find(r => r.id === updated[tabId].selectedRoom.id)) {
+            updated[tabId] = { ...updated[tabId], selectedRoom: defaultRoom };
+            hasChanges = true;
+          }
+        });
+        
+        return hasChanges ? updated : prev;
+      });
     }
   }, [rooms]);
 
@@ -308,19 +369,19 @@ export default function TimetableBuilder() {
   useEffect(() => {
     if (selectedBranch && currentSemester && !batchesLoading && availableBatches.length === 0) {
       // Clear batch selection if no batches are available for the selected branch/semester
-      setSelectedBatch('');
+      updateTabConfig(activeTabId, { selectedBatch: '' });
     }
-  }, [selectedBranch, currentSemester, batchesLoading, availableBatches]);
+  }, [selectedBranch, currentSemester, batchesLoading, availableBatches, activeTabId, updateTabConfig]);
 
   // Reset selected batch when branch changes to avoid invalid combinations
   useEffect(() => {
     if (selectedBranch && availableBatches.length > 0) {
       // If current batch is not in the new batch list, reset it
       if (selectedBatch && !availableBatches.find(batch => batch.name === selectedBatch)) {
-        setSelectedBatch('');
+        updateTabConfig(activeTabId, { selectedBatch: '' });
       }
     }
-  }, [selectedBranch, availableBatches]);
+  }, [selectedBranch, availableBatches, selectedBatch, activeTabId, updateTabConfig]);
 
   // Debug: Log when all required fields are selected
   useEffect(() => {
@@ -336,13 +397,22 @@ export default function TimetableBuilder() {
     }
   }, [currentSemester, selectedBranch, selectedBatch, selectedType]);
 
+  // State for managing per-tab Firestore listeners
+  const [activeListeners, setActiveListeners] = useState({});
+
   // Firestore real-time listener for timetable (per tab)
   useEffect(() => {
+    // Clean up existing listener for this tab
+    const existingUnsubscribe = activeListeners[activeTabId];
+    if (existingUnsubscribe) {
+      existingUnsubscribe();
+    }
+
     if (!isRequiredFieldsSelected()) {
       // Clear timetable data if required fields are not selected
       setTimetablesData(prev => ({ ...prev, [activeTabId]: initializeEmptyTimetable() }));
       setTimetableLoading(false);
-      return () => {};
+      return;
     }
 
     setTimetableLoading(true);
@@ -355,14 +425,37 @@ export default function TimetableBuilder() {
         setTimetableLoading(false);
         
         // Initialize history for this tab with the loaded data (first time only)
-        if (!historyData[activeTabId] || historyData[activeTabId].length === 0) {
-          addToHistory(activeTabId, scheduleData);
-        }
+        setHistoryData(prevHistory => {
+          if (!prevHistory[activeTabId] || prevHistory[activeTabId].length === 0) {
+            const result = historyManager.addToHistory([], -1, scheduleData);
+            setHistoryIndices(prevIndices => ({ ...prevIndices, [activeTabId]: result.historyIndex }));
+            return { ...prevHistory, [activeTabId]: result.history };
+          }
+          return prevHistory;
+        });
       }
     });
     
-    return unsubscribe;
-  }, [currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
+    // Store the unsubscribe function
+    setActiveListeners(prev => ({ ...prev, [activeTabId]: unsubscribe }));
+    
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
+  }, [currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId, isRequiredFieldsSelected]);
+
+  // Cleanup all listeners on component unmount
+  useEffect(() => {
+    return () => {
+      Object.values(activeListeners).forEach(unsubscribe => {
+        if (typeof unsubscribe === 'function') {
+          unsubscribe();
+        }
+      });
+    };
+  }, []);
 
   // Write timetable changes to Firestore (only when data changes, not when loading)
   useEffect(() => {
@@ -382,39 +475,13 @@ export default function TimetableBuilder() {
         });
       }
     }
-  }, [timetablesData, currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId]);
-
-  // Initialize empty timetable data and check screen size on component mount
-  useEffect(() => {
-    const initialData = initializeEmptyTimetable();
-    
-    // Initialize data for the first tab only if no data exists
-    setTimetablesData(prev => prev[1] ? prev : { 1: initialData });
-    setConflictsData(prev => prev[1] ? prev : { 1: [] });
-    
-    // Initialize history for the first tab only if no history exists
-    if (!historyData[1]) {
-      addToHistory(1, initialData);
-    }
-    
-    // Check screen size
-    const checkScreenSize = () => {
-      setIsMobile(window.innerWidth < 768);
-      setIsCompactView(window.innerWidth < 1280);
-    };
-    
-    checkScreenSize();
-    window.addEventListener('resize', checkScreenSize);
-    
-    return () => {
-      window.removeEventListener('resize', checkScreenSize);
-    };
-  }, []);
+  }, [timetablesData, currentSemester, selectedBranch, selectedBatch, selectedType, activeTabId, isRequiredFieldsSelected]);
 
   // Add a new tab
   const addNewTab = () => {
     const initialData = initializeEmptyTimetable();
-    const tabConfig = tabOperations.createNewTab(nextTabId, initialData);
+    const defaultRoom = rooms[0] || null;
+    const tabConfig = tabOperations.createNewTab(nextTabId, initialData, defaultRoom);
     
     // Add new tab
     setTabs(prevTabs => [
@@ -429,27 +496,89 @@ export default function TimetableBuilder() {
     setTimetablesData(prev => ({ ...prev, [nextTabId]: initialData }));
     setConflictsData(prev => ({ ...prev, [nextTabId]: [] }));
     
+    // Initialize tab configuration
+    setTabConfigs(prev => ({
+      ...prev,
+      [nextTabId]: tabConfig.tabConfig
+    }));
+    
     // Initialize history for the new tab
     addToHistory(nextTabId, initialData);
-    
-    // Reset fields
-    setSelectedBranch(tabConfig.resetFields.selectedBranch);
-    setSelectedBatch(tabConfig.resetFields.selectedBatch);
-    setSelectedType(tabConfig.resetFields.selectedType);
     
     // Increment next tab id
     setNextTabId(prevId => prevId + 1);
   };
 
-  // Switch to a tab
+  // Helper function to mark tab as modified
+  const markTabAsModified = (tabId, isModified = true) => {
+    setTabs(prev => prev.map(tab => 
+      tab.id === tabId 
+        ? { ...tab, isModified }
+        : tab
+    ));
+  };
+
+  // Function to save current tab
+  const saveCurrentTab = () => {
+    if (isRequiredFieldsSelected() && timetableData) {
+      markTabAsModified(activeTabId, false);
+      showInfo('Timetable saved successfully');
+      
+      // The actual save to Firestore happens automatically through the useEffect
+      // This is just for user feedback and marking the tab as saved
+    }
+  };
+
+  // Monitor timetable data changes to mark tabs as modified
+  useEffect(() => {
+    const currentData = timetablesData[activeTabId];
+    if (currentData && Object.keys(currentData).length > 0) {
+      // Check if there's actual course data (not just empty slots)
+      const hasData = Object.values(currentData).some(dayData => 
+        Object.values(dayData || {}).some(slotData => slotData && slotData.code)
+      );
+      
+      if (hasData) {
+        markTabAsModified(activeTabId, true);
+      }
+    }
+  }, [timetablesData, activeTabId]);
+
   const switchTab = (tabId) => {
     setTabs(prevTabs => tabOperations.switchTab(prevTabs, tabId));
     setActiveTabId(tabId);
+    
+    // Ensure tab config exists for the switched tab
+    if (!tabConfigs[tabId]) {
+      setTabConfigs(prev => ({
+        ...prev,
+        [tabId]: {
+          selectedBranch: '',
+          selectedBatch: '',
+          selectedType: '',
+          selectedDepartment: null,
+          selectedFaculty: null,
+          selectedRoom: rooms[0] || null
+        }
+      }));
+    }
   };
 
   // Close a tab
   const closeTab = (tabId, event) => {
     event.stopPropagation();
+    
+    const tabToClose = tabs.find(tab => tab.id === tabId);
+    
+    // Check if tab has unsaved changes
+    if (tabToClose?.isModified) {
+      const confirmClose = window.confirm(
+        `Tab "${tabToClose.name}" has unsaved changes. Are you sure you want to close it?`
+      );
+      if (!confirmClose) {
+        return;
+      }
+    }
     
     const result = tabOperations.closeTab(tabs, tabId, activeTabId);
     if (!result) return; // Don't close if it's the only tab
@@ -486,6 +615,22 @@ export default function TimetableBuilder() {
       delete newData[tabId];
       return newData;
     });
+    
+    setTabConfigs(prev => {
+      const newData = { ...prev };
+      delete newData[tabId];
+      return newData;
+    });
+    
+    // Clean up any active listeners for this tab
+    if (activeListeners[tabId]) {
+      activeListeners[tabId]();
+      setActiveListeners(prev => {
+        const updated = { ...prev };
+        delete updated[tabId];
+        return updated;
+      });
+    }
   };
 
   // Start editing tab name
@@ -507,15 +652,18 @@ export default function TimetableBuilder() {
     }
   };
 
-  // Function to add current state to history
-  const addToHistory = (tabId, data) => {
-    const tabHistory = historyData[tabId] || [];
-    const tabHistoryIndex = historyIndices[tabId] || -1;
-    
-    const result = historyManager.addToHistory(tabHistory, tabHistoryIndex, data);
-    setHistoryData(prev => ({ ...prev, [tabId]: result.history }));
-    setHistoryIndices(prev => ({ ...prev, [tabId]: result.historyIndex }));
-  };
+  // Function to add current state to history (memoized)
+  const addToHistory = useCallback((tabId, data) => {
+    setHistoryData(prev => {
+      const tabHistory = prev[tabId] || [];
+      const tabHistoryIndex = historyIndices[tabId] || -1;
+      
+      const result = historyManager.addToHistory(tabHistory, tabHistoryIndex, data);
+      setHistoryIndices(prevIndices => ({ ...prevIndices, [tabId]: result.historyIndex }));
+      
+      return { ...prev, [tabId]: result.history };
+    });
+  }, [historyIndices]);
 
   // Handle undo
   const handleUndo = () => {
@@ -721,10 +869,11 @@ export default function TimetableBuilder() {
   // Handle save timetable
   const handleSaveTimetable = async () => {
     try {
+      saveCurrentTab();
       const result = await saveTimetable(timetableData);
-      alert(result.message);
+      // Don't show alert since saveCurrentTab already shows success message
     } catch (error) {
-      alert('Error saving timetable');
+      showError('Error saving timetable');
     }
   };
 
@@ -1060,12 +1209,16 @@ export default function TimetableBuilder() {
                       </div>
                     ) : (
                       <>
-                        <span className="truncate block flex-1 text-xs">{tab.name}</span>
+                        <span className="truncate block flex-1 text-xs">
+                          {tab.name}
+                          {tab.isModified && <span className="ml-1 text-yellow-300">*</span>}
+                        </span>
                         <div className="flex items-center gap-1 flex-shrink-0 ml-1">
                           <button 
                             onClick={(e) => !isTimetableDisabled && startEditingTab(tab.id, e)} 
                             className={`hidden md:block ${isTimetableDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600'}`}
                             disabled={isTimetableDisabled}
+                            title="Edit tab name"
                           >
                             <FiEdit2 size={12} />
                           </button>
@@ -1073,6 +1226,7 @@ export default function TimetableBuilder() {
                             onClick={(e) => !isTimetableDisabled && closeTab(tab.id, e)} 
                             className={`${isTimetableDisabled ? 'text-gray-400 cursor-not-allowed' : 'text-gray-400 hover:text-gray-600'}`}
                             disabled={isTimetableDisabled}
+                            title={tab.isModified ? "Close tab (unsaved changes)" : "Close tab"}
                           >
                             <FiX size={12} />
                           </button>

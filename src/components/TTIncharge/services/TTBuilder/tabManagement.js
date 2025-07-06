@@ -10,29 +10,35 @@ import { initializeEmptyTimetable } from './timetableOperations.js';
  */
 export const tabOperations = {
   /**
-   * Create a new tab
+   * Create a new tab with enhanced configuration
    * @param {number} nextTabId - Next available tab ID
    * @param {Object} initialData - Initial timetable data
+   * @param {Object} defaultRoom - Default room for the tab
    * @returns {Object} New tab configuration
    */
-  createNewTab: (nextTabId, initialData) => {
+  createNewTab: (nextTabId, initialData, defaultRoom = null) => {
     return {
       newTab: {
         id: nextTabId,
         name: `New Timetable ${nextTabId}`,
-        isActive: true
+        isActive: true,
+        createdAt: new Date().toISOString(),
+        isModified: false
       },
       initialData,
-      resetFields: {
+      tabConfig: {
         selectedBranch: '',
         selectedBatch: '',
-        selectedType: ''
+        selectedType: '',
+        selectedDepartment: null,
+        selectedFaculty: null,
+        selectedRoom: defaultRoom
       }
     };
   },
 
   /**
-   * Switch active tab
+   * Switch active tab and ensure state consistency
    * @param {Array} tabs - Current tabs array
    * @param {number} targetTabId - Target tab ID
    * @returns {Array} Updated tabs array
@@ -40,7 +46,8 @@ export const tabOperations = {
   switchTab: (tabs, targetTabId) => {
     return tabs.map(tab => ({
       ...tab,
-      isActive: tab.id === targetTabId
+      isActive: tab.id === targetTabId,
+      lastAccessed: tab.id === targetTabId ? new Date().toISOString() : tab.lastAccessed
     }));
   },
 
@@ -332,5 +339,94 @@ export const tabValidator = {
       requiresConfirmation: false,
       message: 'Tab can be closed safely'
     };
+  },
+
+  /**
+   * Validate tab state before switching
+   * @param {Object} currentTab - Current tab
+   * @param {Object} targetTab - Target tab
+   * @returns {Object} Validation result
+   */
+  validateTabSwitch: (currentTab, targetTab) => {
+    if (!targetTab) {
+      return {
+        canSwitch: false,
+        message: 'Target tab does not exist'
+      };
+    }
+
+    if (currentTab && currentTab.isModified) {
+      return {
+        canSwitch: true,
+        requiresConfirmation: true,
+        message: 'Current tab has unsaved changes. Switch anyway?'
+      };
+    }
+
+    return {
+      canSwitch: true,
+      requiresConfirmation: false,
+      message: 'Can switch tabs safely'
+    };
+  },
+
+  /**
+   * Get tab display information
+   * @param {Object} tab - Tab object
+   * @returns {Object} Display information
+   */
+  getTabDisplayInfo: (tab) => {
+    const displayName = tab.isModified ? `${tab.name} *` : tab.name;
+    const tooltip = tab.isModified 
+      ? `${tab.name} (modified)` 
+      : tab.name;
+    
+    return {
+      displayName,
+      tooltip,
+      hasChanges: tab.isModified,
+      canClose: true // This would be determined by other factors
+    };
+  },
+
+  /**
+   * Bulk operations for tabs
+   */
+  bulkOperations: {
+    /**
+     * Close all tabs except the specified one
+     * @param {Array} tabs - Current tabs array
+     * @param {number} keepTabId - Tab ID to keep open
+     * @returns {Array} Updated tabs array
+     */
+    closeAllExcept: (tabs, keepTabId) => {
+      return tabs.filter(tab => tab.id === keepTabId);
+    },
+
+    /**
+     * Save all modified tabs
+     * @param {Array} tabs - Current tabs array
+     * @returns {Array} Updated tabs array
+     */
+    saveAllModified: (tabs) => {
+      return tabs.map(tab => 
+        tab.isModified 
+          ? { 
+              ...tab, 
+              isModified: false,
+              lastSaved: new Date().toISOString()
+            }
+          : tab
+      );
+    },
+
+    /**
+     * Mark all tabs as unmodified
+     * @param {Array} tabs - Current tabs array
+     * @returns {Array} Updated tabs array
+     */
+    markAllSaved: (tabs) => {
+      return tabs.map(tab => ({ ...tab, isModified: false }));
+    }
   }
 };
