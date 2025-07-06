@@ -29,21 +29,75 @@ export const fetchTeachersMap = async (db, collection, getDocs) => {
 };
 
 /**
- * Fetch courses from Firestore for a specific semester
+ * Fetch courses from Firestore for a specific semester with common course support
  * @param {Object} db - Firestore database instance
  * @param {Function} collection - Firestore collection function
  * @param {Function} getDocs - Firestore getDocs function
  * @param {Function} query - Firestore query function
  * @param {Function} where - Firestore where function
  * @param {string} semester - Current semester
+ * @param {string} departmentId - Department ID for filtering (optional)
  * @returns {Promise<Array>} Array of course data
  */
-export const fetchCourses = async (db, collection, getDocs, query, where, semester) => {
+export const fetchCourses = async (db, collection, getDocs, query, where, semester, departmentId = null) => {
   try {
     if (!semester) return [];
-    const q = query(collection(db, 'courses'), where('semester', '==', semester));
-    const snap = await getDocs(q);
-    return snap.docs.map(doc => doc.data());
+    
+    const coursesRef = collection(db, 'courses');
+    const queries = [];
+    
+    if (departmentId) {
+      // Query 1: Department-specific courses for the semester
+      queries.push(getDocs(query(coursesRef, 
+        where('semester', '==', semester),
+        where('department', '==', departmentId)
+      )));
+      
+      // Query 2: Common courses marked by SuperAdmin for the semester
+      queries.push(getDocs(query(coursesRef,
+        where('semester', '==', semester),
+        where('isCommonCourse', '==', true)
+      )));
+      
+      // Query 3: Legacy common courses for backward compatibility
+      queries.push(getDocs(query(coursesRef,
+        where('semester', '==', semester),
+        where('department', '==', 'common')
+      )));
+    } else {
+      // Fallback: Get all courses for the semester
+      queries.push(getDocs(query(coursesRef, where('semester', '==', semester))));
+    }
+    
+    const snapshots = await Promise.all(queries);
+    
+    // Combine and deduplicate courses
+    const allCourses = new Map();
+    
+    snapshots.forEach(snapshot => {
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        const courseId = doc.id;
+        
+        if (!allCourses.has(courseId)) {
+          const isOwnedCourse = departmentId ? data.department === departmentId : true;
+          const isCommonCourse = data.isCommonCourse === true || 
+                                data.department === 'common' || 
+                                data.department === 'Common' || 
+                                data.department === 'COMMON';
+          
+          allCourses.set(courseId, {
+            id: courseId,
+            ...data,
+            isOwnedCourse,
+            isCommonCourse,
+            canEdit: isOwnedCourse
+          });
+        }
+      });
+    });
+    
+    return Array.from(allCourses.values());
   } catch (error) {
     console.error('Error fetching courses:', error);
     return [];

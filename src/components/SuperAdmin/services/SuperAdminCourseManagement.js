@@ -116,6 +116,7 @@ export const fetchAllCourses = async () => {
         weeklyHours: courseData.weeklyHours || '',
         department: courseData.department || '',
         departmentName: departmentName,
+        isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin flag for common courses
         lectureHours: courseData.lectureHours || 0,
         tutorialHours: courseData.tutorialHours || 0,
         practicalHours: courseData.practicalHours || 0,
@@ -204,6 +205,7 @@ export const fetchCoursesByDepartment = async (departmentId) => {
         semester: courseData.semester || '',
         weeklyHours: courseData.weeklyHours || '',
         department: courseData.department || '',
+        isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin flag for common courses
         lectureHours: courseData.lectureHours || 0,
         tutorialHours: courseData.tutorialHours || 0,
         practicalHours: courseData.practicalHours || 0,
@@ -217,6 +219,125 @@ export const fetchCoursesByDepartment = async (departmentId) => {
     return courses;
   } catch (error) {
     console.error('Error fetching courses by department:', error);
+    return [];
+  }
+};
+
+/**
+ * Fetch courses for a department including common courses (for HOD/TTIncharge views)
+ * @param {string} departmentId - Department ID 
+ * @returns {Promise<Array>} - Array of courses (owned + common courses)
+ */
+export const fetchCoursesForDepartment = async (departmentId) => {
+  try {
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    
+    // Query 1: Courses owned by this department
+    const ownedCoursesQuery = query(coursesRef, where('department', '==', departmentId));
+    const ownedSnapshot = await getDocs(ownedCoursesQuery);
+    
+    // Query 2: Common courses (marked by SuperAdmin)
+    const commonCoursesQuery = query(coursesRef, where('isCommonCourse', '==', true));
+    const commonSnapshot = await getDocs(commonCoursesQuery);
+    
+    // Combine results and remove duplicates
+    const allCourseDocs = [...ownedSnapshot.docs];
+    commonSnapshot.docs.forEach(doc => {
+      // Don't add if it's already in owned courses (course can be both owned and common)
+      if (!allCourseDocs.find(existing => existing.id === doc.id)) {
+        allCourseDocs.push(doc);
+      }
+    });
+    
+    if (allCourseDocs.length === 0) {
+      return [];
+    }
+
+    const courses = [];
+    
+    for (const courseDoc of allCourseDocs) {
+      const courseData = courseDoc.data();
+      let facultyData = null;
+      let facultyList = [];
+      let departmentName = '';
+      
+      // Get department name
+      if (courseData.department) {
+        try {
+          const deptRef = doc(db, DEPARTMENTS_COLLECTION, courseData.department);
+          const deptSnapshot = await getDoc(deptRef);
+          if (deptSnapshot.exists()) {
+            departmentName = deptSnapshot.data().name || courseData.department;
+          }
+        } catch (error) {
+          console.error('Error fetching department name:', error);
+          departmentName = courseData.department;
+        }
+      }
+
+      // Handle faculty data (existing logic)
+      const facultyIds = [];
+      if (courseData.faculty) {
+        facultyIds.push(courseData.faculty);
+      }
+      if (courseData.facultyList && Array.isArray(courseData.facultyList)) {
+        facultyIds.push(...courseData.facultyList.filter(id => id && !facultyIds.includes(id)));
+      }
+      
+      // Fetch faculty details
+      if (facultyIds.length > 0) {
+        for (const facultyId of facultyIds) {
+          const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+          const facultySnapshot = await getDoc(facultyRef);
+          
+          if (facultySnapshot.exists()) {
+            const faculty = facultySnapshot.data();
+            const facultyInfo = {
+              id: facultyId,
+              name: faculty.name || '',
+              avatar: faculty.avatar || 'https://via.placeholder.com/36',
+              status: faculty.status || 'available'
+            };
+            
+            facultyList.push(facultyInfo);
+            
+            if (!facultyData) {
+              facultyData = facultyInfo;
+            }
+          }
+        }
+      }
+
+      // Determine course relationship to current department
+      const isOwnedCourse = courseData.department === departmentId;
+      const isCommonCourse = courseData.isCommonCourse === true;
+
+      courses.push({
+        id: courseDoc.id,
+        code: courseData.code || '',
+        title: courseData.title || '',
+        faculty: facultyData,
+        facultyList: facultyList,
+        semester: courseData.semester || '',
+        weeklyHours: courseData.weeklyHours || '',
+        department: courseData.department || '',
+        departmentName: departmentName,
+        isCommonCourse: isCommonCourse,
+        isOwnedCourse: isOwnedCourse,
+        canEdit: isOwnedCourse, // Only allow editing if department owns the course
+        lectureHours: courseData.lectureHours || 0,
+        tutorialHours: courseData.tutorialHours || 0,
+        practicalHours: courseData.practicalHours || 0,
+        credits: courseData.credits || 0,
+        type: courseData.type || 'Core',
+        description: courseData.description || '',
+        active: courseData.active !== false
+      });
+    }
+    
+    return courses;
+  } catch (error) {
+    console.error('Error fetching courses for department:', error);
     return [];
   }
 };
@@ -515,6 +636,7 @@ export const processSuperAdminCourseImport = async (courseData, faculty, targetD
       facultyList: assignedFaculty ? [assignedFaculty.id] : [],
       credits: courseData.credits || Math.ceil(totalHours / 3),
       department: departmentId, // Use specified department (SuperAdmin privilege)
+      isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin can mark as common course
       type: courseData.type || 'Core',
       description: courseData.description || '',
       prerequisites: Array.isArray(courseData.prerequisites) ? courseData.prerequisites : [],
@@ -631,7 +753,164 @@ export const filterCourses = (courses, searchTerm, selectedSemester, selectedFac
 };
 
 /**
- * Delete a course from Firebase (SuperAdmin)
+ * Update an existing course in Firebase (SuperAdmin can edit any course)
+ * @param {Array} courses - Current courses array
+ * @param {string} courseId - Course ID to update
+ * @param {Object} formData - Updated course data
+ * @param {Array} faculty - Available faculty list
+ * @param {Array} departments - Available departments list
+ * @returns {Promise<Array>} - Updated courses array
+ */
+export const updateCourse = async (courses, courseId, formData, faculty = [], departments = []) => {
+  try {
+    // Find the existing course
+    const courseIndex = courses.findIndex(c => c.id === courseId);
+    if (courseIndex === -1) {
+      throw new Error('Course not found');
+    }
+    
+    const existingCourse = courses[courseIndex];
+    
+    // Get previous faculty assignments
+    const previousFacultyIds = [];
+    if (existingCourse.faculty && existingCourse.faculty.id) {
+      previousFacultyIds.push(existingCourse.faculty.id);
+    }
+    if (existingCourse.facultyList && Array.isArray(existingCourse.facultyList)) {
+      existingCourse.facultyList.forEach(f => {
+        if (f.id && !previousFacultyIds.includes(f.id)) {
+          previousFacultyIds.push(f.id);
+        }
+      });
+    }
+    
+    // Prepare new faculty assignments
+    const newFacultyIds = [];
+    let primaryFacultyId = null;
+    
+    // Handle single faculty (backward compatibility)
+    if (formData.faculty) {
+      primaryFacultyId = formData.faculty;
+      newFacultyIds.push(formData.faculty);
+    }
+    
+    // Handle multiple faculty from facultyList
+    if (formData.facultyList && Array.isArray(formData.facultyList)) {
+      formData.facultyList.forEach(id => {
+        if (id && !newFacultyIds.includes(id)) {
+          newFacultyIds.push(id);
+          // Set first faculty as primary if not already set
+          if (!primaryFacultyId) {
+            primaryFacultyId = id;
+          }
+        }
+      });
+    }
+    
+    // Prepare update data
+    const courseData = {
+      code: formData.code,
+      title: formData.title,
+      faculty: primaryFacultyId, // Primary faculty for backward compatibility
+      facultyList: newFacultyIds, // All assigned faculty
+      semester: formData.semester,
+      weeklyHours: formData.weeklyHours,
+      department: formData.department || existingCourse.department,
+      isCommonCourse: formData.isCommonCourse || false,
+      updatedAt: serverTimestamp(),
+      // Additional fields
+      lectureHours: parseInt(formData.lectureHours || 0),
+      tutorialHours: parseInt(formData.tutorialHours || 0),
+      practicalHours: parseInt(formData.practicalHours || 0),
+      credits: parseInt(formData.credits || 0),
+      type: formData.type || 'Core',
+      description: formData.description || '',
+      prerequisites: formData.prerequisites || []
+    };
+    
+    // Update course in Firebase
+    const courseRef = doc(db, COURSES_COLLECTION, courseId);
+    await updateDoc(courseRef, courseData);
+    
+    // Handle faculty assignment changes
+    const facultyToRemove = previousFacultyIds.filter(id => !newFacultyIds.includes(id));
+    const facultyToAdd = newFacultyIds.filter(id => !previousFacultyIds.includes(id));
+    
+    // Remove course from faculty who are no longer assigned
+    if (facultyToRemove.length > 0) {
+      const removePromises = facultyToRemove.map(facultyId => {
+        const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+        return updateDoc(facultyRef, {
+          assignedCourses: arrayRemove(courseId)
+        });
+      });
+      await Promise.all(removePromises);
+    }
+    
+    // Add course to newly assigned faculty
+    if (facultyToAdd.length > 0) {
+      const addPromises = facultyToAdd.map(facultyId => {
+        const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+        return updateDoc(facultyRef, {
+          assignedCourses: arrayUnion(courseId)
+        });
+      });
+      await Promise.all(addPromises);
+    }
+    
+    // Log activity
+    await SuperAdminDashboardService.logActivity(
+      'SuperAdmin',
+      'course',
+      `Updated course: ${formData.code} - ${formData.title} in ${formData.departmentName || formData.department}`
+    );
+    
+    // Prepare faculty data for UI
+    const facultyList = newFacultyIds.map(id => 
+      faculty.find(f => f.id.toString() === id)
+    ).filter(Boolean);
+    
+    // Get department name
+    let departmentName = formData.departmentName || existingCourse.departmentName;
+    if (!departmentName && formData.department) {
+      const dept = departments.find(d => d.id === formData.department);
+      departmentName = dept ? dept.name : formData.department;
+    }
+    
+    // Create updated course object for UI
+    const updatedCourse = {
+      ...existingCourse,
+      code: formData.code,
+      title: formData.title,
+      faculty: facultyList.length > 0 ? facultyList[0] : null, // Primary faculty
+      facultyList: facultyList, // All assigned faculty
+      semester: formData.semester,
+      weeklyHours: formData.weeklyHours,
+      department: formData.department || existingCourse.department,
+      departmentName: departmentName,
+      isCommonCourse: formData.isCommonCourse || false,
+      lectureHours: parseInt(formData.lectureHours || 0),
+      tutorialHours: parseInt(formData.tutorialHours || 0),
+      practicalHours: parseInt(formData.practicalHours || 0),
+      credits: parseInt(formData.credits || 0),
+      type: formData.type || 'Core',
+      description: formData.description || ''
+    };
+    
+    // Return updated courses array
+    return [
+      ...courses.slice(0, courseIndex),
+      updatedCourse,
+      ...courses.slice(courseIndex + 1)
+    ];
+  } catch (error) {
+    console.error('Error updating course:', error);
+    throw error;
+  }
+};
+
+/**
+ * Delete a course from Firebase (SuperAdmin can delete any course)
  * @param {Array} courses - Current courses array
  * @param {string} courseId - Course ID to delete
  * @returns {Promise<Array>} - Updated courses array
@@ -676,9 +955,9 @@ export const deleteCourse = async (courses, courseId) => {
       await Promise.all(updatePromises);
     }
     
-    // Log activity (SuperAdmin context)
+    // Log activity
     await SuperAdminDashboardService.logActivity(
-      'SUPERADMIN',
+      'SuperAdmin',
       'course',
       `Deleted course: ${courseToDelete.code} - ${courseToDelete.title} from ${courseToDelete.departmentName || courseToDelete.department}`
     );
@@ -688,6 +967,53 @@ export const deleteCourse = async (courses, courseId) => {
   } catch (error) {
     console.error('Error deleting course:', error);
     throw error;
+  }
+};
+
+/**
+ * Toggle common course status (SuperAdmin only)
+ * @param {string} courseId - Course ID
+ * @param {boolean} isCommon - Whether to mark as common course
+ * @returns {Promise<Object>} - Result object
+ */
+export const toggleCommonCourseStatus = async (courseId, isCommon) => {
+  try {
+    const courseRef = doc(db, COURSES_COLLECTION, courseId);
+    const courseSnapshot = await getDoc(courseRef);
+    
+    if (!courseSnapshot.exists()) {
+      throw new Error('Course not found');
+    }
+    
+    const courseData = courseSnapshot.data();
+    
+    // Update the common course status
+    await updateDoc(courseRef, {
+      isCommonCourse: isCommon,
+      updatedAt: new Date().toISOString()
+    });
+    
+    // Log activity
+    const action = isCommon ? 'marked as common course' : 'removed from common courses';
+    await SuperAdminDashboardService.logActivity(
+      'SUPERADMIN',
+      'course',
+      `Course ${courseData.code} - ${courseData.title} ${action}`
+    );
+    
+    return {
+      success: true,
+      message: `Course ${action} successfully`,
+      courseId: courseId,
+      isCommon: isCommon
+    };
+    
+  } catch (error) {
+    console.error('Error toggling common course status:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to update course status'
+    };
   }
 };
 
@@ -705,7 +1031,8 @@ export const getExampleCourseData = () => {
       lectureHours: 3,
       tutorialHours: 1,
       practicalHours: 0,
-      department: "Common", // Using department name
+      department: "Chemistry", // Belongs to Chemistry dept
+      isCommonCourse: true, // But available to all departments
       type: "Core",
       credits: 4,
       description: "Fundamental concepts of chemistry for engineering applications."
@@ -718,7 +1045,8 @@ export const getExampleCourseData = () => {
       lectureHours: 4,
       tutorialHours: 1,
       practicalHours: 0,
-      department: "Mathematics", // Using department name
+      department: "Mathematics", // Belongs to Mathematics dept
+      isCommonCourse: true, // Available to all engineering departments
       type: "Core",
       credits: 5,
       description: "Calculus, linear algebra, and differential equations for engineering students."
@@ -731,7 +1059,8 @@ export const getExampleCourseData = () => {
       lectureHours: 3,
       tutorialHours: 0,
       practicalHours: 2,
-      department: "Computer Science", // Using department name
+      department: "Computer Science", // Belongs to CS dept only
+      isCommonCourse: false, // Not a common course
       type: "Core",
       credits: 4,
       description: "Fundamental concepts of computer science including programming basics."
@@ -744,7 +1073,8 @@ export const getExampleCourseData = () => {
       lectureHours: 3,
       tutorialHours: 1,
       practicalHours: 1,
-      department: "Mechanical Engineering", // Using department name
+      department: "Mechanical Engineering", // Belongs to ME dept only
+      isCommonCourse: false, // Not a common course
       type: "Core",
       credits: 4,
       description: "Principles of thermodynamics, heat engines, and thermodynamic cycles."
@@ -757,7 +1087,8 @@ export const getExampleCourseData = () => {
       lectureHours: 3,
       tutorialHours: 0,
       practicalHours: 2,
-      // No department specified - will use target department if selected
+      department: "Computer Science", // Belongs to CS dept
+      isCommonCourse: true, // But taught to ECE and other depts too
       type: "Core",
       credits: 4,
       description: "Advanced data structures, algorithm analysis, and problem-solving techniques."
@@ -769,6 +1100,7 @@ export const getExampleCourseData = () => {
 const SuperAdminCourseManagementService = {
   fetchAllCourses,
   fetchCoursesByDepartment,
+  fetchCoursesForDepartment,
   fetchAllDepartments,
   fetchAllFaculty,
   fetchFacultyByDepartment,
@@ -778,6 +1110,8 @@ const SuperAdminCourseManagementService = {
   getSemesterOptions,
   filterCourses,
   deleteCourse,
+  updateCourse,
+  toggleCommonCourseStatus,
   getExampleCourseData
 };
 

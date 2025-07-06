@@ -44,9 +44,8 @@ export const fetchCoursesFromFirebase = async (departmentName, semester = null) 
   return retryOperation(async () => {
     const coursesRef = collection(db, COURSES_COLLECTION);
     
-    // First, find the department ID from the department name and identify common department ID
+    // First, find the department ID from the department name
     let departmentId = null;
-    let commonDepartmentId = null;
     
     try {
       const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
@@ -58,16 +57,7 @@ export const fetchCoursesFromFirebase = async (departmentName, semester = null) 
         // Check if this is the user's department
         if (deptData.name === departmentName) {
           departmentId = deptDoc.id;
-        }
-        
-        // Check if this is the common department (look for various common department names)
-        if (deptData.name && (
-          deptData.name.toLowerCase() === 'common' ||
-          deptData.name.toLowerCase() === 'common department' ||
-          deptData.name.toLowerCase() === 'general' ||
-          deptData.name.toLowerCase() === 'shared'
-        )) {
-          commonDepartmentId = deptDoc.id;
+          break;
         }
       }
       
@@ -97,25 +87,25 @@ export const fetchCoursesFromFirebase = async (departmentName, semester = null) 
       }
     }
     
-    // Add common courses queries (try multiple variations)
+    // Add common courses queries - NEW SYSTEM (SuperAdmin marked common courses)
+    if (semester) {
+      queries.push(getDocs(query(coursesRef, 
+        where('isCommonCourse', '==', true), 
+        where('semester', '==', semester)
+      )));
+    } else {
+      queries.push(getDocs(query(coursesRef, where('isCommonCourse', '==', true))));
+    }
+    
+    // Add legacy common courses queries (for backward compatibility)
     if (semester) {
       queries.push(getDocs(query(coursesRef, where('department', '==', 'common'), where('semester', '==', semester))));
       queries.push(getDocs(query(coursesRef, where('department', '==', 'Common'), where('semester', '==', semester))));
       queries.push(getDocs(query(coursesRef, where('department', '==', 'COMMON'), where('semester', '==', semester))));
-      
-      // Also query using the common department ID if we found one
-      if (commonDepartmentId) {
-        queries.push(getDocs(query(coursesRef, where('department', '==', commonDepartmentId), where('semester', '==', semester))));
-      }
     } else {
       queries.push(getDocs(query(coursesRef, where('department', '==', 'common'))));
       queries.push(getDocs(query(coursesRef, where('department', '==', 'Common'))));
       queries.push(getDocs(query(coursesRef, where('department', '==', 'COMMON'))));
-      
-      // Also query using the common department ID if we found one
-      if (commonDepartmentId) {
-        queries.push(getDocs(query(coursesRef, where('department', '==', commonDepartmentId))));
-      }
     }
     
     // Execute all queries
@@ -134,11 +124,13 @@ export const fetchCoursesFromFirebase = async (departmentName, semester = null) 
       if (!uniqueCourses.has(doc.id)) {
         const data = doc.data();
         
-        // Determine if this is a common course
-        const isCommon = data.department === 'common' || 
+        // Determine if this is a common course (new system or legacy)
+        const isCommon = data.isCommonCourse === true || 
+                        data.department === 'common' || 
                         data.department === 'Common' || 
-                        data.department === 'COMMON' ||
-                        (commonDepartmentId && data.department === commonDepartmentId);
+                        data.department === 'COMMON';
+        
+        const isOwnedCourse = data.department === departmentId;
         
         uniqueCourses.set(doc.id, {
           id: doc.id,
@@ -151,6 +143,9 @@ export const fetchCoursesFromFirebase = async (departmentName, semester = null) 
           tags: data.tags || [],
           department: data.department || departmentId,
           isCommon: isCommon, // Flag to identify common courses
+          isCommonCourse: data.isCommonCourse || false, // SuperAdmin flag
+          isOwnedCourse: isOwnedCourse,
+          canEdit: isOwnedCourse, // Only allow editing if department owns the course
           createdAt: data.createdAt,
           updatedAt: data.updatedAt
         });

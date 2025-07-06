@@ -41,180 +41,12 @@ const dummyFaculty = [];
 /**
  * Fetch courses from Firebase with support for multiple faculty assignments
  * Includes both department-specific courses and common courses
- * @param {string} departmentId - Department ID 
+ * @param {string} departmentName - Department name 
  * @returns {Promise<Array>} - Array of courses
  */
 export const fetchCourses = async (departmentName) => {
-  try {
-    
-    const coursesRef = collection(db, COURSES_COLLECTION);
-    
-    // First, find the department ID from the department name and identify common department ID
-    let departmentId = null;
-    let commonDepartmentId = null;
-    
-    try {
-      const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
-      const departmentsSnapshot = await getDocs(departmentsRef);
-      
-      
-      for (const deptDoc of departmentsSnapshot.docs) {
-        const deptData = deptDoc.data();
-        
-        // Check if this is the user's department
-        if (deptData.name === departmentName) {
-          departmentId = deptDoc.id;
-        }
-        
-        // Check if this is the common department (look for various common department names)
-        if (deptData.name && (
-          deptData.name.toLowerCase() === 'common' ||
-          deptData.name.toLowerCase() === 'common department' ||
-          deptData.name.toLowerCase() === 'general' ||
-          deptData.name.toLowerCase() === 'shared'
-        )) {
-          commonDepartmentId = deptDoc.id;
-        }
-      }
-      
-      if (!departmentId && departmentName !== 'common') {
-        // Department not found in database
-      }
-    } catch (deptError) {
-      console.error('fetchCourses: Error finding department IDs:', deptError);
-    }
-    
-    // Also fetch all courses to see what's in the database
-    const allCoursesSnapshot = await getDocs(coursesRef);
-    
-    
-    // Create queries for both department-specific and common courses
-    const queries = [];
-    
-    // Add department-specific query if we found a department ID
-    if (departmentId) {
-      queries.push(getDocs(query(coursesRef, where('department', '==', departmentId))));
-    }
-    
-    // Add common courses queries (try multiple variations)
-    queries.push(getDocs(query(coursesRef, where('department', '==', 'common'))));
-    queries.push(getDocs(query(coursesRef, where('department', '==', 'Common'))));
-    queries.push(getDocs(query(coursesRef, where('department', '==', 'COMMON'))));
-    
-    // Also query using the common department ID if we found one
-    if (commonDepartmentId) {
-      queries.push(getDocs(query(coursesRef, where('department', '==', commonDepartmentId))));
-    }
-    
-    // Execute all queries
-    const snapshots = await Promise.all(queries);
-    
-    let departmentSnapshot = { docs: [] };
-    let commonSnapshot1 = { docs: [] };
-    let commonSnapshot2 = { docs: [] };
-    let commonSnapshot3 = { docs: [] };
-    let commonSnapshotById = { docs: [] };
-    
-    if (departmentId) {
-      departmentSnapshot = snapshots[0];
-      commonSnapshot1 = snapshots[1];
-      commonSnapshot2 = snapshots[2];
-      commonSnapshot3 = snapshots[3];
-      if (commonDepartmentId && snapshots[4]) {
-        commonSnapshotById = snapshots[4];
-      }
-    } else {
-      commonSnapshot1 = snapshots[0];
-      commonSnapshot2 = snapshots[1];
-      commonSnapshot3 = snapshots[2];
-      if (commonDepartmentId && snapshots[3]) {
-        commonSnapshotById = snapshots[3];
-      }
-    }
-    
-    // Combine all course documents
-    const allCourseDocs = [
-      ...departmentSnapshot.docs,
-      ...commonSnapshot1.docs,
-      ...commonSnapshot2.docs,
-      ...commonSnapshot3.docs,
-      ...commonSnapshotById.docs
-    ];
-    
-    if (allCourseDocs.length === 0) {
-      return dummyCourses;
-    }
-    
-    const courses = [];
-    
-    for (const courseDoc of allCourseDocs) {
-      const courseData = courseDoc.data();
-      let facultyData = null;
-      let facultyList = [];
-      
-      // Handle both single faculty (backward compatibility) and multiple faculty
-      const facultyIds = [];
-      
-      // Add primary faculty if exists
-      if (courseData.faculty) {
-        facultyIds.push(courseData.faculty);
-      }
-      
-      // Add faculty from facultyList if exists
-      if (courseData.facultyList && Array.isArray(courseData.facultyList)) {
-        facultyIds.push(...courseData.facultyList.filter(id => id && !facultyIds.includes(id)));
-      }
-      
-      // Fetch all faculty data
-      if (facultyIds.length > 0) {
-        for (const facultyId of facultyIds) {
-          const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
-          const facultySnapshot = await getDoc(facultyRef);
-          
-          if (facultySnapshot.exists()) {
-            const faculty = facultySnapshot.data();
-            const facultyInfo = {
-              id: facultyId,
-              name: faculty.name || '',
-              avatar: faculty.avatar || 'https://via.placeholder.com/36',
-              status: faculty.status || 'available'
-            };
-            
-            facultyList.push(facultyInfo);
-            
-            // Set the first faculty as primary for backward compatibility
-            if (!facultyData) {
-              facultyData = facultyInfo;
-            }
-          }
-        }
-      }
-      
-      const finalWeeklyHours = (courseData.weeklyHours && typeof courseData.weeklyHours === 'string') 
-        ? courseData.weeklyHours 
-        : (courseData.weeklyHours ? String(courseData.weeklyHours) : '');
-      
-      courses.push({
-        id: courseDoc.id,
-        code: courseData.code || '',
-        title: courseData.title || '',
-        faculty: facultyData, // Primary faculty (backward compatibility)
-        facultyList: facultyList, // All assigned faculty
-        semester: courseData.semester || '',
-        weeklyHours: finalWeeklyHours,
-        department: courseData.department || '',
-        isCommon: courseData.department === 'common' || 
-                  courseData.department === 'Common' || 
-                  courseData.department === 'COMMON' ||
-                  (commonDepartmentId && courseData.department === commonDepartmentId) // Flag to identify common courses
-      });
-    }
-    
-    return courses;
-  } catch (error) {
-    console.error('Error fetching courses:', error);
-    return dummyCourses;
-  }
+  // Use the enhanced version that supports the new common course system
+  return await fetchCoursesEnhanced(departmentName);
 };
 
 /**
@@ -280,14 +112,17 @@ export const fetchSingleCourse = async (courseId) => {
       }
     }
     
-    // Determine if this is a common course
+    // Determine if this is a common course (either new system or legacy)
     let isCommon = false;
-    if (courseData.department === 'common' || 
-        courseData.department === 'Common' || 
-        courseData.department === 'COMMON') {
-      isCommon = true;
+    
+    if (courseData.isCommonCourse === true) {
+      isCommon = true; // New system: SuperAdmin marked as common
+    } else if (courseData.department === 'common' || 
+               courseData.department === 'Common' || 
+               courseData.department === 'COMMON') {
+      isCommon = true; // Legacy system: department is "common"
     } else {
-      // Check if department ID matches common department ID
+      // Check if department ID matches common department ID (legacy)
       try {
         const departmentsQuery = query(collection(db, DEPARTMENTS_COLLECTION));
         const departmentsSnapshot = await getDocs(departmentsQuery);
@@ -317,6 +152,7 @@ export const fetchSingleCourse = async (courseId) => {
       weeklyHours: finalWeeklyHours,
       department: courseData.department || '',
       isCommon: isCommon,
+      isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin flag
       // Include the individual hour fields
       lectureHours: courseData.lectureHours || 0,
       tutorialHours: courseData.tutorialHours || 0,
@@ -1450,6 +1286,195 @@ export const createSampleCommonCourses = async () => {
   }
 };
 
+/**
+ * Fetch courses from Firebase with support for common courses (enhanced)
+ * Includes both department-specific courses and courses marked as common by SuperAdmin
+ * @param {string} departmentName - Department name 
+ * @returns {Promise<Array>} - Array of courses
+ */
+export const fetchCoursesEnhanced = async (departmentName) => {
+  try {
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    
+    // First, find the department ID from the department name
+    let departmentId = null;
+    
+    try {
+      const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
+      const departmentsSnapshot = await getDocs(departmentsRef);
+      
+      for (const deptDoc of departmentsSnapshot.docs) {
+        const deptData = deptDoc.data();
+        
+        // Check if this is the user's department
+        if (deptData.name === departmentName) {
+          departmentId = deptDoc.id;
+          break;
+        }
+      }
+      
+      if (!departmentId && departmentName !== 'common') {
+        console.warn(`Department "${departmentName}" not found in database`);
+        return dummyCourses;
+      }
+    } catch (deptError) {
+      console.error('fetchCoursesEnhanced: Error finding department ID:', deptError);
+      return dummyCourses;
+    }
+    
+    // Query 1: Courses owned by this department
+    const ownedCoursesQuery = query(coursesRef, where('department', '==', departmentId));
+    const ownedSnapshot = await getDocs(ownedCoursesQuery);
+    
+    // Query 2: Common courses (marked by SuperAdmin with isCommonCourse flag)
+    const commonCoursesQuery = query(coursesRef, where('isCommonCourse', '==', true));
+    const commonSnapshot = await getDocs(commonCoursesQuery);
+    
+    // Query 3: Legacy common courses (for backward compatibility)
+    const legacyCommonQuery1 = query(coursesRef, where('department', '==', 'common'));
+    const legacyCommonQuery2 = query(coursesRef, where('department', '==', 'Common'));
+    const legacyCommonQuery3 = query(coursesRef, where('department', '==', 'COMMON'));
+    
+    const [legacySnapshot1, legacySnapshot2, legacySnapshot3] = await Promise.all([
+      getDocs(legacyCommonQuery1),
+      getDocs(legacyCommonQuery2),
+      getDocs(legacyCommonQuery3)
+    ]);
+    
+    // Combine all course documents and remove duplicates
+    const allCourseDocs = [...ownedSnapshot.docs];
+    
+    // Add common courses (new system)
+    commonSnapshot.docs.forEach(doc => {
+      if (!allCourseDocs.find(existing => existing.id === doc.id)) {
+        allCourseDocs.push(doc);
+      }
+    });
+    
+    // Add legacy common courses
+    [legacySnapshot1, legacySnapshot2, legacySnapshot3].forEach(snapshot => {
+      snapshot.docs.forEach(doc => {
+        if (!allCourseDocs.find(existing => existing.id === doc.id)) {
+          allCourseDocs.push(doc);
+        }
+      });
+    });
+    
+    if (allCourseDocs.length === 0) {
+      return dummyCourses;
+    }
+    
+    const courses = [];
+    
+    for (const courseDoc of allCourseDocs) {
+      const courseData = courseDoc.data();
+      let facultyData = null;
+      let facultyList = [];
+      
+      // Handle both single faculty (backward compatibility) and multiple faculty
+      const facultyIds = [];
+      
+      // Add primary faculty if exists
+      if (courseData.faculty) {
+        facultyIds.push(courseData.faculty);
+      }
+      
+      // Add faculty from facultyList if exists
+      if (courseData.facultyList && Array.isArray(courseData.facultyList)) {
+        facultyIds.push(...courseData.facultyList.filter(id => id && !facultyIds.includes(id)));
+      }
+      
+      // Fetch all faculty data
+      if (facultyIds.length > 0) {
+        for (const facultyId of facultyIds) {
+          const facultyRef = doc(db, FACULTY_COLLECTION, facultyId);
+          const facultySnapshot = await getDoc(facultyRef);
+          
+          if (facultySnapshot.exists()) {
+            const faculty = facultySnapshot.data();
+            const facultyInfo = {
+              id: facultyId,
+              name: faculty.name || '',
+              avatar: faculty.avatar || 'https://via.placeholder.com/36',
+              status: faculty.status || 'available'
+            };
+            
+            facultyList.push(facultyInfo);
+            
+            // Set the first faculty as primary for backward compatibility
+            if (!facultyData) {
+              facultyData = facultyInfo;
+            }
+          }
+        }
+      }
+      
+      // Format weekly hours
+      let finalWeeklyHours = courseData.weeklyHours;
+      if (!finalWeeklyHours || finalWeeklyHours === '0' || finalWeeklyHours === 0) {
+        const lectureHours = courseData.lectureHours || 0;
+        const tutorialHours = courseData.tutorialHours || 0;
+        const practicalHours = courseData.practicalHours || 0;
+        finalWeeklyHours = `${lectureHours}L`;
+        if (tutorialHours > 0) finalWeeklyHours += `+${tutorialHours}T`;
+        if (practicalHours > 0) finalWeeklyHours += `+${practicalHours}P`;
+        
+        if (finalWeeklyHours === '0L') {
+          finalWeeklyHours = String(finalWeeklyHours || '0-0-0');
+        }
+      }
+      
+      // Determine if this is a common course (either new system or legacy)
+      let isCommon = false;
+      const isOwnedCourse = courseData.department === departmentId;
+      
+      if (courseData.isCommonCourse === true) {
+        isCommon = true; // New system: SuperAdmin marked as common
+      } else if (courseData.department === 'common' || 
+                 courseData.department === 'Common' || 
+                 courseData.department === 'COMMON') {
+        isCommon = true; // Legacy system: department is "common"
+      }
+      
+      const course = {
+        id: courseDoc.id,
+        code: courseData.code || '',
+        title: courseData.title || '',
+        faculty: facultyData, // Primary faculty (backward compatibility)
+        facultyList: facultyList, // All assigned faculty
+        semester: courseData.semester || '',
+        weeklyHours: finalWeeklyHours,
+        department: courseData.department || '',
+        isCommon: isCommon,
+        isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin flag
+        isOwnedCourse: isOwnedCourse,
+        canEdit: isOwnedCourse, // Only allow editing if department owns the course
+        // Include the individual hour fields
+        lectureHours: courseData.lectureHours || 0,
+        tutorialHours: courseData.tutorialHours || 0,
+        practicalHours: courseData.practicalHours || 0,
+        // Include other important fields
+        credits: courseData.credits || 0,
+        type: courseData.type || 'Core',
+        description: courseData.description || '',
+        prerequisites: courseData.prerequisites || [],
+        active: courseData.active !== false,
+        facultyId: courseData.facultyId || null,
+        createdAt: courseData.createdAt || '',
+        updatedAt: courseData.updatedAt || ''
+      };
+      
+      courses.push(course);
+    }
+    
+    return courses;
+    
+  } catch (error) {
+    console.error('Error fetching courses (enhanced):', error);
+    return dummyCourses;
+  }
+};
+
 // Export functions for use in the component
 const CourseManagementService = {
   fetchCourses,
@@ -1470,7 +1495,8 @@ const CourseManagementService = {
   getExampleCourseData,
   normalizeCourseData,
   getCoursesByFaculty,
-  createSampleCommonCourses
+  createSampleCommonCourses,
+  fetchCoursesEnhanced
 };
 
 export default CourseManagementService;

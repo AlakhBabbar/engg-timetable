@@ -126,27 +126,54 @@ export const fetchCourses = async (departmentId, semester = null) => {
     }
 
     const coursesRef = collection(db, COURSES_COLLECTION);
-    let coursesQuery;
     
+    // Query 1: Courses owned by this department
+    let ownedQuery;
     if (semester) {
-      coursesQuery = query(
+      ownedQuery = query(
         coursesRef, 
         where('department', '==', departmentId),
         where('semester', '==', semester)
       );
     } else {
-      coursesQuery = query(coursesRef, where('department', '==', departmentId));
+      ownedQuery = query(coursesRef, where('department', '==', departmentId));
     }
     
-    const snapshot = await getDocs(coursesQuery);
+    // Query 2: Common courses (marked by SuperAdmin)
+    let commonQuery;
+    if (semester) {
+      commonQuery = query(
+        coursesRef,
+        where('isCommonCourse', '==', true),
+        where('semester', '==', semester)
+      );
+    } else {
+      commonQuery = query(coursesRef, where('isCommonCourse', '==', true));
+    }
     
-    if (snapshot.empty) {
+    // Execute both queries
+    const [ownedSnapshot, commonSnapshot] = await Promise.all([
+      getDocs(ownedQuery),
+      getDocs(commonQuery)
+    ]);
+    
+    // Combine results and remove duplicates
+    const allCourseDocs = [...ownedSnapshot.docs];
+    commonSnapshot.docs.forEach(doc => {
+      if (!allCourseDocs.find(existing => existing.id === doc.id)) {
+        allCourseDocs.push(doc);
+      }
+    });
+    
+    if (allCourseDocs.length === 0) {
       console.log('No courses found for department/semester');
       return [];
     }
     
-    const courses = snapshot.docs.map(doc => {
+    const courses = allCourseDocs.map(doc => {
       const data = doc.data();
+      const isOwnedCourse = data.department === departmentId;
+      
       return {
         id: doc.id,
         code: data.code || 'Unknown Code',
@@ -154,7 +181,10 @@ export const fetchCourses = async (departmentId, semester = null) => {
         semester: data.semester || semester,
         weeklyHours: data.weeklyHours || '3L',
         faculty: data.faculty,
-        tags: data.tags || []
+        tags: data.tags || [],
+        isCommonCourse: data.isCommonCourse || false,
+        isOwnedCourse: isOwnedCourse,
+        canEdit: isOwnedCourse
       };
     });
 

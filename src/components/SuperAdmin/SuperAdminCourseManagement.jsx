@@ -29,6 +29,11 @@ export default function SuperAdminCourseManagement() {
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
 
+  // Edit course state
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingCourse, setEditingCourse] = useState(null);
+  const [editFormData, setEditFormData] = useState({});
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
@@ -120,6 +125,79 @@ export default function SuperAdminCourseManagement() {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  // Handle edit course
+  const handleEditCourse = (course) => {
+    setEditingCourse(course);
+    setEditFormData({
+      code: course.code || '',
+      title: course.title || '',
+      semester: course.semester || '',
+      department: course.department || '',
+      faculty: course.faculty?.id || '',
+      lectureHours: course.lectureHours || 0,
+      tutorialHours: course.tutorialHours || 0,
+      practicalHours: course.practicalHours || 0,
+      credits: course.credits || 0,
+      type: course.type || 'Core',
+      description: course.description || '',
+      isCommonCourse: course.isCommonCourse || false
+    });
+    setIsEditModalOpen(true);
+  };
+
+  // Handle save edited course
+  const handleSaveEditedCourse = async () => {
+    if (!editingCourse || !editFormData.code || !editFormData.title || !editFormData.semester) {
+      showError('Please fill in all required fields (Code, Title, Semester)', {
+        duration: 6000
+      });
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      
+      // Calculate weekly hours from individual components
+      const weeklyHours = `${editFormData.lectureHours}L+${editFormData.tutorialHours}T+${editFormData.practicalHours}P`;
+      
+      const formDataWithWeeklyHours = {
+        ...editFormData,
+        weeklyHours: weeklyHours
+      };
+      
+      const updatedCourses = await SuperAdminCourseManagementService.updateCourse(
+        courses, 
+        editingCourse.id, 
+        formDataWithWeeklyHours, 
+        faculty, 
+        departments
+      );
+      
+      setCourses(updatedCourses);
+      setIsEditModalOpen(false);
+      setEditingCourse(null);
+      setEditFormData({});
+      
+      showSuccess('Course updated successfully!', {
+        duration: 4000
+      });
+    } catch (error) {
+      console.error('Error updating course:', error);
+      showError(`Failed to update course: ${error.message}`, {
+        duration: 6000
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Handle cancel edit
+  const handleCancelEdit = () => {
+    setIsEditModalOpen(false);
+    setEditingCourse(null);
+    setEditFormData({});
   };
 
   // Handle file upload
@@ -865,6 +943,13 @@ export default function SuperAdminCourseManagement() {
                         >
                           <FiTrash2 size={16} />
                         </button>
+                        <button
+                          onClick={() => handleEditCourse(course)}
+                          className="text-blue-600 hover:text-blue-900 p-1 rounded-md hover:bg-blue-50 transition-colors duration-200"
+                          title="Edit Course"
+                        >
+                          <FiEdit size={16} />
+                        </button>
                       </div>
                     </td>
                   </tr>
@@ -1049,6 +1134,233 @@ export default function SuperAdminCourseManagement() {
           </div>
         )}
       </div>
+
+      {/* Edit Course Modal */}
+      {isEditModalOpen && (
+        <div 
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50"
+          onClick={(e) => {
+            // Close modal when clicking on backdrop
+            if (e.target === e.currentTarget) {
+              handleCancelEdit();
+            }
+          }}
+        >
+          <div className="bg-white rounded-lg shadow-lg w-full max-w-3xl" onClick={(e) => e.stopPropagation()}>
+            {/* Modal Header */}
+            <div className="bg-gray-100 px-6 py-4 rounded-t-lg">
+              <h3 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <FiEdit className="text-blue-600" />
+                Edit Course
+              </h3>
+            </div>
+            
+            {/* Modal Body */}
+            <div className="p-6">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Course Code */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Course Code <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.code}
+                    onChange={(e) => setEditFormData({ ...editFormData, code: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    disabled={true} // Disable editing of course code
+                  />
+                </div>
+
+                {/* Course Title */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Course Title <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editFormData.title}
+                    onChange={(e) => setEditFormData({ ...editFormData, title: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Semester */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Semester <span className="text-red-500">*</span>
+                  </label>
+                  <select
+                    value={editFormData.semester}
+                    onChange={(e) => setEditFormData({ ...editFormData, semester: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    {semesterOptions.map(semester => (
+                      <option key={semester} value={semester}>
+                        {semester}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Department */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Department
+                  </label>
+                  <select
+                    value={editFormData.department}
+                    onChange={(e) => setEditFormData({ ...editFormData, department: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select a department</option>
+                    {departments.map(dept => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Faculty */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Faculty
+                  </label>
+                  <select
+                    value={editFormData.faculty}
+                    onChange={(e) => setEditFormData({ ...editFormData, faculty: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">Select a faculty member</option>
+                    {faculty.map(facultyMember => (
+                      <option key={facultyMember.id} value={facultyMember.id}>
+                        {facultyMember.name} {facultyMember.departmentName && `(${facultyMember.departmentName})`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Lecture Hours */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Lecture Hours
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editFormData.lectureHours}
+                    onChange={(e) => setEditFormData({ ...editFormData, lectureHours: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Tutorial Hours */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Tutorial Hours
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editFormData.tutorialHours}
+                    onChange={(e) => setEditFormData({ ...editFormData, tutorialHours: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Practical Hours */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Practical Hours
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editFormData.practicalHours}
+                    onChange={(e) => setEditFormData({ ...editFormData, practicalHours: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Credits */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Credits
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={editFormData.credits}
+                    onChange={(e) => setEditFormData({ ...editFormData, credits: parseInt(e.target.value) })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Course Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Course Type
+                  </label>
+                  <select
+                    value={editFormData.type}
+                    onChange={(e) => setEditFormData({ ...editFormData, type: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="Core">Core</option>
+                    <option value="Elective">Elective</option>
+                    <option value="Mandatory">Mandatory</option>
+                  </select>
+                </div>
+
+                {/* Description */}
+                <div className="col-span-2">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    value={editFormData.description}
+                    onChange={(e) => setEditFormData({ ...editFormData, description: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows="3"
+                  ></textarea>
+                </div>
+
+                {/* Common Course */}
+                <div className="col-span-2">
+                  <div className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={editFormData.isCommonCourse}
+                      onChange={(e) => setEditFormData({ ...editFormData, isCommonCourse: e.target.checked })}
+                      className="h-4 w-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                    />
+                    <label className="ml-2 block text-sm text-gray-700">
+                      This is a common course (available to all departments)
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            {/* Modal Footer */}
+            <div className="bg-gray-100 px-6 py-4 rounded-b-lg flex justify-end gap-4">
+              <button
+                onClick={handleCancelEdit}
+                className="px-4 py-2 bg-gray-300 hover:bg-gray-400 text-gray-800 text-sm rounded-md transition-colors duration-200"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSaveEditedCourse}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-md transition-colors duration-200"
+              >
+                Save Changes
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
