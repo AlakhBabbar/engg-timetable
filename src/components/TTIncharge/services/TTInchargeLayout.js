@@ -47,7 +47,11 @@ export const useTTInchargeLayout = (setUser) => {
       setActiveSidebarItem('Timetable Builder');
     } else if (path.includes('/tt/conflicts')) {
       setActiveSidebarItem('Conflicts');
-    } else if (path.includes('/tt/rooms') || path.includes('/tt/room-availability')) {
+    } else if (path.includes('/tt/room-availability-allocation')) {
+      setActiveSidebarItem('Room Availability Allocation');
+    } else if (path.includes('/tt/teacher-code-allocation')) {
+      setActiveSidebarItem('Teacher Code Allocation');
+    } else if (path.includes('/tt/rooms')) {
       setActiveSidebarItem('Rooms');
     } else if (path.includes('/tt/faculty-timetable')) {
       setActiveSidebarItem('Faculty View');
@@ -67,6 +71,8 @@ export const useTTInchargeLayout = (setUser) => {
     { label: 'Conflicts', icon: 'FiAlertCircle', path: '/tt/conflicts' },
     { label: 'Rooms', icon: 'FiHome', path: '/tt/rooms' },
     { label: 'Faculty View', icon: 'FiUsers', path: '/tt/faculty-timetable' },
+    { label: 'Room Availability Allocation', icon: 'FiCheckSquare', path: '/tt/room-availability-allocation' },
+    { label: 'Teacher Code Allocation', icon: 'FiList', path: '/tt/teacher-code-allocation' },
   ];
 
   const handleNavigation = (path, label) => {
