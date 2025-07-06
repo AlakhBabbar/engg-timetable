@@ -13,6 +13,7 @@ import {
   orderBy,
   generateId
 } from '../../../firebase/config';
+import { getCollegeColorClass, getActiveColleges } from '../../../services/CollegeService';
 
 // Collection name
 const ROOMS_COLLECTION = 'rooms';
@@ -85,25 +86,8 @@ export const featureOptions = [
  * @returns {string} CSS class for color
  */
 export const getFacultyColorClass = (faculty) => {
-  const colorMap = {
-    'Faculty of Engineering': 'bg-blue-100 text-blue-800',
-    'Faculty of Science': 'bg-green-100 text-green-800',
-    'Faculty of Social Science': 'bg-orange-100 text-orange-800',
-    'Faculty of Arts': 'bg-purple-100 text-purple-800',
-    'Faculty of Management': 'bg-yellow-100 text-yellow-800',
-    'Faculty of Law': 'bg-indigo-100 text-indigo-800',
-    'Faculty of Medicine': 'bg-red-100 text-red-800',
-    'Faculty of Education': 'bg-teal-100 text-teal-800',
-    'Common Facilities': 'bg-gray-100 text-gray-800',
-    'Technical College': 'bg-pink-100 text-pink-800',
-    'Faculty of Architecture': 'bg-cyan-100 text-cyan-800',
-    'Shatabdi Bhawan': 'bg-lime-100 text-lime-800',
-    'School of Education': 'bg-amber-100 text-amber-800',
-    'Department of English': 'bg-violet-100 text-violet-800',
-    'General': 'bg-slate-100 text-slate-800'
-  };
-  
-  return colorMap[faculty] || 'bg-gray-100 text-gray-800';
+  // Use the shared college service for consistent colors
+  return getCollegeColorClass(faculty);
 };
 
 /**
@@ -752,6 +736,21 @@ export const generateRoomUtilizationReport = (rooms) => {
   };
 };
 
+/**
+ * Get available faculties/colleges for room assignment
+ * @returns {Promise<Array>} Array of faculty/college names
+ */
+export const getAvailableFaculties = async () => {
+  try {
+    const colleges = await getActiveColleges();
+    return colleges.map(college => college.name);
+  } catch (error) {
+    console.error('Error fetching available faculties:', error);
+    // Return empty array instead of fallback data
+    return [];
+  }
+};
+
 // Export all functions as a service object
 const RoomManagementService = {
   getRooms,
@@ -772,7 +771,20 @@ const RoomManagementService = {
   processSingleRoomImport,
   getAvailableRooms,
   getRoomAvailabilitySummary,
-  generateRoomUtilizationReport
+  generateRoomUtilizationReport,
+  getAvailableFaculties
 };
 
 export default RoomManagementService;
+
+// Additional named exports for direct import
+// export { 
+//   getRooms,
+//   getAllRooms,
+//   filterRooms,
+//   createRoom,
+//   addRoom,
+//   updateRoom,
+//   deleteRoom,
+//   getAvailableFaculties
+// };

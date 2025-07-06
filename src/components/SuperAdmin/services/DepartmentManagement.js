@@ -25,6 +25,7 @@ import {
   orderBy,
   generateId
 } from '../../../firebase/config.js';
+import { getActiveColleges } from '../../../services/CollegeService';
 
 // Collection names
 const DEPARTMENTS_COLLECTION = 'departments';
@@ -204,6 +205,26 @@ export const getHODOptions = async () => {
       { id: '4', name: 'Dr. Maria Rodriguez', avatar: 'https://ui-avatars.com/api/?name=Maria+Rodriguez&background=BA8B02', department: 'Footwear Engineering', qualification: 'PhD' },
       { id: '5', name: 'Dr. Norman Borlaug', avatar: 'https://ui-avatars.com/api/?name=Norman+Borlaug&background=9B59B6', department: 'Agricultural Engineering', qualification: 'PhD' }
     ];
+  }
+};
+
+/**
+ * Get available colleges for department assignment
+ * @returns {Promise<Array>} Array of college options
+ */
+export const getAvailableColleges = async () => {
+  try {
+    const colleges = await getActiveColleges();
+    return colleges.map(college => ({
+      id: college.id,
+      name: college.name,
+      code: college.code,
+      type: college.type
+    }));
+  } catch (error) {
+    console.error('Error fetching available colleges for departments:', error);
+    // Return empty array instead of fallback options
+    return [];
   }
 };
 
@@ -524,7 +545,8 @@ const DepartmentManagementService = {
   departmentCategories,
   getHODOptions,
   getCoursesCountForDepartment,
-  getCourseStatisticsForDepartment
+  getCourseStatisticsForDepartment,
+  getAvailableColleges
 };
 
 export default DepartmentManagementService;

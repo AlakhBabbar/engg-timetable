@@ -25,13 +25,14 @@ import {
   updateRoom, 
   deleteRoom, 
   filterRooms, 
-  facultyOptions, 
+  getAvailableFaculties,
   featureOptions as serviceFeatureOptions,
   getFacultyColorClass,
   getExampleJSONDataset,
   processRoomImport,
   processSingleRoomImport
 } from './services/RoomManagement';
+import CollegeDropdown from '../common/CollegeDropdown';
 
 // Pagination constants
 const ITEMS_PER_PAGE_OPTIONS = [10, 25, 50, 100];
@@ -92,6 +93,7 @@ export default function RoomManagement() {
   // State variables
   const [rooms, setRooms] = useState([]);
   const [filteredRooms, setFilteredRooms] = useState([]);
+  const [facultyOptions, setFacultyOptions] = useState([]);
   const [selectedFaculty, setSelectedFaculty] = useState('');
   const [selectedFeature, setSelectedFeature] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
@@ -148,9 +150,10 @@ export default function RoomManagement() {
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
 
-  // Initialize rooms on component mount
+  // Initialize rooms and faculty options on component mount
   useEffect(() => {
     fetchRooms();
+    fetchFacultyOptions();
   }, []);
 
   // Fetch rooms from Appwrite
@@ -168,6 +171,18 @@ export default function RoomManagement() {
       console.error(err);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  // Fetch available faculty options
+  const fetchFacultyOptions = async () => {
+    try {
+      const faculties = await getAvailableFaculties();
+      setFacultyOptions(faculties);
+    } catch (err) {
+      console.error('Failed to fetch faculty options:', err);
+      // Set empty array instead of fallback options
+      setFacultyOptions([]);
     }
   };
 

@@ -9,6 +9,7 @@ import {
   deleteCollege,
   getCollegeStats
 } from './services/CollegeManagement';
+import { clearCollegeCache } from '../../services/CollegeService';
 
 export default function CollegeManagement() {
   const [colleges, setColleges] = useState([]);
@@ -22,12 +23,11 @@ export default function CollegeManagement() {
     totalDepartments: 0,
     totalFaculty: 0
   });
-  const { showToast } = useToast();
+  const { showSuccess, showError } = useToast();
 
   const [formData, setFormData] = useState({
     name: '',
     code: '',
-    type: 'Faculty',
     description: '',
     established: '',
     dean: '',
@@ -36,14 +36,6 @@ export default function CollegeManagement() {
     address: '',
     status: 'Active'
   });
-
-  const collegeTypes = [
-    'Faculty',
-    'College',
-    'School',
-    'Institute',
-    'Department'
-  ];
 
   const collegeStatuses = [
     'Active',
@@ -74,7 +66,7 @@ export default function CollegeManagement() {
       setColleges(collegeData);
     } catch (error) {
       console.error('Error loading colleges:', error);
-      showToast('Failed to load colleges', 'error');
+      showError('Failed to load colleges');
     } finally {
       setIsLoading(false);
     }
@@ -93,20 +85,27 @@ export default function CollegeManagement() {
     e.preventDefault();
     
     try {
+      // Add 'Faculty' as the default type for all entries
+      const facultyData = {
+        ...formData,
+        type: 'Faculty'
+      };
+      
       if (editingCollege) {
-        await updateCollege(editingCollege.id, formData);
-        showToast('College updated successfully', 'success');
+        await updateCollege(editingCollege.id, facultyData);
+        showSuccess('Faculty updated successfully');
       } else {
-        await addCollege(formData);
-        showToast('College added successfully', 'success');
+        await addCollege(facultyData);
+        showSuccess('Faculty added successfully');
       }
       
       resetForm();
+      clearCollegeCache(); // Clear cache to ensure other components get fresh data
       loadColleges();
       loadStats();
     } catch (error) {
-      console.error('Error saving college:', error);
-      showToast('Failed to save college', 'error');
+      console.error('Error saving faculty:', error);
+      showError('Failed to save faculty');
     }
   };
 
@@ -115,7 +114,6 @@ export default function CollegeManagement() {
     setFormData({
       name: college.name,
       code: college.code,
-      type: college.type,
       description: college.description,
       established: college.established,
       dean: college.dean,
@@ -128,15 +126,16 @@ export default function CollegeManagement() {
   };
 
   const handleDelete = async (id) => {
-    if (window.confirm('Are you sure you want to delete this college?')) {
+    if (window.confirm('Are you sure you want to delete this faculty?')) {
       try {
         await deleteCollege(id);
-        showToast('College deleted successfully', 'success');
+        showSuccess('Faculty deleted successfully');
+        clearCollegeCache(); // Clear cache to ensure other components get fresh data
         loadColleges();
         loadStats();
       } catch (error) {
-        console.error('Error deleting college:', error);
-        showToast('Failed to delete college', 'error');
+        console.error('Error deleting faculty:', error);
+        showError('Failed to delete faculty');
       }
     }
   };
@@ -145,7 +144,6 @@ export default function CollegeManagement() {
     setFormData({
       name: '',
       code: '',
-      type: 'Faculty',
       description: '',
       established: '',
       dean: '',
@@ -156,17 +154,6 @@ export default function CollegeManagement() {
     });
     setEditingCollege(null);
     setIsModalOpen(false);
-  };
-
-  const getTypeColor = (type) => {
-    const colors = {
-      'Faculty': 'bg-blue-100 text-blue-800',
-      'College': 'bg-green-100 text-green-800',
-      'School': 'bg-purple-100 text-purple-800',
-      'Institute': 'bg-orange-100 text-orange-800',
-      'Department': 'bg-teal-100 text-teal-800'
-    };
-    return colors[type] || 'bg-gray-100 text-gray-800';
   };
 
   const getStatusColor = (status) => {
@@ -183,15 +170,15 @@ export default function CollegeManagement() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">College Management</h1>
-          <p className="text-gray-600">Manage colleges and faculties under DEI University</p>
+          <h1 className="text-2xl font-bold text-gray-900">Faculty Management</h1>
+          <p className="text-gray-600">Manage faculties under DEI University (e.g., Faculty of Engineering, Faculty of Science)</p>
         </div>
         <button
           onClick={() => setIsModalOpen(true)}
           className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition flex items-center gap-2"
         >
           <FiPlus size={20} />
-          Add College
+          Add Faculty
         </button>
       </div>
 
@@ -203,7 +190,7 @@ export default function CollegeManagement() {
               <BsBuilding className="text-blue-600 text-xl" />
             </div>
             <div>
-              <h3 className="text-sm font-medium text-gray-500">Total Colleges</h3>
+              <h3 className="text-sm font-medium text-gray-500">Total Faculties</h3>
               <p className="text-2xl font-bold text-gray-900">{stats.totalColleges}</p>
             </div>
           </div>
@@ -241,7 +228,7 @@ export default function CollegeManagement() {
             <FiSearch className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
             <input
               type="text"
-              placeholder="Search colleges..."
+              placeholder="Search faculties..."
               className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -263,10 +250,7 @@ export default function CollegeManagement() {
               <thead className="bg-gray-50">
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    College
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Type
+                    Faculty
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Dean
@@ -299,11 +283,6 @@ export default function CollegeManagement() {
                           </div>
                         )}
                       </div>
-                    </td>
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${getTypeColor(college.type)}`}>
-                        {college.type}
-                      </span>
                     </td>
                     <td className="px-6 py-4 text-sm text-gray-900">
                       {college.dean || 'Not assigned'}
@@ -342,7 +321,29 @@ export default function CollegeManagement() {
             
             {filteredColleges.length === 0 && !isLoading && (
               <div className="p-8 text-center text-gray-500">
-                No colleges found.
+                {colleges.length === 0 ? (
+                  <div>
+                    <BsBuilding className="mx-auto h-12 w-12 text-gray-300 mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No faculties found</h3>
+                    <p className="text-gray-500 mb-4">Get started by creating your first faculty (e.g., Faculty of Engineering).</p>
+                    <button
+                      onClick={() => setIsModalOpen(true)}
+                      className="bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 transition"
+                    >
+                      Add First Faculty
+                    </button>
+                  </div>
+                ) : (
+                  <div>
+                    <p>No faculties match your search criteria.</p>
+                    <button
+                      onClick={() => setSearchTerm('')}
+                      className="text-indigo-600 hover:text-indigo-800 mt-2"
+                    >
+                      Clear search
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>
@@ -354,13 +355,13 @@ export default function CollegeManagement() {
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl p-6 w-full max-w-md max-h-[90vh] overflow-y-auto">
             <h2 className="text-xl font-bold mb-4">
-              {editingCollege ? 'Edit College' : 'Add New College'}
+              {editingCollege ? 'Edit Faculty' : 'Add New Faculty'}
             </h2>
             
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  College Name *
+                  Faculty Name *
                 </label>
                 <input
                   type="text"
@@ -368,13 +369,13 @@ export default function CollegeManagement() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.name}
                   onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Faculty of Social Science"
+                  placeholder="e.g., Faculty of Engineering, Faculty of Science"
                 />
               </div>
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  College Code *
+                  Faculty Code *
                 </label>
                 <input
                   type="text"
@@ -382,24 +383,11 @@ export default function CollegeManagement() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                   value={formData.code}
                   onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
-                  placeholder="e.g., FSS"
+                  placeholder="e.g., FOE, FOS"
                 />
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Type
-                </label>
-                <select
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                  value={formData.type}
-                  onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-                >
-                  {collegeTypes.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
+
 
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -410,7 +398,7 @@ export default function CollegeManagement() {
                   rows="3"
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Brief description of the college..."
+                  placeholder="Brief description of the faculty..."
                 />
               </div>
 
@@ -508,7 +496,7 @@ export default function CollegeManagement() {
                   type="submit"
                   className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition"
                 >
-                  {editingCollege ? 'Update' : 'Add'} College
+                  {editingCollege ? 'Update' : 'Add'} Faculty
                 </button>
               </div>
             </form>

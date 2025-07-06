@@ -14,9 +14,10 @@ import { db } from '../../../firebase/config';
 // Collection name
 const COLLECTION_NAME = 'colleges';
 
-// Sample/Mock data for initial development
+// Sample/Mock data for initial development (kept for reference/seeding)
 const sampleColleges = [
-  
+  // Data kept for potential seeding functionality
+  // but not used as fallback data anymore
 ];
 
 /**
@@ -48,8 +49,8 @@ export const getColleges = async () => {
     return colleges;
   } catch (error) {
     console.error('Error fetching colleges from Firestore:', error);
-    // Return sample data as fallback
-    return sampleColleges;
+    // Return empty array instead of sample data as fallback
+    return [];
   }
 };
 
@@ -77,16 +78,8 @@ export const addCollege = async (collegeData) => {
     };
   } catch (error) {
     console.error('Error adding college to Firestore:', error);
-    // For development, simulate adding to sample data
-    const newCollege = {
-      id: Date.now().toString(),
-      ...collegeData,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    };
-    
-    sampleColleges.push(newCollege);
-    return newCollege;
+    // Re-throw error instead of using sample data fallback
+    throw new Error('Failed to add college. Please try again.');
   }
 };
 
@@ -113,17 +106,8 @@ export const updateCollege = async (collegeId, updateData) => {
     };
   } catch (error) {
     console.error('Error updating college in Firestore:', error);
-    // For development, simulate updating sample data
-    const collegeIndex = sampleColleges.findIndex(college => college.id === collegeId);
-    if (collegeIndex !== -1) {
-      sampleColleges[collegeIndex] = {
-        ...sampleColleges[collegeIndex],
-        ...updateData,
-        updatedAt: new Date()
-      };
-      return sampleColleges[collegeIndex];
-    }
-    throw new Error('College not found');
+    // Re-throw error instead of using sample data fallback
+    throw new Error('Failed to update college. Please try again.');
   }
 };
 
@@ -139,13 +123,8 @@ export const deleteCollege = async (collegeId) => {
     return true;
   } catch (error) {
     console.error('Error deleting college from Firestore:', error);
-    // For development, simulate deleting from sample data
-    const collegeIndex = sampleColleges.findIndex(college => college.id === collegeId);
-    if (collegeIndex !== -1) {
-      sampleColleges.splice(collegeIndex, 1);
-      return true;
-    }
-    throw new Error('College not found');
+    // Re-throw error instead of using sample data fallback
+    throw new Error('Failed to delete college. Please try again.');
   }
 };
 
