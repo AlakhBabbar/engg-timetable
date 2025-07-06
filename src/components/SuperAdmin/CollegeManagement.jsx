@@ -7,7 +7,8 @@ import {
   addCollege,
   updateCollege,
   deleteCollege,
-  getCollegeStats
+  getCollegeStats,
+  getDetailedCollegeStats
 } from './services/CollegeManagement';
 import { clearCollegeCache } from '../../services/CollegeService';
 
@@ -74,8 +75,13 @@ export default function CollegeManagement() {
 
   const loadStats = async () => {
     try {
+      // Load basic stats (dynamic counts from actual database collections)
       const statsData = await getCollegeStats();
       setStats(statsData);
+      
+      // Optional: Use getDetailedCollegeStats() for more comprehensive analytics
+      // const detailedStats = await getDetailedCollegeStats();
+      // This includes averages, breakdowns by category, and more metrics
     } catch (error) {
       console.error('Error loading college stats:', error);
     }

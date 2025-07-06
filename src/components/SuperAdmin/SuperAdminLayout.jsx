@@ -11,7 +11,7 @@ import SemesterDropdown from '../common/SemesterDropdown';
 const navItems = [
   { label: 'Dashboard', icon: <FiGrid />, path: '/admin/dashboard' },
   { label: 'Users', icon: <FiUsers />, path: '/admin/users' },
-  { label: 'Faculty', icon: <FiUser />, path: '/admin/faculty' },
+  { label: 'Teachers', icon: <FiUser />, path: '/admin/faculty' },
   { label: 'Courses', icon: <FiBook />, path: '/admin/courses' },
   { label: 'Colleges', icon: <BsBuilding />, path: '/admin/colleges' },
   { label: 'Departments', icon: <FiLayers />, path: '/admin/departments' },
