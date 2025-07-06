@@ -80,9 +80,11 @@ export const getAllDepartments = async () => {
   } catch (error) {
     console.error('Error fetching departments:', error);      // Return mock data if Firebase fetch fails
       return [
-        { id: '1', name: 'Computer Science & Engineering', category: 'Engineering', hod: 'Dr. Alan Turing', hodAvatar: 'https://ui-avatars.com/api/?name=Alan+Turing&background=random', description: 'Computer Science and Software Engineering Department', status: 'Active', totalCourses: 24 },
-        { id: '2', name: 'Electrical & Electronics Engineering', category: 'Engineering', hod: 'Dr. Nikola Tesla', hodAvatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=random', description: 'Electrical and Electronics Engineering', status: 'Active', totalCourses: 18 },
-        { id: '3', name: 'Applied Mathematics', category: 'Mathematics & Statistics', hod: 'Dr. Katherine Johnson', hodAvatar: 'https://ui-avatars.com/api/?name=Katherine+Johnson&background=random', description: 'Pure and Applied Mathematics', status: 'Active', totalCourses: 15 }
+        { id: '1', name: 'Electrical Engineering', category: 'Engineering', hod: 'Dr. Nikola Tesla', hodAvatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=random', description: 'Electrical Engineering Department', status: 'Active', totalCourses: 18 },
+        { id: '2', name: 'Mechanical Engineering', category: 'Engineering', hod: 'Dr. James Watt', hodAvatar: 'https://ui-avatars.com/api/?name=James+Watt&background=random', description: 'Mechanical Engineering Department', status: 'Active', totalCourses: 16 },
+        { id: '3', name: 'Civil Engineering', category: 'Engineering', hod: 'Dr. Isambard Brunel', hodAvatar: 'https://ui-avatars.com/api/?name=Isambard+Brunel&background=random', description: 'Civil Engineering Department', status: 'Active', totalCourses: 15 },
+        { id: '4', name: 'Footwear Engineering', category: 'Engineering', hod: 'Dr. Maria Rodriguez', hodAvatar: 'https://ui-avatars.com/api/?name=Maria+Rodriguez&background=random', description: 'Footwear Engineering and Technology', status: 'Active', totalCourses: 12 },
+        { id: '5', name: 'Agricultural Engineering', category: 'Engineering', hod: 'Dr. Norman Borlaug', hodAvatar: 'https://ui-avatars.com/api/?name=Norman+Borlaug&background=random', description: 'Agricultural Engineering Department', status: 'Active', totalCourses: 14 }
       ];
   }
 };
@@ -196,10 +198,11 @@ export const getHODOptions = async () => {
     
     // Return mock data if Firebase fetch fails
     return [
-      { id: '1', name: 'Dr. Alan Turing', avatar: 'https://ui-avatars.com/api/?name=Alan+Turing&background=0D8ABC', department: 'Computer Science', qualification: 'PhD' },
-      { id: '2', name: 'Dr. Ada Lovelace', avatar: 'https://ui-avatars.com/api/?name=Ada+Lovelace&background=FF6B6B', department: 'Computer Science', qualification: 'PhD' },
-      { id: '3', name: 'Dr. Nikola Tesla', avatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=59C173', department: 'Electrical Engineering', qualification: 'PhD' },
-      { id: '4', name: 'Dr. Grace Hopper', avatar: 'https://ui-avatars.com/api/?name=Grace+Hopper&background=BA8B02', department: 'Computer Science', qualification: 'PhD' }
+      { id: '1', name: 'Dr. Nikola Tesla', avatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=0D8ABC', department: 'Electrical Engineering', qualification: 'PhD' },
+      { id: '2', name: 'Dr. James Watt', avatar: 'https://ui-avatars.com/api/?name=James+Watt&background=FF6B6B', department: 'Mechanical Engineering', qualification: 'PhD' },
+      { id: '3', name: 'Dr. Isambard Brunel', avatar: 'https://ui-avatars.com/api/?name=Isambard+Brunel&background=59C173', department: 'Civil Engineering', qualification: 'PhD' },
+      { id: '4', name: 'Dr. Maria Rodriguez', avatar: 'https://ui-avatars.com/api/?name=Maria+Rodriguez&background=BA8B02', department: 'Footwear Engineering', qualification: 'PhD' },
+      { id: '5', name: 'Dr. Norman Borlaug', avatar: 'https://ui-avatars.com/api/?name=Norman+Borlaug&background=9B59B6', department: 'Agricultural Engineering', qualification: 'PhD' }
     ];
   }
 };

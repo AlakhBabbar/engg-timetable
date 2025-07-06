@@ -95,12 +95,11 @@ const syncWithFirestore = async (branchId, semester) => {
  */
 export const getBranches = () => {
   return [
-    { id: 'cse', name: 'Computer Science & Engineering' },
-    { id: 'ece', name: 'Electronics & Communication Engineering' },
+    { id: 'ee', name: 'Electrical Engineering' },
     { id: 'me', name: 'Mechanical Engineering' },
     { id: 'ce', name: 'Civil Engineering' },
-    { id: 'ee', name: 'Electrical Engineering' },
-    { id: 'it', name: 'Information Technology' }
+    { id: 'fe', name: 'Footwear Engineering' },
+    { id: 'ae', name: 'Agricultural Engineering' }
   ];
 };
 

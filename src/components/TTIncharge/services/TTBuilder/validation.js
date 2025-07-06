@@ -290,7 +290,7 @@ export const courseValidator = {
   isRoomTypeCompatible: (courseType, roomType) => {
     const compatibility = {
       'lecture': ['Lecture Hall', 'Classroom', 'Auditorium'],
-      'practical': ['Computer Lab', 'Laboratory', 'Workshop'],
+      'practical': ['Electronics Lab', 'Electrical Lab', 'Mechanical Lab', 'Civil Lab', 'Footwear Lab', 'Agriculture Lab', 'Laboratory', 'Workshop'],
       'tutorial': ['Classroom', 'Tutorial Room', 'Seminar Room'],
       'seminar': ['Seminar Room', 'Conference Room', 'Classroom']
     };

@@ -1,11 +1,11 @@
-import { roomsData, weekDays, timeSlots, coursesData } from './TimetableBuilder';
+  import { roomsData, weekDays, timeSlots, coursesData } from './TimetableBuilder';
 import { db, collection, onSnapshot } from '../../../firebase/config';
 
 // Department list derived from rooms
-export const departments = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering'];
+export const departments = ['Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Footwear Engineering', 'Agricultural Engineering'];
 
 // Room types
-export const roomTypes = ['Lecture Hall', 'Classroom', 'Computer Lab', 'Conference Room', 'Seminar Hall'];
+export const roomTypes = ['Lecture Hall', 'Classroom', 'Laboratory', 'Conference Room', 'Seminar Hall', 'Workshop'];
 
 // Function to generate room availability data
 export const generateRoomAvailabilityData = () => {
@@ -40,10 +40,11 @@ export const generateRoomAvailabilityData = () => {
     
     // Add random department allocations for filtering
     const departments = [];
-    if (Math.random() > 0.5) departments.push('Computer Science');
-    if (Math.random() > 0.6) departments.push('Electrical Engineering');
-    if (Math.random() > 0.7) departments.push('Mechanical Engineering');
-    if (Math.random() > 0.8) departments.push('Civil Engineering');
+    if (Math.random() > 0.5) departments.push('Electrical Engineering');
+    if (Math.random() > 0.6) departments.push('Mechanical Engineering');
+    if (Math.random() > 0.7) departments.push('Civil Engineering');
+    if (Math.random() > 0.8) departments.push('Footwear Engineering');
+    if (Math.random() > 0.9) departments.push('Agricultural Engineering');
     
     return {
       ...room,

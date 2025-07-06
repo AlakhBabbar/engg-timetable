@@ -81,7 +81,7 @@ export const facultyData = [
 export const roomsData = [
   { id: 'A101', capacity: 60, type: 'Lecture Hall', facilities: ['Projector', 'Smart Board'] },
   { id: 'B201', capacity: 40, type: 'Classroom', facilities: ['Projector'] },
-  { id: 'C302', capacity: 30, type: 'Computer Lab', facilities: ['Computers', 'Projector'] },
+  { id: 'C302', capacity: 30, type: 'Electronics Lab', facilities: ['Oscilloscopes', 'Projector'] },
   { id: 'A105', capacity: 60, type: 'Lecture Hall', facilities: ['Projector', 'Smart Board'] },
   { id: 'B204', capacity: 40, type: 'Classroom', facilities: ['Projector'] },
   { id: 'D101', capacity: 80, type: 'Lecture Hall', facilities: ['Projector', 'Smart Board', 'Audio System'] },

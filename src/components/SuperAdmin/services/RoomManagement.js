@@ -25,9 +25,12 @@ const dummyRooms = [
 export const roomTypes = [
   'Classroom',
   'Lecture Hall',
-  'Computer Lab',
-  'Chemistry Lab',
-  'Physics Lab',
+  'Electronics Lab',
+  'Electrical Lab',
+  'Mechanical Lab',
+  'Civil Lab',
+  'Footwear Lab',
+  'Agriculture Lab',
   'Workshop',
   'Seminar Hall',
   'Conference Room'
@@ -35,12 +38,12 @@ export const roomTypes = [
 
 // Building options
 export const buildings = [
-  'CSE Block',
+  'EE Block',
   'Main Block',
-  'IT Block',
-  'Mechanical Block',
-  'Electronics Block',
-  'Civil Block',
+  'ME Block',
+  'CE Block',
+  'FE Block',
+  'AE Block',
   'Admin Block',
   'Library Building'
 ];
@@ -55,20 +58,14 @@ export const statusOptions = [
 
 // Faculty options for dropdown (renamed from departmentOptions)
 export const facultyOptions = [
-  'Faculty of Engineering',
-  'Faculty of Science',
-  'Faculty of Social Science',
-  'Faculty of Arts',
-  'Faculty of Management',
-  'Faculty of Law',
-  'Faculty of Medicine',
-  'Faculty of Education',
+  'Electrical Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Footwear Engineering',
+  'Agricultural Engineering',
   'Common Facilities',
-  'Technical College',
-  'Faculty of Architecture',
-  'Shatabdi Bhawan',
-  'School of Education',
-  'Department of English',
+  'Admin Block',
+  'Library',
   'General'
 ];
 
@@ -205,8 +202,8 @@ export const getExampleJSONDataset = () => {
       {
         "roomNumber": "LAB305",
         "capacity": 30,
-        "features": ["Computers", "AC", "Wi-Fi", "Projector"],
-        "faculty": "Faculty of Engineering",
+        "features": ["Electronics Equipment", "AC", "Wi-Fi", "Projector"],
+        "faculty": "Electrical Engineering",
         "allowOtherFaculties": true,
         "freeTimings": {
           "monday": ["12:00-13:00", "13:00-14:00"],
@@ -221,7 +218,7 @@ export const getExampleJSONDataset = () => {
         "roomNumber": "AUD400",
         "capacity": 200,
         "features": ["Audio System", "Projector", "SmartBoard", "AC"],
-        "faculty": "Faculty of Arts",
+        "faculty": "Civil Engineering",
         "allowOtherFaculties": true,
         "freeTimings": {
           "monday": ["16:00-17:00", "17:00-18:00"],
@@ -251,14 +248,14 @@ export const getExampleJSONDataset = () => {
     "_metadata": {
       "description": "Room Management Dataset Example",
       "version": "1.0",
-      "availableFeatures": ["Projector", "SmartBoard", "Computers", "AC", "Wi-Fi", "Audio System"],
+      "availableFeatures": ["Projector", "SmartBoard", "Electronics Equipment", "Machinery", "AC", "Wi-Fi", "Audio System"],
       "availableFaculties": [
-        "Faculty of Engineering",
-        "Faculty of Science", 
-        "Faculty of Arts",
-        "Faculty of Business",
-        "Faculty of Medicine",
-        "Faculty of Law"
+        "Electrical Engineering",
+        "Mechanical Engineering", 
+        "Civil Engineering",
+        "Footwear Engineering",
+        "Agricultural Engineering",
+        "Common Facilities"
       ],
       "timeSlotFormat": "HH:MM-HH:MM (24-hour format)",
       "availableTimeSlots": [

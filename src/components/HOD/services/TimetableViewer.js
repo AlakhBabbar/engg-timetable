@@ -30,7 +30,7 @@ export const timeSlots = [
 export const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 // Add departments export to fix the error
-export const departments = ['Computer Science', 'Mechanical Engineering', 'Electrical Engineering', 'Civil Engineering'];
+export const departments = ['Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Footwear Engineering', 'Agricultural Engineering'];
 
 // Add this line to maintain backward compatibility with existing code
 export const semesters = ['Semester 7', 'Semester 6', 'Semester 5', 'Semester 4'];
@@ -54,13 +54,13 @@ export const fetchDepartments = async () => {
     
     if (snapshot.empty) {
       // Fallback to default departments
-      return ['Computer Science', 'Mechanical Engineering', 'Electrical Engineering', 'Civil Engineering'];
+      return ['Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Footwear Engineering', 'Agricultural Engineering'];
     }
     
     return snapshot.docs.map(doc => doc.data().name);
   } catch (error) {
     console.error('Error fetching departments:', error);
-    return ['Computer Science', 'Mechanical Engineering', 'Electrical Engineering', 'Civil Engineering'];
+    return ['Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Footwear Engineering', 'Agricultural Engineering'];
   }
 };
 

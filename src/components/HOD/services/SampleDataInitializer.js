@@ -15,74 +15,74 @@ const FACULTY_COLLECTION = 'teachers';
 // Sample courses data
 const sampleCourses = [
   {
-    id: 'course_cs101',
-    code: 'CS101',
-    title: 'Introduction to Computer Science',
+    id: 'course_ee101',
+    code: 'EE101',
+    title: 'Basic Electrical Engineering',
     semester: 'Semester 6',
     weeklyHours: '3L+1T',
-    department: 'dept_computer_science',
+    department: 'dept_electrical_engineering',
     faculty: null,
-    tags: ['programming', 'introductory'],
+    tags: ['circuits', 'introductory'],
     createdAt: new Date(),
     updatedAt: new Date()
   },
   {
-    id: 'course_cs202',
-    code: 'CS202',
-    title: 'Data Structures and Algorithms',
+    id: 'course_me202',
+    code: 'ME202',
+    title: 'Thermodynamics',
     semester: 'Semester 7',
     weeklyHours: '3L+2P',
-    department: 'dept_computer_science',
+    department: 'dept_mechanical_engineering',
     faculty: null,
-    tags: ['algorithms', 'data structures'],
+    tags: ['heat transfer', 'energy systems'],
     createdAt: new Date(),
     updatedAt: new Date()
   },
   {
-    id: 'course_cs303',
-    code: 'CS303',
-    title: 'Database Systems',
+    id: 'course_ce303',
+    code: 'CE303',
+    title: 'Structural Analysis',
     semester: 'Semester 6',
     weeklyHours: '3L+1T+2P',
-    department: 'dept_computer_science',
+    department: 'dept_civil_engineering',
     faculty: null,
-    tags: ['databases', 'SQL'],
+    tags: ['structures', 'analysis'],
     createdAt: new Date(),
     updatedAt: new Date()
   },
   {
-    id: 'course_cs405',
-    code: 'CS405',
-    title: 'Artificial Intelligence',
+    id: 'course_fe405',
+    code: 'FE405',
+    title: 'Footwear Design & Manufacturing',
     semester: 'Semester 7',
     weeklyHours: '4L+2P',
-    department: 'dept_computer_science',
+    department: 'dept_footwear_engineering',
     faculty: null,
-    tags: ['AI', 'machine learning'],
+    tags: ['design', 'manufacturing'],
     createdAt: new Date(),
     updatedAt: new Date()
   },
   {
-    id: 'course_cs301',
-    code: 'CS301',
-    title: 'Software Engineering',
+    id: 'course_ae301',
+    code: 'AE301',
+    title: 'Agricultural Machinery',
     semester: 'Semester 6',
     weeklyHours: '3L+1T',
-    department: 'dept_computer_science',
+    department: 'dept_agricultural_engineering',
     faculty: null,
-    tags: ['software', 'project management'],
+    tags: ['machinery', 'automation'],
     createdAt: new Date(),
     updatedAt: new Date()
   },
   {
-    id: 'course_cs210',
-    code: 'CS210',
-    title: 'Computer Networks',
+    id: 'course_ee210',
+    code: 'EE210',
+    title: 'Power Systems',
     semester: 'Semester 7',
     weeklyHours: '3L+1T+1P',
-    department: 'dept_computer_science',
+    department: 'dept_electrical_engineering',
     faculty: null,
-    tags: ['networking', 'protocols'],
+    tags: ['power', 'transmission'],
     createdAt: new Date(),
     updatedAt: new Date()
   }
@@ -97,9 +97,9 @@ const sampleFaculty = [
     status: 'available',
     loadHours: 6,
     maxHours: 18,
-    department: 'dept_computer_science',
-    expertise: ['programming', 'algorithms', 'theory'],
-    preferredCourses: ['CS101', 'CS202'],
+    department: 'dept_electrical_engineering',
+    expertise: ['circuits', 'power systems', 'theory'],
+    preferredCourses: ['EE101', 'EE210'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -111,9 +111,9 @@ const sampleFaculty = [
     status: 'nearlyFull',
     loadHours: 14,
     maxHours: 18,
-    department: 'dept_computer_science',
-    expertise: ['databases', 'data mining', 'big data'],
-    preferredCourses: ['CS303'],
+    department: 'dept_mechanical_engineering',
+    expertise: ['thermodynamics', 'heat transfer', 'energy systems'],
+    preferredCourses: ['ME202'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -125,9 +125,9 @@ const sampleFaculty = [
     status: 'available',
     loadHours: 10,
     maxHours: 20,
-    department: 'dept_computer_science',
-    expertise: ['software engineering', 'project management'],
-    preferredCourses: ['CS301'],
+    department: 'dept_civil_engineering',
+    expertise: ['structural engineering', 'construction management'],
+    preferredCourses: ['CE303'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -139,9 +139,9 @@ const sampleFaculty = [
     status: 'available',
     loadHours: 8,
     maxHours: 18,
-    department: 'dept_computer_science',
-    expertise: ['AI', 'machine learning', 'neural networks'],
-    preferredCourses: ['CS405'],
+    department: 'dept_footwear_engineering',
+    expertise: ['design', 'manufacturing', 'materials'],
+    preferredCourses: ['FE405'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -153,9 +153,9 @@ const sampleFaculty = [
     status: 'overloaded',
     loadHours: 21,
     maxHours: 20,
-    department: 'dept_computer_science',
-    expertise: ['networking', 'security', 'protocols'],
-    preferredCourses: ['CS210'],
+    department: 'dept_agricultural_engineering',
+    expertise: ['machinery', 'automation', 'farming systems'],
+    preferredCourses: ['AE301'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -167,9 +167,9 @@ const sampleFaculty = [
     status: 'available',
     loadHours: 12,
     maxHours: 18,
-    department: 'dept_computer_science',
-    expertise: ['theory', 'algorithms', 'computational logic'],
-    preferredCourses: ['CS202'],
+    department: 'dept_electrical_engineering',
+    expertise: ['electronics', 'control systems', 'instrumentation'],
+    preferredCourses: ['EE210'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -181,9 +181,9 @@ const sampleFaculty = [
     status: 'nearlyFull',
     loadHours: 15,
     maxHours: 18,
-    department: 'dept_computer_science',
-    expertise: ['databases', 'SQL', 'data warehousing'],
-    preferredCourses: ['CS303'],
+    department: 'dept_mechanical_engineering',
+    expertise: ['machine design', 'manufacturing', 'CAD'],
+    preferredCourses: ['ME202'],
     assignedCourses: [],
     createdAt: new Date(),
     updatedAt: new Date()
@@ -195,7 +195,7 @@ const sampleFaculty = [
  * @param {string} departmentId - Department ID to initialize data for
  * @returns {Promise<boolean>} Success status
  */
-export const initializeSampleCourses = async (departmentId = 'dept_computer_science') => {
+export const initializeSampleCourses = async (departmentId = 'dept_electrical_engineering') => {
   try {
     // Check if courses already exist
     const coursesRef = collection(db, 'courses');
@@ -229,15 +229,15 @@ export const initializeSampleCourses = async (departmentId = 'dept_computer_scie
  * @param {string} departmentId - Department ID to initialize data for
  * @returns {Promise<boolean>} Success status
  */
-export const initializeSampleFaculty = async (departmentId = 'dept_computer_science') => {
+export const initializeSampleFaculty = async (departmentId = 'dept_electrical_engineering') => {
   try {
     // Map department ID to full name for compatibility
     const departmentMap = {
-      'dept_computer_science': 'Computer Science',
       'dept_electrical_engineering': 'Electrical Engineering',
       'dept_mechanical_engineering': 'Mechanical Engineering',
       'dept_civil_engineering': 'Civil Engineering',
-      'dept_chemical_engineering': 'Chemical Engineering',
+      'dept_footwear_engineering': 'Footwear Engineering',
+      'dept_agricultural_engineering': 'Agricultural Engineering',
       'dept_agricultural_engineering': 'Agricultural Engineering'
     };
     

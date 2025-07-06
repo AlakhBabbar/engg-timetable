@@ -674,10 +674,10 @@ export default function CourseManagement() {
       
       // Department validation
       if (course.department) {
-        const validDepts = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Chemical Engineering'];
+        const validDepts = ['Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering', 'Footwear Engineering', 'Agricultural Engineering'];
         const dept = course.department.toString().trim();
         if (!validDepts.some(validDept => validDept.toLowerCase().includes(dept.toLowerCase()))) {
-          warnings.push(`${courseContext}: Unknown department "${dept}". Common departments: ${validDepts.slice(0, 3).join(', ')}, etc.`);
+          warnings.push(`${courseContext}: Unknown department "${dept}". Available departments: ${validDepts.slice(0, 3).join(', ')}, etc.`);
         }
       }
       

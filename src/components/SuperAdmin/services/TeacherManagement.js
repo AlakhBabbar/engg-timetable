@@ -19,38 +19,44 @@ const TEACHERS_COLLECTION = 'teachers';
 
 // Subject areas that teachers can specialize in
 export const subjectAreas = [
-  'Algorithms & Data Structures',
-  'Artificial Intelligence',
-  'Computer Networks',
-  'Database Systems',
-  'Operating Systems',
-  'Software Engineering',
-  'Web Development',
-  'Machine Learning',
-  'Embedded Systems',
-  'Cybersecurity',
-  'Cloud Computing',
-  'Mobile Development',
-  'Computer Architecture',
-  'Theoretical Computer Science',
-  'Graphics & Visualization'
+  'Power Systems',
+  'Control Engineering',
+  'Electronics',
+  'Electrical Machines',
+  'Thermodynamics',
+  'Heat Transfer',
+  'Machine Design',
+  'Manufacturing',
+  'Structural Analysis',
+  'Construction Management',
+  'Transportation Engineering',
+  'Environmental Engineering',
+  'Footwear Design',
+  'Leather Technology',
+  'Manufacturing Processes',
+  'Quality Control',
+  'Agricultural Machinery',
+  'Irrigation Engineering',
+  'Soil Science',
+  'Farm Mechanization',
+  'Food Processing',
+  'Renewable Energy'
 ];
 
 // Department options
 export const departments = [
-  'Computer Science', 
   'Electrical Engineering', 
   'Mechanical Engineering',
   'Civil Engineering',
-  'Chemical Engineering',
+  'Footwear Engineering',
   'Agricultural Engineering'
 ];
 
 // Sample teachers data for fallback
 export const dummyTeachers = [
-  { id: 1, name: 'Dr. Jane Smith', email: 'jane@univ.edu', department: 'Computer Science', expertise: ['Algorithms & Data Structures', 'Artificial Intelligence'], qualification: 'Ph.D Computer Science', experience: 8, active: true },
-  { id: 2, name: 'Prof. Michael Johnson', email: 'michael@univ.edu', department: 'Electrical Engineering', expertise: ['Computer Networks', 'Embedded Systems'], qualification: 'Ph.D Electrical Engineering', experience: 12, active: true },
-  { id: 3, name: 'Dr. Sarah Williams', email: 'sarah@univ.edu', department: 'Computer Science', expertise: ['Database Systems', 'Web Development'], qualification: 'Ph.D Information Systems', experience: 6, active: false },
+  { id: 1, name: 'Dr. Jane Smith', email: 'jane@univ.edu', department: 'Electrical Engineering', expertise: ['Power Systems', 'Control Engineering'], qualification: 'Ph.D Electrical Engineering', experience: 8, active: true },
+  { id: 2, name: 'Prof. Michael Johnson', email: 'michael@univ.edu', department: 'Mechanical Engineering', expertise: ['Thermodynamics', 'Heat Transfer'], qualification: 'Ph.D Mechanical Engineering', experience: 12, active: true },
+  { id: 3, name: 'Dr. Sarah Williams', email: 'sarah@univ.edu', department: 'Civil Engineering', expertise: ['Structural Analysis', 'Construction Management'], qualification: 'Ph.D Civil Engineering', experience: 6, active: false },
 ];
 
 /**
@@ -377,18 +383,18 @@ export const getExampleJSONDataset = () => {
       {
         "name": "Dr. John Smith",
         "email": "john.smith@university.edu",
-        "department": "Computer Science",
-        "expertise": ["Artificial Intelligence", "Machine Learning"],
-        "qualification": "Ph.D Computer Science",
+        "department": "Electrical Engineering",
+        "expertise": ["Power Systems", "Control Engineering"],
+        "qualification": "Ph.D Electrical Engineering",
         "experience": 10,
         "active": true
       },
       {
         "name": "Prof. Maria Garcia",
         "email": "maria.garcia@university.edu",
-        "department": "Electrical Engineering",
-        "expertise": ["Embedded Systems", "Computer Networks"],
-        "qualification": "Ph.D Electrical Engineering",
+        "department": "Mechanical Engineering",
+        "expertise": ["Thermodynamics", "Heat Transfer"],
+        "qualification": "Ph.D Mechanical Engineering",
         "experience": 8,
         "active": true
       }
