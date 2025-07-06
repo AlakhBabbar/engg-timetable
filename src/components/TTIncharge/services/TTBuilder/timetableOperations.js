@@ -41,7 +41,13 @@ export const addCourseToTimetable = (timetableData, day, slot, course, room) => 
     ...course,
     teacher: {
       id: course.teacherId,
-      name: course.teacherName
+      name: course.teacherName,
+      teacherCode: course.teacherCode
+    },
+    faculty: {
+      id: course.teacherId,
+      name: course.teacherName,
+      teacherCode: course.teacherCode
     },
     room: room?.id || room?.number || '',
     roomName: room?.name || room?.type || '',
@@ -97,7 +103,7 @@ export const updateTimetableOnDrop = (timetableData, day, slot, course, room, dr
 /**
  * Map courses to course blocks with teacher information
  * @param {Array} allCourses - Raw course data from Firestore
- * @param {Object} teacherMap - Map of teacher IDs to names
+ * @param {Object} teacherMap - Map of teacher IDs to teacher info objects
  * @param {Array} courseColors - Available color palette
  * @returns {Array} Processed course blocks
  */
@@ -119,24 +125,28 @@ export const mapCoursesToBlocks = (allCourses, teacherMap, courseColors) => {
     const color = courseColorMap[course.code];
     if (Array.isArray(course.facultyList)) {
       course.facultyList.forEach(teacherId => {
+        const teacherInfo = teacherMap[teacherId] || { name: teacherId, teacherCode: teacherId };
         blocks.push({
           code: course.code,
           title: course.title,
           weeklyHours: course.weeklyHours,
           teacherId,
-          teacherName: teacherMap[teacherId] || teacherId,
+          teacherName: teacherInfo.name,
+          teacherCode: teacherInfo.teacherCode,
           color,
           id: `${course.code}-${teacherId}`,
           duration: course.duration || ''
         });
       });
     } else if (course.facultyList) {
+      const teacherInfo = teacherMap[course.facultyList] || { name: course.facultyList, teacherCode: course.facultyList };
       blocks.push({
         code: course.code,
         title: course.title,
         weeklyHours: course.weeklyHours,
         teacherId: course.facultyList,
-        teacherName: teacherMap[course.facultyList] || course.facultyList,
+        teacherName: teacherInfo.name,
+        teacherCode: teacherInfo.teacherCode,
         color,
         id: `${course.code}-${course.facultyList}`,
         duration: course.duration || ''
@@ -150,7 +160,7 @@ export const mapCoursesToBlocks = (allCourses, teacherMap, courseColors) => {
 /**
  * Group course blocks by course for UI display
  * @param {Array} allCourses - Raw course data
- * @param {Object} teacherMap - Map of teacher IDs to names
+ * @param {Object} teacherMap - Map of teacher IDs to teacher info objects
  * @param {Array} courseColors - Available color palette
  * @returns {Array} Grouped course blocks
  */
@@ -168,16 +178,21 @@ export const groupCourseBlocks = (allCourses, teacherMap, courseColors) => {
       weeklyHours: course.weeklyHours,
       duration: course.duration || '',
       blocks: Array.isArray(course.facultyList)
-        ? course.facultyList.map(teacherId => ({
-            teacherId,
-            teacherName: teacherMap[teacherId] || null,
-            color,
-            id: `${course.code}-${teacherId}`
-          }))
+        ? course.facultyList.map(teacherId => {
+            const teacherInfo = teacherMap[teacherId] || { name: teacherId, teacherCode: teacherId };
+            return {
+              teacherId,
+              teacherName: teacherInfo.name,
+              teacherCode: teacherInfo.teacherCode,
+              color,
+              id: `${course.code}-${teacherId}`
+            };
+          })
         : course.facultyList
           ? [{
               teacherId: course.facultyList,
-              teacherName: teacherMap[course.facultyList] || null,
+              teacherName: (teacherMap[course.facultyList] || { name: course.facultyList, teacherCode: course.facultyList }).name,
+              teacherCode: (teacherMap[course.facultyList] || { name: course.facultyList, teacherCode: course.facultyList }).teacherCode,
               color,
               id: `${course.code}-${course.facultyList}`
             }]

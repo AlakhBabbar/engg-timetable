@@ -110,19 +110,21 @@ export const getCompactCourseDisplay = (course, isCompact = false) => {
   
   const courseCode = course.code || course.id;
   const courseName = course.title || course.name;
-  const facultyName = course.teacher?.name || course.faculty?.name || '';
+  const facultyInfo = course.teacher || course.faculty || {};
+  // Use teacher code if available, fallback to name if no code
+  const facultyDisplay = facultyInfo.teacherCode || facultyInfo.name || '';
   const room = course.room || '';
   
   if (isCompact) {
     return {
       title: courseCode,
-      subtitle: room ? `Room: ${room}` : facultyName
+      subtitle: room ? `Room: ${room}` : facultyDisplay
     };
   }
   
   return {
     title: `${courseCode} - ${courseName}`,
-    subtitle: `${facultyName}${room ? ` | Room: ${room}` : ''}`
+    subtitle: `${facultyDisplay}${room ? ` | Room: ${room}` : ''}`
   };
 };
 
@@ -542,10 +544,15 @@ export const getCompactCellDisplay = (course, isMobile = false) => {
   const maxRoomLength = isMobile ? 4 : 6;
   const maxTitleLength = isMobile ? 8 : 12;
   
+  // Use teacher code if available, fallback to name
+  const teacherDisplay = course.teacher?.teacherCode || course.teacherCode || 
+                        course.teacher?.name || course.teacherName || 'No teacher';
+  const teacherFullDisplay = course.teacher?.name || course.teacherName || 'No teacher assigned';
+  
   return {
     code: course.code || 'N/A',
-    teacher: abbreviateTeacherName(course.teacher?.name || course.teacherName, maxTeacherLength),
-    teacherFull: course.teacher?.name || course.teacherName || 'No teacher assigned',
+    teacher: abbreviateTeacherName(teacherDisplay, maxTeacherLength),
+    teacherFull: teacherFullDisplay,
     room: abbreviateRoomName(course.roomNumber || course.room, maxRoomLength),
     roomFull: course.roomNumber || course.room || 'No room assigned',
     title: abbreviateCourseTitle(course.title, maxTitleLength),

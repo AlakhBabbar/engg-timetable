@@ -7,11 +7,11 @@ import { initializeEmptyTimetable } from './timetableOperations.js';
 import { replaceUndefinedWithNull } from './utils.js';
 
 /**
- * Fetch teachers from Firestore and build a name mapping
+ * Fetch teachers from Firestore and build a mapping with names and codes
  * @param {Object} db - Firestore database instance
  * @param {Function} collection - Firestore collection function
  * @param {Function} getDocs - Firestore getDocs function
- * @returns {Promise<Object>} Map of teacher IDs to names
+ * @returns {Promise<Object>} Map of teacher IDs to teacher info (name, teacherCode)
  */
 export const fetchTeachersMap = async (db, collection, getDocs) => {
   try {
@@ -19,7 +19,11 @@ export const fetchTeachersMap = async (db, collection, getDocs) => {
     const map = {};
     snap.docs.forEach(doc => {
       const data = doc.data();
-      map[data.id || doc.id] = data.name;
+      const teacherId = data.id || doc.id;
+      map[teacherId] = {
+        name: data.name,
+        teacherCode: data.teacherCode || data.name // Fallback to name if teacherCode is not available
+      };
     });
     return map;
   } catch (error) {

@@ -1104,7 +1104,7 @@ export default function TimetableBuilder() {
                         : 'cursor-grab hover:shadow-sm'
                     }`}
                     draggable={!isTimetableDisabled}
-                    onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, { ...course, teacherId: block.teacherId, teacherName: block.teacherName }) : undefined}
+                    onDragStart={!isTimetableDisabled ? (e) => handleDragStart(e, { ...course, teacherId: block.teacherId, teacherName: block.teacherName, teacherCode: block.teacherCode }) : undefined}
                     onDragEnd={!isTimetableDisabled ? handleDragEnd : undefined}
                     whileHover={!isTimetableDisabled ? { scale: 1.01 } : undefined}
                   >
@@ -1114,9 +1114,9 @@ export default function TimetableBuilder() {
                     </div>
                     <div className="text-xs flex justify-between items-center">
                       <span className="truncate flex-1 mr-1" title={block.teacherName || 'No teacher assigned'}>
-                        {block.teacherName?.length > 12 
-                          ? block.teacherName.substring(0, 12) + '...' 
-                          : block.teacherName || 'No teacher'
+                        {(block.teacherCode || block.teacherName)?.length > 12 
+                          ? (block.teacherCode || block.teacherName).substring(0, 12) + '...' 
+                          : (block.teacherCode || block.teacherName) || 'No teacher'
                         }
                       </span>
                       <span className="font-mono text-xs text-gray-600">{course.weeklyHours}h</span>
