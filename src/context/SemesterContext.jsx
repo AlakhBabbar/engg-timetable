@@ -113,6 +113,14 @@ export const SemesterProvider = ({ children }) => {
     }
   };
 
+  // Enhanced setSelectedSemester that also stores the selection
+  const setSelectedSemesterWithStorage = (semester) => {
+    setSelectedSemester(semester);
+    if (semester) {
+      storeSelectedSemester(semester);
+    }
+  };
+
   // Function to get only active semester names
   const getActiveSemesterNames = () => {
     return activeSemesters.map(sem => sem.name);
@@ -126,6 +134,7 @@ export const SemesterProvider = ({ children }) => {
   // Context value
   const value = {
     selectedSemester,
+    setSelectedSemester: setSelectedSemesterWithStorage,
     availableSemesters,
     activeSemesters,
     loading,

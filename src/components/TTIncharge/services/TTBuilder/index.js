@@ -33,6 +33,16 @@ import {
 } from './conflictDetection.js';
 
 import {
+  checkAllConflicts,
+  checkTeacherConflicts,
+  checkRoomConflicts,
+  fetchAllTimetables,
+  generateTimetableId,
+  parseTimetableId,
+  formatTimetableDisplayName
+} from './conflictDetectionService.js';
+
+import {
   resourceValidator,
   courseValidator,
   facultyValidator
@@ -83,6 +93,7 @@ export * from './constants.js';
 export * from './timetableOperations.js';
 export * from './firestoreService.js';
 export * from './conflictDetection.js';
+export * from './conflictDetectionService.js';
 export * from './validation.js';
 export * from './tabManagement.js';
 export * from './historyManager.js';

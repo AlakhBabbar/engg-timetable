@@ -37,23 +37,33 @@ export const addCourseToTimetable = (timetableData, day, slot, course, room) => 
     newTimetable[day] = {};
   }
   
+  if (!newTimetable[day][slot]) {
+    newTimetable[day][slot] = [];
+  }
+  
+  // Updated format to match specification
   newTimetable[day][slot] = {
-    ...course,
-    teacher: {
-      id: course.teacherId,
-      name: course.teacherName,
-      teacherCode: course.teacherCode
-    },
+    teacherCode: course.teacherCode,
+    teacherId: course.teacherId,
+    teacherName: course.teacherName,
+    roomId: room?.id || room?.number || '',
+    roomNumber: room?.id || room?.number || '',
+    roomName: room?.name || room?.type || '',
+    courseId: course.id,
+    code: course.code,  // Changed from courseCode to code to match UI expectation
+    courseCode: course.code,  // Keep both for backward compatibility
+    name: course.title || course.name,  // Changed from courseName to name to match UI expectation
+    courseName: course.title || course.name,  // Keep both for backward compatibility
+    title: course.title || course.name,  // Add title property as well
+    timeSlot: slot,
+    dayOfWeek: day,
+    room: room?.id || room?.number || '',  // Add room property for compatibility
+    teacher: course.teacherName || course.teacherCode,  // Add teacher property for compatibility
     faculty: {
       id: course.teacherId,
       name: course.teacherName,
-      teacherCode: course.teacherCode
-    },
-    room: room?.id || room?.number || '',
-    roomName: room?.name || room?.type || '',
-    roomNumber: room?.id || room?.number || '',
-    timeSlot: slot,
-    dayOfWeek: day
+      code: course.teacherCode
+    }
   };
   
   return newTimetable;

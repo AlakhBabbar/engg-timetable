@@ -21,7 +21,7 @@ export const dragDropOperations = {
    */
   deleteCourse: (timetableData, day, slot, conflicts) => {
     const newTimetable = deleteCourse(timetableData, day, slot);
-    const newConflicts = filterConflictsAfterDeletion(conflicts, day, slot);
+    const newConflicts = filterConflictsAfterDeletion(Array.isArray(conflicts) ? conflicts : [], day, slot);
     return {
       timetable: newTimetable,
       conflicts: newConflicts
@@ -49,10 +49,10 @@ export const dragDropOperations = {
     );
 
     // Handle conflicts
-    let updatedConflicts = conflicts;
+    let updatedConflicts = Array.isArray(conflicts) ? conflicts : [];
     if (dragSourceInfo) {
       updatedConflicts = filterConflictsAfterMove(
-        conflicts, dragSourceInfo.day, dragSourceInfo.slot
+        updatedConflicts, dragSourceInfo.day, dragSourceInfo.slot
       );
     }
 

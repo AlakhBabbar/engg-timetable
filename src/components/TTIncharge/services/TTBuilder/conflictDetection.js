@@ -268,6 +268,9 @@ export const validateCoursePlacement = (timetableData, day, slot, course, select
  * @returns {Array} Filtered conflicts
  */
 export const filterConflictsAfterDeletion = (conflicts, day, slot) => {
+  if (!Array.isArray(conflicts)) {
+    return [];
+  }
   return conflicts.filter(conflict => 
     !(conflict.day === day && conflict.slot === slot)
   );
@@ -281,6 +284,9 @@ export const filterConflictsAfterDeletion = (conflicts, day, slot) => {
  * @returns {Array} Filtered conflicts
  */
 export const filterConflictsAfterMove = (conflicts, sourceDay, sourceSlot) => {
+  if (!Array.isArray(conflicts)) {
+    return [];
+  }
   return conflicts.filter(conflict => 
     !(conflict.day === sourceDay && conflict.slot === sourceSlot)
   );
