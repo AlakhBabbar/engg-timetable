@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { FiEdit2, FiRefreshCw, FiCheckSquare, FiSquare, FiUsers, FiList, FiSave, FiCalendar, FiCheckCircle } from 'react-icons/fi';
+import { FiEdit2, FiRefreshCw, FiCheckSquare, FiSquare, FiUsers, FiList, FiSave, FiCalendar, FiCheckCircle, FiGrid, FiChevronLeft, FiChevronRight } from 'react-icons/fi';
 import {
   fetchAllRooms,
   listenToRoomFreeTimings,
@@ -24,11 +24,28 @@ export default function RoomAvailabilityAllocation() {
   const [listenerUnsub, setListenerUnsub] = useState(null);
   const [resetting, setResetting] = useState(false);
   const [dirty, setDirty] = useState(false);
+  const [viewMode, setViewMode] = useState('edit'); // 'edit' or 'matrix'
+  const [selectedDay, setSelectedDay] = useState('Monday'); // For matrix view
+  const [roomTimings, setRoomTimings] = useState({}); // Store all room timings for matrix view
 
   // Fetch all rooms on mount
   useEffect(() => {
     fetchAllRooms().then(setRooms);
   }, []);
+
+  // Fetch timings for all rooms for matrix view
+  useEffect(() => {
+    if (viewMode === 'matrix' && rooms.length > 0) {
+      const unsubscribers = [];
+      rooms.forEach(room => {
+        const unsub = listenToRoomFreeTimings(room.id, timings => {
+          setRoomTimings(prev => ({ ...prev, [room.id]: timings }));
+        });
+        unsubscribers.push(unsub);
+      });
+      return () => unsubscribers.forEach(unsub => unsub && unsub());
+    }
+  }, [viewMode, rooms]);
 
   // Listen to selected room's freeTimings
   useEffect(() => {
@@ -127,6 +144,30 @@ export default function RoomAvailabilityAllocation() {
     setDirty(false);
   };
 
+  // Check if a room is available for a specific day and slot
+  const isRoomAvailable = (roomId, day, slot) => {
+    const timings = roomTimings[roomId] || [];
+    const timingsArray = Array.isArray(timings) ? timings : [];
+    const dayTimings = timingsArray.find(obj => Object.keys(obj)[0] === day);
+    if (!dayTimings) return false;
+    return dayTimings[day]?.includes(slot) || false;
+  };
+
+  // Navigate days
+  const handlePreviousDay = () => {
+    const currentIndex = weekDays.indexOf(selectedDay);
+    if (currentIndex > 0) {
+      setSelectedDay(weekDays[currentIndex - 1]);
+    }
+  };
+
+  const handleNextDay = () => {
+    const currentIndex = weekDays.indexOf(selectedDay);
+    if (currentIndex < weekDays.length - 1) {
+      setSelectedDay(weekDays[currentIndex + 1]);
+    }
+  };
+
   return (
     <div className="flex flex-col gap-4">
       {/* Header */}
@@ -135,15 +176,35 @@ export default function RoomAvailabilityAllocation() {
           <FiCheckCircle className="text-indigo-600 text-2xl" />
         </span>
         <h1 className="text-2xl font-bold text-indigo-700">Availability</h1>
-        <div className="ml-auto">
+        
+        {/* Toggle View Button */}
+        <div className="ml-auto flex items-center gap-3">
+          <button
+            onClick={() => setViewMode(viewMode === 'edit' ? 'matrix' : 'edit')}
+            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            {viewMode === 'edit' ? (
+              <>
+                <FiGrid className="text-lg" />
+                <span>Matrix View</span>
+              </>
+            ) : (
+              <>
+                <FiList className="text-lg" />
+                <span>Edit View</span>
+              </>
+            )}
+          </button>
           <span className="flex items-center justify-center w-8 h-8 rounded-full bg-cyan-100">
             <FiCalendar className="text-cyan-500 text-xl" />
           </span>
         </div>
       </div>
-      <div className="flex gap-4">
-        {/* Left Section: Room List */}
-        <div className="bg-white rounded-xl shadow-sm p-4 min-w-[600px] max-w-[900px] w-[700px] flex flex-col">
+      {/* Edit View */}
+      {viewMode === 'edit' && (
+        <div className="flex gap-4">
+          {/* Left Section: Room List */}
+          <div className="bg-white rounded-xl shadow-sm p-4 min-w-[600px] max-w-[900px] w-[700px] flex flex-col">
           <h2 className="text-lg font-semibold text-gray-700 mb-2 flex items-center gap-2"><FiUsers /> Rooms</h2>
           <div className="flex-1 overflow-y-auto max-h-[520px] rounded-lg border border-gray-100 shadow-inner">
             <table className="w-full text-sm border-collapse">
@@ -237,6 +298,108 @@ export default function RoomAvailabilityAllocation() {
           )}
         </div>
       </div>
+      )}
+
+      {/* Matrix View */}
+      {viewMode === 'matrix' && (
+        <div className="bg-white rounded-xl shadow-sm p-6">
+          {/* Day Navigation */}
+          <div className="flex items-center justify-between mb-6">
+            <button
+              onClick={handlePreviousDay}
+              disabled={weekDays.indexOf(selectedDay) === 0}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                weekDays.indexOf(selectedDay) === 0
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+              }`}
+            >
+              <FiChevronLeft />
+              <span>Previous</span>
+            </button>
+            
+            <h2 className="text-2xl font-bold text-indigo-700">{selectedDay}</h2>
+            
+            <button
+              onClick={handleNextDay}
+              disabled={weekDays.indexOf(selectedDay) === weekDays.length - 1}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-colors ${
+                weekDays.indexOf(selectedDay) === weekDays.length - 1
+                  ? 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                  : 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200'
+              }`}
+            >
+              <span>Next</span>
+              <FiChevronRight />
+            </button>
+          </div>
+
+          {/* Matrix Table */}
+          <div className="overflow-x-auto rounded-lg border border-gray-200 shadow-inner">
+            <table className="border-collapse w-full text-sm">
+              <thead className="sticky top-0 bg-gray-50 z-10">
+                <tr>
+                  <th className="py-3 px-4 text-left font-semibold text-gray-700 border-b-2 border-gray-300 bg-gray-100 sticky left-0 z-20 min-w-[200px]">
+                    Room / Faculty
+                  </th>
+                  {timeSlots.map(slot => (
+                    <th key={slot} className="py-3 px-3 text-center font-semibold text-indigo-700 border-b-2 border-gray-300 min-w-[80px] whitespace-nowrap">
+                      <div className="text-xs">{slot}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {rooms.map((room, idx) => (
+                  <tr key={room.id} className={`${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-indigo-50 transition-colors`}>
+                    <td className="py-3 px-4 border-b border-gray-200 sticky left-0 z-10 bg-inherit">
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-gray-800">{room.number}</span>
+                        <span className="text-xs text-gray-500">{room.faculty || 'N/A'}</span>
+                      </div>
+                    </td>
+                    {timeSlots.map(slot => {
+                      const available = isRoomAvailable(room.id, selectedDay, slot);
+                      return (
+                        <td
+                          key={slot}
+                          className={`py-3 px-3 text-center border-b border-gray-200 transition-colors ${
+                            available ? 'bg-green-400' : ''
+                          }`}
+                        >
+                          {available && (
+                            <div className="flex items-center justify-center">
+                              <FiCheckCircle className="text-white text-lg" />
+                            </div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Legend */}
+          <div className="flex items-center gap-6 mt-4 text-sm text-gray-600">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-green-400 rounded border border-gray-300"></div>
+              <span>Available</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-white rounded border border-gray-300"></div>
+              <span>Not Available</span>
+            </div>
+          </div>
+
+          {loading && (
+            <div className="text-center text-gray-500 mt-4">
+              Loading room availability data...
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
