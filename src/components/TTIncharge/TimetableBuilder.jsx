@@ -4,7 +4,7 @@ import {
   FiSave, FiUpload, FiTrash2, FiFilter, FiChevronDown,
   FiCheck, FiX, FiAlertTriangle, FiCalendar, FiGrid,
   FiList, FiArrowLeft, FiArrowRight, FiRefreshCw,
-  FiChevronLeft, FiChevronRight, FiPlus, FiEdit2, FiMaximize2, FiMinimize2
+  FiChevronLeft, FiChevronRight, FiPlus, FiEdit2, FiMaximize2, FiMinimize2, FiFolder
 } from 'react-icons/fi';
 import { db, collection, doc, setDoc, getDoc, getDocs, onSnapshot, query, where } from '../../firebase/config';
 import { useSemester } from '../../context/SemesterContext';
@@ -199,6 +199,12 @@ export default function TimetableBuilder() {
   });
   const [highlightedConflicts, setHighlightedConflicts] = useState({});
   const [loadingConflicts, setLoadingConflicts] = useState(false);
+
+  // State for browse timetables modal
+  const [showBrowseModal, setShowBrowseModal] = useState(false);
+  const [existingTimetables, setExistingTimetables] = useState([]);
+  const [loadingTimetables, setLoadingTimetables] = useState(false);
+  const [isManuallyLoading, setIsManuallyLoading] = useState({});
 
   // Helper function to validate drop before allowing it with comprehensive checks
   const validateDrop = (day, slot, course, room) => {
@@ -420,13 +426,14 @@ export default function TimetableBuilder() {
 
   // Reset selected batch when branch changes to avoid invalid combinations
   useEffect(() => {
-    if (selectedBranch && availableBatches.length > 0) {
+    // Don't clear batch while batches are still loading
+    if (selectedBranch && availableBatches.length > 0 && !batchesLoading) {
       // If current batch is not in the new batch list, reset it
       if (selectedBatch && !availableBatches.find(batch => batch.name === selectedBatch)) {
         updateTabConfig(activeTabId, { selectedBatch: '' });
       }
     }
-  }, [selectedBranch, availableBatches, selectedBatch, activeTabId, updateTabConfig]);
+  }, [selectedBranch, availableBatches, selectedBatch, activeTabId, updateTabConfig, batchesLoading]);
 
   // Debug: Log when all required fields are selected
   useEffect(() => {
@@ -466,7 +473,35 @@ export default function TimetableBuilder() {
       db, doc, onSnapshot,
       currentSemester: selectedSemester, selectedBranch, selectedBatch, selectedType,
       callback: (scheduleData) => {
-        setTimetablesData(prev => ({ ...prev, [activeTabId]: scheduleData }));
+        // Don't update if we're manually loading data
+        if (isManuallyLoading[activeTabId]) {
+          console.log('Skipping listener update - manual loading in progress');
+          setTimetableLoading(false);
+          return;
+        }
+        
+        setTimetablesData(prev => {
+          // Check if we already have data for this tab (from browse/load)
+          const existingData = prev[activeTabId];
+          const hasExistingData = existingData && Object.keys(existingData).length > 0 && 
+            Object.values(existingData).some(dayData => 
+              Object.values(dayData || {}).some(slotData => slotData && slotData.code)
+            );
+          
+          // If we have existing data and the new data is empty, don't overwrite
+          const hasNewData = scheduleData && Object.keys(scheduleData).length > 0 &&
+            Object.values(scheduleData).some(dayData => 
+              Object.values(dayData || {}).some(slotData => slotData && slotData.code)
+            );
+          
+          if (hasExistingData && !hasNewData) {
+            // Keep existing data, don't overwrite with empty data
+            console.log('Keeping existing data, not overwriting with empty');
+            return prev;
+          }
+          
+          return { ...prev, [activeTabId]: scheduleData };
+        });
         setTimetableLoading(false);
         
         // Initialize history for this tab with the loaded data (first time only)
@@ -978,6 +1013,141 @@ export default function TimetableBuilder() {
     }
   };
 
+  // Handle browse existing timetables
+  const handleBrowseTimetables = async () => {
+    setShowBrowseModal(true);
+    setLoadingTimetables(true);
+    
+    try {
+      const timetablesRef = collection(db, 'timetables');
+      const snapshot = await getDocs(timetablesRef);
+      
+      const timetablesList = snapshot.docs.map(doc => ({
+        id: doc.id,
+        ...doc.data(),
+        createdAt: doc.data().createdAt?.toDate() || new Date(),
+        updatedAt: doc.data().updatedAt?.toDate() || new Date()
+      }));
+      
+      // Sort by most recently updated
+      timetablesList.sort((a, b) => b.updatedAt - a.updatedAt);
+      
+      setExistingTimetables(timetablesList);
+    } catch (error) {
+      console.error('Error fetching timetables:', error);
+      showError('Failed to load existing timetables');
+    } finally {
+      setLoadingTimetables(false);
+    }
+  };
+
+  // Handle load selected timetable
+  const handleLoadTimetable = (timetable) => {
+    // Check if this timetable is already open in a tab
+    const existingTab = tabs.find(tab => tab.timetableId === timetable.id);
+    if (existingTab) {
+      setActiveTabId(existingTab.id);
+      setShowBrowseModal(false);
+      showInfo(`Switched to existing tab: ${existingTab.name}`);
+      return;
+    }
+
+    // Parse timetable ID to get configuration
+    const parts = timetable.id.split('-');
+    if (parts.length >= 4) {
+      const [semester, branch, batch, ...typeParts] = parts;
+      const type = typeParts.join('-');
+      
+      // Check if the first tab is empty and should be replaced
+      const isFirstTabEmpty = tabs.length === 1 && 
+        tabs[0].id === 1 && 
+        !tabs[0].program && 
+        !tabs[0].branch && 
+        !tabs[0].semester && 
+        !tabs[0].type && 
+        !tabs[0].timetableId;
+      
+      // Create new tab for existing timetable
+      const newTab = {
+        id: nextTabId,
+        name: `${semester}-${branch}-${batch}`,
+        timetableId: timetable.id,
+        program: semester,
+        branch: branch,
+        semester: semester,
+        type: type,
+        batch: batch || '',
+        overallCredits: timetable.overallCredits || '',
+        isActive: false,
+        isModified: false
+      };
+      
+      // Load the timetable data first
+      if (timetable.schedule) {
+        // Set manual loading flag to prevent listener from overwriting
+        setIsManuallyLoading(prev => ({ ...prev, [nextTabId]: true }));
+        
+        // Initialize tab configuration BEFORE creating the tab
+        setTabConfigs(prev => ({
+          ...prev,
+          [nextTabId]: {
+            selectedBranch: branch,
+            selectedBatch: batch,
+            selectedSemester: semester,
+            selectedType: type,
+            selectedDepartment: null,
+            selectedFaculty: null,
+            selectedRoom: roomsData[0] || null
+          }
+        }));
+        
+        // Replace first tab if empty, otherwise add new tab
+        if (isFirstTabEmpty) {
+          setTabs([newTab]);
+        } else {
+          setTabs(prev => [...prev, newTab]);
+        }
+        
+        // Set the timetable data immediately
+        setTimetablesData(prev => ({
+          ...prev,
+          [nextTabId]: timetable.schedule
+        }));
+        
+        // Initialize history with the loaded data
+        const result = historyManager.addToHistory([], -1, timetable.schedule);
+        setHistoryData(prev => ({ ...prev, [nextTabId]: result.history }));
+        setHistoryIndices(prev => ({ ...prev, [nextTabId]: result.historyIndex }));
+        
+        // Switch to the new tab
+        setActiveTabId(nextTabId);
+        
+        // Pre-load batches for this branch and semester
+        if (branch && semester) {
+          setBatchesLoading(true);
+          getBatches(branch, semester, true).then(batchData => {
+            setAvailableBatches(batchData);
+            setBatchesLoading(false);
+          }).catch(error => {
+            console.error('Failed to load batches:', error);
+            setBatchesLoading(false);
+          });
+        }
+        
+        setNextTabId(nextTabId + 1);
+        
+        // Clear manual loading flag after listener has had time to set up
+        setTimeout(() => {
+          setIsManuallyLoading(prev => ({ ...prev, [nextTabId]: false }));
+        }, 1000);
+        
+        showInfo(`Loaded timetable: ${semester} - ${branch} - ${batch}`);
+      }
+    }
+    
+    setShowBrowseModal(false);
+  };
+
   // Toggle zoom
   const toggleZoom = () => {
     setIsZoomed(!isZoomed);
@@ -1086,8 +1256,17 @@ export default function TimetableBuilder() {
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-bold text-gray-800">Timetable Builder</h1>
         
-        {/* Undo/Redo and Zoom Buttons */}
+        {/* Browse, Undo/Redo and Zoom Buttons */}
         <div className="flex items-center gap-2">
+          <button 
+            onClick={handleBrowseTimetables}
+            className="px-3 py-1.5 rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition flex items-center gap-2 text-sm"
+            title="Browse Existing Timetables"
+          >
+            <FiFolder size={16} />
+            <span>Browse</span>
+          </button>
+          <div className="w-px h-6 bg-gray-300 mx-1"></div>
           <button 
             onClick={() => !isTimetableDisabled && handleUndo()} 
             disabled={historyIndex <= 0 || isTimetableDisabled}
@@ -1936,6 +2115,123 @@ export default function TimetableBuilder() {
           </button>
         </div>
       </div>
+
+      {/* Browse Timetables Modal - Enhanced Version */}
+      {showBrowseModal && (
+        <div className="fixed inset-0 bg-black/20 backdrop-blur-sm flex items-center justify-center z-[9999]">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-3xl mx-4 max-h-[80vh] overflow-hidden">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-slate-50">
+              <h3 className="text-lg font-semibold text-slate-800 flex items-center gap-2">
+                <FiCalendar className="text-indigo-500" />
+                Browse Existing Timetables
+              </h3>
+              <button
+                onClick={() => setShowBrowseModal(false)}
+                className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                <FiX className="text-slate-500" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-4 overflow-y-auto max-h-[60vh]">
+              {loadingTimetables ? (
+                <div className="text-center py-8">
+                  <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mx-auto mb-4"></div>
+                  <div className="text-xl text-gray-600">Loading timetables...</div>
+                </div>
+              ) : existingTimetables.length === 0 ? (
+                <div className="text-center py-8">
+                  <FiCalendar className="text-4xl text-slate-300 mx-auto mb-4" />
+                  <h4 className="text-lg font-medium text-slate-600 mb-2">No Timetables Found</h4>
+                  <p className="text-slate-500">Create your first timetable to get started!</p>
+                </div>
+              ) : (
+                <div className="grid gap-3">
+                  {existingTimetables.map((timetable) => {
+                    const parts = timetable.id.split('-');
+                    const semester = parts[0] || 'N/A';
+                    const branch = parts[1] || 'N/A';
+                    const batch = parts[2] || 'N/A';
+                    const type = parts.slice(3).join('-') || 'N/A';
+                    
+                    // Check if already open in a tab
+                    const isAlreadyOpen = tabs.some(tab => tab.timetableId === timetable.id);
+                    
+                    return (
+                      <button
+                        key={timetable.id}
+                        onClick={() => handleLoadTimetable(timetable)}
+                        className="w-full text-left p-4 border border-slate-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 transition-all group"
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="flex-1">
+                            <div className="font-semibold text-slate-800 group-hover:text-indigo-800 mb-1 flex items-center gap-2">
+                              {semester} - {branch} - {batch}
+                              {isAlreadyOpen && (
+                                <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-medium">
+                                  Open
+                                </span>
+                              )}
+                            </div>
+                            <div className="text-sm text-slate-600 flex items-center gap-3 mb-2">
+                              <span className="flex items-center gap-1">
+                                <FiCalendar size={14} />
+                                {semester}
+                              </span>
+                              <span>•</span>
+                              <span className="capitalize">{type.replace('-', ' ')}</span>
+                              {timetable.batch && (
+                                <>
+                                  <span>•</span>
+                                  <span>Batch {timetable.batch}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 text-xs text-slate-400">
+                              {timetable.createdAt && (
+                                <span>Created: {timetable.createdAt.toLocaleDateString()}</span>
+                              )}
+                              {timetable.updatedAt && (
+                                <>
+                                  <span>•</span>
+                                  <span>Updated: {timetable.updatedAt.toLocaleDateString()}</span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                          <div className="ml-4 text-indigo-500 group-hover:text-indigo-700 flex items-center gap-2">
+                            {isAlreadyOpen ? (
+                              <span className="text-sm font-medium">Switch</span>
+                            ) : (
+                              <span className="text-sm font-medium">Load</span>
+                            )}
+                            <FiChevronRight />
+                          </div>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <span className="text-sm text-slate-600">
+                {existingTimetables.length} timetable{existingTimetables.length !== 1 ? 's' : ''} available
+              </span>
+              <button
+                onClick={() => setShowBrowseModal(false)}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
