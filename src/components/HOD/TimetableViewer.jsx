@@ -1,4 +1,3 @@
-// filepath: /Users/nihalsarandasduggirala/Downloads/engg-timetable/src/components/HOD/TimetableViewer.jsx
 import { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { 
@@ -6,74 +5,30 @@ import {
   FiGrid, FiUser, FiHome, FiBookOpen, FiChevronLeft, FiChevronRight,
   FiMaximize2, FiMinimize2, FiInfo
 } from 'react-icons/fi';
+import { useSemester } from '../../context/SemesterContext';
 
-// Sample data for demonstration
-const dummyTimeSlots = [
-  '08:00 - 09:00', '09:00 - 10:00', '10:00 - 11:00', '11:00 - 12:00',
-  '12:00 - 13:00', '13:00 - 14:00', '14:00 - 15:00', '15:00 - 16:00',
-  '16:00 - 17:00', '17:00 - 18:00'
-];
-
-const dummyWeekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-
-const dummyDepartments = ['Computer Science', 'Mechanical Engineering', 'Electrical Engineering', 'Civil Engineering'];
-const dummySemesters = ['Semester 7', 'Semester 6', 'Semester 5'];
-
-// Generate random timetable data
-const generateDummyTimetableData = () => {
-  const courseColors = [
-    'bg-blue-100 text-blue-800 border-blue-300',
-    'bg-teal-100 text-teal-800 border-teal-300',
-    'bg-purple-100 text-purple-800 border-purple-300',
-    'bg-amber-100 text-amber-800 border-amber-300',
-    'bg-rose-100 text-rose-800 border-rose-300',
-    'bg-green-100 text-green-800 border-green-300',
-    'bg-indigo-100 text-indigo-800 border-indigo-300',
-  ];
-
-  const courses = [
-    { code: 'CS101', name: 'Introduction to Computer Science', faculty: 'Dr. Alex Johnson', room: 'A101', semester: 'Semester 7' },
-    { code: 'CS202', name: 'Data Structures and Algorithms', faculty: 'Dr. Sarah Miller', room: 'B201', semester: 'Semester 7' },
-    { code: 'CS303', name: 'Database Systems', faculty: 'Prof. Robert Chen', room: 'A105', semester: 'Semester 7' },
-    { code: 'CS405', name: 'Artificial Intelligence', faculty: 'Dr. Emily Zhang', room: 'C302', semester: 'Semester 7' },
-    { code: 'CS301', name: 'Software Engineering', faculty: 'Prof. David Wilson', room: 'B204', semester: 'Semester 6' },
-    { code: 'CS210', name: 'Computer Networks', faculty: 'Dr. Lisa Kumar', room: 'A102', semester: 'Semester 6' },
-    { code: 'ME101', name: 'Engineering Mechanics', faculty: 'Dr. John Smith', room: 'D101', semester: 'Semester 7' },
-    { code: 'EE201', name: 'Circuit Theory', faculty: 'Prof. Maria Garcia', room: 'E202', semester: 'Semester 6' },
-  ];
-
-  // Faculty members
-  const facultyMembers = [...new Set(courses.map(course => course.faculty))];
-  
-  // Rooms
-  const rooms = [...new Set(courses.map(course => course.room))];
-
-  const timetable = {};
-  dummyWeekdays.forEach(day => {
-    timetable[day] = {};
-    dummyTimeSlots.forEach(slot => {
-      // 70% chance of having a class in this slot
-      if (Math.random() < 0.7) {
-        const course = courses[Math.floor(Math.random() * courses.length)];
-        timetable[day][slot] = {
-          ...course,
-          colorClass: courseColors[Math.floor(Math.random() * courseColors.length)],
-        };
-      } else {
-        timetable[day][slot] = null; // Empty slot
-      }
-    });
-  });
-
-  return { timetable, courses, facultyMembers, rooms };
-};
+// Import services and constants
+import {
+  timeSlots,
+  weekdays,
+  departments,
+  semesters,
+  generateTimetableData,
+  getFilteredTimetable,
+  printTimetable,
+  downloadTimetablePDF,
+  navigateWeek,
+  handleViewToggleLogic
+} from './services/TimetableViewer';
 
 export default function TimetableViewer() {
+  // Semester context
+  const { selectedSemester, availableSemesters } = useSemester();
+  
   // State variables
   const [viewType, setViewType] = useState('default'); // 'default', 'faculty', 'semester', 'room'
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   const [selectedRoom, setSelectedRoom] = useState(null);
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
   const [selectedDepartment, setSelectedDepartment] = useState('Computer Science');
   const [selectedDay, setSelectedDay] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -81,78 +36,37 @@ export default function TimetableViewer() {
   const [currentWeek, setCurrentWeek] = useState(1);
   
   // Generate timetable data
-  const { timetable, courses, facultyMembers, rooms } = generateDummyTimetableData();
+  const { timetable, courses, facultyMembers, rooms } = generateTimetableData();
 
-  // Filter timetable data based on current filters
-  const getFilteredTimetable = () => {
-    let filteredData = { ...timetable };
-    
-    // Filter by day if selected
-    if (selectedDay) {
-      const dayData = { [selectedDay]: timetable[selectedDay] };
-      filteredData = dayData;
-    }
-    
-    // Apply further filtering based on view type
-    Object.keys(filteredData).forEach(day => {
-      Object.keys(filteredData[day]).forEach(slot => {
-        const cell = filteredData[day][slot];
-        if (!cell) return;
-        
-        // Filter by faculty in faculty view
-        if (viewType === 'faculty' && selectedFaculty && cell.faculty !== selectedFaculty) {
-          filteredData[day][slot] = null;
-        }
-        
-        // Filter by room in room view
-        else if (viewType === 'room' && selectedRoom && cell.room !== selectedRoom) {
-          filteredData[day][slot] = null;
-        }
-        
-        // Filter by semester in semester view
-        else if (viewType === 'semester' && selectedSemester && cell.semester !== selectedSemester) {
-          filteredData[day][slot] = null;
-        }
-        
-        // Filter by search query if provided
-        if (searchQuery && 
-            !cell.code.toLowerCase().includes(searchQuery.toLowerCase()) &&
-            !cell.name.toLowerCase().includes(searchQuery.toLowerCase()) &&
-            !cell.faculty.toLowerCase().includes(searchQuery.toLowerCase()) &&
-            !cell.room.toLowerCase().includes(searchQuery.toLowerCase())) {
-          filteredData[day][slot] = null;
-        }
-      });
-    });
-    
-    return filteredData;
+  // Get filtered timetable data
+  const filters = {
+    selectedDay,
+    viewType,
+    selectedFaculty,
+    selectedRoom,
+    selectedSemester,
+    searchQuery
   };
   
-  const filteredTimetable = getFilteredTimetable();
+  const filteredTimetable = getFilteredTimetable(timetable, filters);
   
   // Handle printing
   const handlePrint = () => {
-    window.print();
+    printTimetable();
   };
   
   // Handle PDF download
   const handleDownloadPDF = () => {
-    alert('PDF download functionality will be implemented here');
-    // In a real implementation, use a library like jsPDF to generate the PDF
+    downloadTimetablePDF();
   };
   
   // Week navigation
   const handlePreviousWeek = () => {
-    if (currentWeek > 1) {
-      setCurrentWeek(currentWeek - 1);
-    }
+    setCurrentWeek(navigateWeek(currentWeek, 'previous'));
   };
   
   const handleNextWeek = () => {
-    // Assume there are 16 weeks in a semester
-    if (currentWeek < 16) {
-      setCurrentWeek(currentWeek + 1);
-    }
+    setCurrentWeek(navigateWeek(currentWeek, 'next'));
   };
 
   // Reference for the timetable grid
@@ -160,21 +74,10 @@ export default function TimetableViewer() {
 
   // Handlers for view types
   const handleViewToggle = (view) => {
-    setViewType(view);
-    // Reset selection based on view type
-    if (view === 'faculty') {
-      setSelectedFaculty(facultyMembers[0]);
-      setSelectedRoom(null);
-    } else if (view === 'room') {
-      setSelectedRoom(rooms[0]);
-      setSelectedFaculty(null);
-    } else if (view === 'semester') {
-      setSelectedFaculty(null);
-      setSelectedRoom(null);
-    } else {
-      setSelectedFaculty(null);
-      setSelectedRoom(null);
-    }
+    const result = handleViewToggleLogic(view, facultyMembers, rooms);
+    setViewType(result.viewType);
+    setSelectedFaculty(result.selectedFaculty);
+    setSelectedRoom(result.selectedRoom);
   };
 
   return (
@@ -243,7 +146,7 @@ export default function TimetableViewer() {
               onChange={(e) => setSelectedDepartment(e.target.value)}
               className="w-full pl-4 pr-8 py-2 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
-              {dummyDepartments.map((dept) => (
+              {departments.map((dept) => (
                 <option key={dept} value={dept}>{dept}</option>
               ))}
             </select>
@@ -254,13 +157,12 @@ export default function TimetableViewer() {
             <label className="block text-xs font-medium text-gray-500 mb-1 ml-1">Semester</label>
             <select
               value={selectedSemester}
-              onChange={(e) => setSelectedSemester(e.target.value)}
-              className="w-full pl-4 pr-8 py-2 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+              disabled
+              className="w-full pl-4 pr-8 py-2 rounded-full border border-gray-300 text-sm bg-gray-100 cursor-not-allowed"
             >
-              {dummySemesters.map((sem) => (
-                <option key={sem} value={sem}>{sem}</option>
-              ))}
+              <option value={selectedSemester}>{selectedSemester}</option>
             </select>
+            <p className="text-xs text-gray-500 mt-1">Semester is managed from the header dropdown</p>
           </div>
 
           {/* Day Filter */}
@@ -272,7 +174,7 @@ export default function TimetableViewer() {
               className="w-full pl-4 pr-8 py-2 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
             >
               <option value="">All days</option>
-              {dummyWeekdays.map((day) => (
+              {weekdays.map((day) => (
                 <option key={day} value={day}>{day}</option>
               ))}
             </select>
@@ -393,7 +295,7 @@ export default function TimetableViewer() {
               </tr>
             </thead>
             <tbody>
-              {dummyTimeSlots.map((slot, slotIndex) => (
+              {timeSlots.map((slot, slotIndex) => (
                 <tr key={slot} className={slotIndex % 2 === 0 ? "bg-gray-50" : "bg-white"}>
                   <td className="py-3 px-2 border-r border-gray-200 text-sm font-medium text-gray-700 whitespace-nowrap sticky left-0 bg-inherit">
                     {slot}
@@ -466,7 +368,7 @@ export default function TimetableViewer() {
       </div>
       
       {/* Print stylesheet - only applied when printing */}
-      <style jsx>{`
+      <style>{`
         @media print {
           body * {
             visibility: hidden;

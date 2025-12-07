@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { 
   FiCalendar, 
@@ -13,55 +13,77 @@ import {
   FiGrid,
   FiTool,
   FiFileText,
-  FiHome
+  FiHome,
+  FiUsers
 } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import { useSemester } from '../../context/SemesterContext';
+import { 
+  getInitialTimetableStatus, 
+  getInitialConflicts, 
+  calculateSemesterProgress, 
+  getNavigationPaths, 
+  publishTimetable, 
+  getCardHoverAnimation,
+  getRecentUpdates
+} from './services/TTInchargeDashboard';
 
 export default function TTInchargeDashboard() {
   const navigate = useNavigate();
+  const { selectedSemester } = useSemester();
   
-  // Example timetable status
-  const [timetableStatus, setTimetableStatus] = useState('Draft'); // Draft or Published
-  const [conflicts, setConflicts] = useState(3); // Number of conflicts detected
+  // Use service functions for initial state
+  const [timetableStatus, setTimetableStatus] = useState(getInitialTimetableStatus());
+  const [conflicts, setConflicts] = useState(getInitialConflicts());
   
-  // Semester progress calculation
-  const startDate = new Date('2025-01-15');
-  const endDate = new Date('2025-05-15');
-  const currentDate = new Date('2025-04-12'); // Updated to current date from context
-  const totalDays = Math.floor((endDate - startDate) / (1000 * 60 * 60 * 24));
-  const daysElapsed = Math.floor((currentDate - startDate) / (1000 * 60 * 60 * 24));
-  const progressPercentage = Math.min(100, Math.round((daysElapsed / totalDays) * 100));
+  // Get semester progress data from service
+  const [semesterData, setSemesterData] = useState({
+    progressPercentage: 0,
+    daysElapsed: 0,
+    totalDays: 0,
+    currentWeek: 0,
+    totalWeeks: 0
+  });
   
-  // Card hover animation
-  const cardHoverAnimation = {
-    rest: { scale: 1, boxShadow: '0px 4px 8px rgba(0, 0, 0, 0.1)' },
-    hover: { scale: 1.03, boxShadow: '0px 10px 20px rgba(0, 0, 0, 0.15)' }
-  };
+  useEffect(() => {
+    // Calculate semester progress on component mount
+    setSemesterData(calculateSemesterProgress());
+  }, []);
   
-  // Handle navigation to builder
+  // Get navigation paths from service
+  const navigationPaths = getNavigationPaths();
+  
+  // Get animation settings from service
+  const cardHoverAnimation = getCardHoverAnimation();
+  
+  // Navigation functions using paths from service
   const navigateToBuilder = () => {
-    navigate('/tt/timetable-builder');
+    navigate(navigationPaths.builder);
   };
   
-  // Handle navigation to conflicts
   const navigateToConflicts = () => {
-    navigate('/tt/conflicts');
+    navigate(navigationPaths.conflicts);
   };
 
-  // Handle navigation to room availability
   const navigateToRoomAvailability = () => {
-    navigate('/tt/rooms');
+    navigate(navigationPaths.rooms);
   };
   
-  // Handle navigation to faculty timetable
   const navigateToFacultyTimetable = () => {
-    navigate('/tt/faculty-timetable');
+    navigate(navigationPaths.facultyTimetable);
   };
   
-  // Handle publish timetable
-  const handlePublishTimetable = () => {
-    setTimetableStatus('Published');
+  const navigateToBatchManagement = () => {
+    navigate(navigationPaths.batchManagement);
   };
+  
+  // Handle publish timetable using service function
+  const handlePublishTimetable = () => {
+    publishTimetable(setTimetableStatus);
+  };
+
+  // Get recent updates from service
+  const recentUpdates = getRecentUpdates();
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto">
@@ -82,18 +104,18 @@ export default function TTInchargeDashboard() {
           </div>
           <div className="flex-grow">
             <h2 className="text-lg font-semibold text-gray-700">Current Semester</h2>
-            <p className="text-xl font-bold text-blue-600">Semester 7</p>
+            <p className="text-xl font-bold text-blue-600">{selectedSemester || 'No semester selected'}</p>
             <div className="flex items-center gap-2">
               <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
                 <div 
                   className="bg-blue-600 h-2.5 rounded-full" 
-                  style={{ width: `${progressPercentage}%` }}
+                  style={{ width: `${semesterData.progressPercentage}%` }}
                 ></div>
               </div>
-              <span className="text-xs font-semibold text-gray-500">{progressPercentage}%</span>
+              <span className="text-xs font-semibold text-gray-500">{semesterData.progressPercentage}%</span>
             </div>
             <p className="text-xs text-gray-500 mt-1">
-              Week {Math.ceil(daysElapsed / 7)} of {Math.ceil(totalDays / 7)}
+              Week {semesterData.currentWeek} of {semesterData.totalWeeks}
             </p>
           </div>
         </motion.div>
@@ -254,6 +276,28 @@ export default function TTInchargeDashboard() {
           </button>
         </motion.div>
 
+        {/* Batch Management */}
+        <motion.div 
+          className="rounded-2xl p-6 bg-gradient-to-br from-violet-50 to-purple-50 shadow-md hover:shadow-lg cursor-pointer"
+          onClick={navigateToBatchManagement}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          <div className="flex items-center gap-3 mb-4">
+            <div className="bg-violet-100 p-3 rounded-full">
+              <FiUsers size={24} className="text-violet-600" />
+            </div>
+            <h2 className="text-xl font-semibold text-violet-800">👥 Batch Managementt</h2>
+          </div>
+          <p className="text-gray-600 mb-4">
+            Create and manage student batches for different branches and semesters to organize your timetable efficiently.
+          </p>
+          <button className="w-full px-4 py-3 rounded-xl bg-gradient-to-r from-violet-500 to-purple-500 text-white font-medium shadow hover:shadow-lg transition flex items-center justify-center gap-2 mt-2">
+            <FiUsers size={18} />
+            <span>Manage Batches</span>
+          </button>
+        </motion.div>
+
         {/* Export Schedule */}
         <motion.div 
           className="rounded-2xl p-6 bg-gradient-to-br from-green-50 to-teal-50 shadow-md hover:shadow-lg cursor-pointer"
@@ -310,21 +354,12 @@ export default function TTInchargeDashboard() {
           <button className="text-sm text-indigo-600 hover:underline">View All</button>
         </div>
         <div className="space-y-4">
-          {[...Array(3)].map((_, idx) => (
-            <div key={idx} className="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-lg transition">
-              <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-indigo-500' : idx === 1 ? 'bg-green-500' : 'bg-amber-500'}`}></div>
+          {recentUpdates.map((update) => (
+            <div key={update.id} className="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-lg transition">
+              <div className={`w-2 h-2 rounded-full ${update.color}`}></div>
               <div className="flex-1">
-                <p className="text-gray-800">
-                  {idx === 0 
-                    ? 'Room B201 scheduling conflict resolved' 
-                    : idx === 1 
-                      ? 'Faculty workload balancing completed' 
-                      : 'New course CS480 added to timetable'
-                  }
-                </p>
-                <p className="text-xs text-gray-500">
-                  {idx === 0 ? '30 minutes ago' : idx === 1 ? '2 hours ago' : 'Yesterday'}
-                </p>
+                <p className="text-gray-800">{update.text}</p>
+                <p className="text-xs text-gray-500">{update.time}</p>
               </div>
             </div>
           ))}

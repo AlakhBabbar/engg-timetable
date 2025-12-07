@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Outlet, useLocation, useNavigate, Routes, Route } from 'react-router-dom';
+import React, { useContext } from 'react';
+import { Outlet } from 'react-router-dom';
 import { 
   FiGrid, 
   FiCalendar, 
@@ -13,111 +13,41 @@ import {
   FiChevronLeft,
   FiChevronRight,
   FiMenu,
-  FiLayers,
   FiLogOut
 } from 'react-icons/fi';
-import { logoutUser } from '../Auth/services/Login';
-
-import TTInchargeDashboard from './TTInchargeDashboard';
-import TimetableBuilder from './TimetableBuilder';
-import Conflicts from './Conflicts';
-import RoomAvailability from './RoomAvailability';
-import FacultyTimetable from './FacultyTimetable';
+import { AuthContext } from '../../App';
+import { useTTInchargeLayout } from './services/TTInchargeLayout';
+import SemesterDropdown from '../common/SemesterDropdown';
 
 export default function TTInchargeLayout() {
-  const [activeSidebarItem, setActiveSidebarItem] = useState('Dashboard');
-  const [semesterDropdownOpen, setSemesterDropdownOpen] = useState(false);
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const navigate = useNavigate();
-  const location = useLocation();
+  const { user, setUser } = useContext(AuthContext);
   
-  // List of available semesters
-  const availableSemesters = [
-    'Semester 7',
-    'Semester 6',
-    'Semester 5',
-    'Semester 4'
-  ];
-  
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const closeDropdowns = (e) => {
-      if (!e.target.closest('.semester-dropdown')) {
-        setSemesterDropdownOpen(false);
-      }
-      if (!e.target.closest('.profile-dropdown')) {
-        setProfileDropdownOpen(false);
-      }
-    };
-    
-    document.addEventListener('mousedown', closeDropdowns);
-    return () => document.removeEventListener('mousedown', closeDropdowns);
-  }, []);
-  
-  // Handle logout
-  const handleLogout = async () => {
-    try {
-      await logoutUser();
-      // Redirect to login page after successful logout
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout failed:', error);
-      // Show error message to user
-      alert('Logout failed. Please try again.');
+  const {
+    activeSidebarItem,
+    profileDropdownOpen,
+    setProfileDropdownOpen,
+    sidebarCollapsed,
+    handleLogout,
+    toggleSidebar,
+    sidebarItems,
+    handleNavigation,
+    getLayoutClasses
+  } = useTTInchargeLayout(setUser);
+
+  // Get layout classes
+  const { sidebarWidthClass, mainMarginClass, headerLeftClass } = getLayoutClasses();
+
+  // Map icon strings to actual icon components
+  const getIconComponent = (iconName, size = 18) => {
+    switch(iconName) {
+      case 'FiGrid': return <FiGrid size={size} />;
+      case 'FiCalendar': return <FiCalendar size={size} />;
+      case 'FiAlertCircle': return <FiAlertCircle size={size} />;
+      case 'FiHome': return <FiHome size={size} />;
+      case 'FiUsers': return <FiUsers size={size} />;
+      default: return <FiGrid size={size} />;
     }
   };
-  
-  // Set active item based on current path
-  useEffect(() => {
-    const path = location.pathname;
-    if (path.includes('/tt/dashboard')) {
-      setActiveSidebarItem('Dashboard');
-    } else if (path.includes('/tt/timetable-builder')) {
-      setActiveSidebarItem('Timetable Builder');
-    } else if (path.includes('/tt/conflicts')) {
-      setActiveSidebarItem('Conflicts');
-    } else if (path.includes('/tt/rooms')) {
-      setActiveSidebarItem('Rooms');
-    } else if (path.includes('/tt/faculty-view')) {
-      setActiveSidebarItem('Faculty View');
-    } else if (path.includes('/tt/faculty-timetable')) {
-      setActiveSidebarItem('Faculty Timetable');
-    }
-  }, [location]);
-  
-  const toggleSidebar = () => {
-    setSidebarCollapsed(!sidebarCollapsed);
-  };
-  
-  const sidebarItems = [
-    { label: 'Dashboard', icon: <FiGrid size={18} />, path: '/tt/dashboard' },
-    { label: 'Timetable Builder', icon: <FiCalendar size={18} />, path: '/tt/timetable-builder' },
-    { label: 'Conflicts', icon: <FiAlertCircle size={18} />, path: '/tt/conflicts' },
-    { label: 'Rooms', icon: <FiHome size={18} />, path: '/tt/rooms' },
-    { label: 'Faculty View', icon: <FiUsers size={18} />, path: '/tt/faculty-timetable' },
-  ];
-
-  const handleNavigation = (path, label) => {
-    setActiveSidebarItem(label);
-    navigate(path);
-  };
-
-  // Determine sidebar width class based on collapsed state and screen size
-  const sidebarWidthClass = sidebarCollapsed 
-    ? "w-16" 
-    : "w-20 lg:w-64";
-  
-  // Determine main content margin based on collapsed state and screen size
-  const mainMarginClass = sidebarCollapsed 
-    ? "ml-16" 
-    : "ml-20 lg:ml-64";
-
-  // Determine header left position based on collapsed state and screen size
-  const headerLeftClass = sidebarCollapsed 
-    ? "left-16" 
-    : "left-20 lg:left-64";
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -149,7 +79,7 @@ export default function TTInchargeLayout() {
                   : 'hover:bg-white/5'}`}
               title={item.label}
             >
-              <div>{item.icon}</div>
+              <div>{getIconComponent(item.icon)}</div>
               {!sidebarCollapsed && <span className="hidden lg:block">{item.label}</span>}
             </button>
           ))}
@@ -169,37 +99,10 @@ export default function TTInchargeLayout() {
               <FiMenu size={20} />
             </button>
             <h2 className="text-xl font-semibold text-gray-800">Timetable Management</h2>
-            <div className="relative semester-dropdown">
-              <div 
-                className="ml-4 flex items-center border rounded-lg px-3 py-1 cursor-pointer hover:bg-gray-50"
-                onClick={() => setSemesterDropdownOpen(!semesterDropdownOpen)}
-              >
-                <span className="text-gray-600 mr-1">{selectedSemester}</span>
-                {semesterDropdownOpen ? 
-                  <FiChevronUp className="text-gray-500" /> : 
-                  <FiChevronDown className="text-gray-500" />
-                }
-              </div>
-              
-              {semesterDropdownOpen && (
-                <div className="absolute top-full left-4 mt-1 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
-                  {availableSemesters.map((semester) => (
-                    <div
-                      key={semester}
-                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                        selectedSemester === semester ? 'bg-indigo-50 text-indigo-600' : ''
-                      }`}
-                      onClick={() => {
-                        setSelectedSemester(semester);
-                        setSemesterDropdownOpen(false);
-                      }}
-                    >
-                      {semester}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <SemesterDropdown 
+              variant="header" 
+              showOnlyActive={true}
+            />
           </div>
           
           {/* Rest of the header content */}
@@ -223,14 +126,14 @@ export default function TTInchargeLayout() {
                 className="flex items-center gap-2 cursor-pointer"
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
               >
-                <img
+                {/* <img
                   src="https://via.placeholder.com/40"
                   alt="Profile"
                   className="rounded-full h-10 w-10 object-cover border-2 border-indigo-500"
-                />
+                /> */}
                 <div className="hidden md:block">
-                  <p className="text-sm font-medium">Prof. James Wilson</p>
-                  <p className="text-xs text-gray-500">TT Incharge, Computer Science</p>
+                  <p className="text-sm font-medium">{user?.name || 'TT Incharge'}</p>
+                  <p className="text-xs text-gray-500">{user?.department || 'Department'}</p>
                 </div>
                 {profileDropdownOpen ? 
                   <FiChevronUp className="text-gray-500" /> : 
@@ -241,8 +144,8 @@ export default function TTInchargeLayout() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
                   <div className="px-4 py-3 border-b">
-                    <p className="text-sm font-medium">Prof. James Wilson</p>
-                    <p className="text-xs text-gray-500">james.wilson@example.com</p>
+                    <p className="text-sm font-medium">{user?.name || 'TT Incharge'}</p>
+                    <p className="text-xs text-gray-500">{user?.email || 'tt.incharge@example.com'}</p>
                   </div>
                   <div className="py-1">
                     <button
@@ -261,13 +164,7 @@ export default function TTInchargeLayout() {
 
         {/* Main content area with padding top to account for fixed header */}
         <main className="flex-1 p-6 pt-24">
-          <Routes>
-            <Route path="dashboard" element={<TTInchargeDashboard />} />
-            <Route path="timetable-builder" element={<TimetableBuilder />} />
-            <Route path="conflicts" element={<Conflicts />} />
-            <Route path="rooms" element={<RoomAvailability />} />
-            <Route path="faculty-timetable" element={<FacultyTimetable />} />
-          </Routes>
+          <Outlet />
         </main>
       </div>
     </div>

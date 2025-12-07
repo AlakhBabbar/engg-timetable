@@ -1,3 +1,15 @@
+/**
+ * DepartmentManagement.js - Firebase Integration
+ * 
+ * This service now provides real-time course counting from the Firebase 'courses' collection.
+ * 
+ * Usage examples:
+ * - getCoursesCountForDepartment('dept-id') returns count of active courses
+ * - getCourseStatisticsForDepartment('dept-id') returns detailed statistics
+ * 
+ * The totalCourses field in department objects now reflects actual course data from Firebase.
+ */
+
 // DepartmentManagement.js - Firebase Integration
 import {
   db,
@@ -13,25 +25,26 @@ import {
   orderBy,
   generateId
 } from '../../../firebase/config.js';
+import { getActiveColleges } from '../../../services/CollegeService';
 
 // Collection names
 const DEPARTMENTS_COLLECTION = 'departments';
 const TEACHERS_COLLECTION = 'teachers';
 const PROFILES_COLLECTION = 'profiles';
+const COURSES_COLLECTION = 'courses';
 
-// Available department types
-export const departmentTypes = [
-  'Computer Science',
-  'Electrical Engineering',
-  'Mechanical Engineering',
-  'Civil Engineering',
-  'Chemical Engineering',
-  'Mathematics',
-  'Physics',
-  'Chemistry',
-  'Arts',
-  'Business',
-  'Administration'
+// Available department categories
+export const departmentCategories = [
+  'Engineering',
+  'Sciences',
+  'Mathematics & Statistics',
+  'Business & Management',
+  'Arts & Humanities',
+  'Medical & Health Sciences',
+  'Education',
+  'Administration',
+  'Research',
+  'Other'
 ];
 
 /**
@@ -54,7 +67,7 @@ export const getAllDepartments = async () => {
       departments.push({
         id: deptDoc.id,
         name: deptData.name || '',
-        type: deptData.type || '',
+        category: deptData.category || '',
         hod: deptData.hodName || 'Not Assigned',
         hodId: deptData.hodId || null,
         hodAvatar: deptData.hodAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(deptData.hodName || 'NA')}&background=random`,
@@ -66,30 +79,97 @@ export const getAllDepartments = async () => {
     
     return departments;
   } catch (error) {
-    console.error('Error fetching departments:', error);
-    
-    // Return mock data if Firebase fetch fails
-    return [
-      { id: '1', name: 'Computer Science', type: 'Computer Science', hod: 'Dr. Alan Turing', hodAvatar: 'https://ui-avatars.com/api/?name=Alan+Turing&background=random', description: 'Computer Science and Software Engineering Department', status: 'Active', totalCourses: 24 },
-      { id: '2', name: 'Electrical Engineering', type: 'Electrical Engineering', hod: 'Dr. Nikola Tesla', hodAvatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=random', description: 'Electrical and Electronics Engineering', status: 'Active', totalCourses: 18 },
-      { id: '3', name: 'Mathematics', type: 'Mathematics', hod: 'Dr. Katherine Johnson', hodAvatar: 'https://ui-avatars.com/api/?name=Katherine+Johnson&background=random', description: 'Pure and Applied Mathematics', status: 'Active', totalCourses: 15 }
-    ];
+    console.error('Error fetching departments:', error);      // Return mock data if Firebase fetch fails
+      return [
+        { id: '1', name: 'Electrical Engineering', category: 'Engineering', hod: 'Dr. Nikola Tesla', hodAvatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=random', description: 'Electrical Engineering Department', status: 'Active', totalCourses: 18 },
+        { id: '2', name: 'Mechanical Engineering', category: 'Engineering', hod: 'Dr. James Watt', hodAvatar: 'https://ui-avatars.com/api/?name=James+Watt&background=random', description: 'Mechanical Engineering Department', status: 'Active', totalCourses: 16 },
+        { id: '3', name: 'Civil Engineering', category: 'Engineering', hod: 'Dr. Isambard Brunel', hodAvatar: 'https://ui-avatars.com/api/?name=Isambard+Brunel&background=random', description: 'Civil Engineering Department', status: 'Active', totalCourses: 15 },
+        { id: '4', name: 'Footwear Engineering', category: 'Engineering', hod: 'Dr. Maria Rodriguez', hodAvatar: 'https://ui-avatars.com/api/?name=Maria+Rodriguez&background=random', description: 'Footwear Engineering and Technology', status: 'Active', totalCourses: 12 },
+        { id: '5', name: 'Agricultural Engineering', category: 'Engineering', hod: 'Dr. Norman Borlaug', hodAvatar: 'https://ui-avatars.com/api/?name=Norman+Borlaug&background=random', description: 'Agricultural Engineering Department', status: 'Active', totalCourses: 14 }
+      ];
   }
 };
 
 /**
- * Get count of courses for a given department
+ * Get count of active courses for a given department
  * @param {string} departmentId Department ID
- * @returns {Promise<number>} Course count
+ * @returns {Promise<number>} Count of active courses only
  */
-const getCoursesCountForDepartment = async (departmentId) => {
+export const getCoursesCountForDepartment = async (departmentId) => {
   try {
-    // In a real application, you would query a courses collection
-    // For this example, we'll generate a random number
-    return Math.floor(Math.random() * 30) + 10;
+    // Query the courses collection for active courses belonging to this department
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    const q = query(
+      coursesRef, 
+      where('department', '==', departmentId),
+      where('active', '==', true)
+    );
+    const querySnapshot = await getDocs(q);
+    
+    // Return the count of matching documents
+    return querySnapshot.size;
   } catch (error) {
     console.error('Error getting courses count:', error);
     return 0;
+  }
+};
+
+/**
+ * Get detailed course statistics for a given department
+ * @param {string} departmentId Department ID
+ * @returns {Promise<Object>} Course statistics
+ */
+export const getCourseStatisticsForDepartment = async (departmentId) => {
+  try {
+    const coursesRef = collection(db, COURSES_COLLECTION);
+    const allCoursesQuery = query(coursesRef, where('department', '==', departmentId));
+    const querySnapshot = await getDocs(allCoursesQuery);
+    
+    let activeCourses = 0;
+    let inactiveCourses = 0;
+    let totalCredits = 0;
+    const courseTypes = {
+      'Core': 0,
+      'Elective': 0,
+      'Laboratory': 0,
+      'Other': 0
+    };
+    
+    querySnapshot.docs.forEach(doc => {
+      const courseData = doc.data();
+      const isActive = courseData.active !== false;
+      
+      if (isActive) {
+        activeCourses++;
+        totalCredits += courseData.credits || 0;
+      } else {
+        inactiveCourses++;
+      }
+      
+      const courseType = courseData.type || 'Other';
+      if (courseTypes.hasOwnProperty(courseType)) {
+        courseTypes[courseType]++;
+      } else {
+        courseTypes['Other']++;
+      }
+    });
+    
+    return {
+      totalCourses: querySnapshot.size,
+      activeCourses,
+      inactiveCourses,
+      totalCredits,
+      courseTypes
+    };
+  } catch (error) {
+    console.error('Error getting course statistics:', error);
+    return {
+      totalCourses: 0,
+      activeCourses: 0,
+      inactiveCourses: 0,
+      totalCredits: 0,
+      courseTypes: { 'Core': 0, 'Elective': 0, 'Laboratory': 0, 'Other': 0 }
+    };
   }
 };
 
@@ -119,18 +199,39 @@ export const getHODOptions = async () => {
     
     // Return mock data if Firebase fetch fails
     return [
-      { id: '1', name: 'Dr. Alan Turing', avatar: 'https://ui-avatars.com/api/?name=Alan+Turing&background=0D8ABC', department: 'Computer Science', qualification: 'PhD' },
-      { id: '2', name: 'Dr. Ada Lovelace', avatar: 'https://ui-avatars.com/api/?name=Ada+Lovelace&background=FF6B6B', department: 'Computer Science', qualification: 'PhD' },
-      { id: '3', name: 'Dr. Nikola Tesla', avatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=59C173', department: 'Electrical Engineering', qualification: 'PhD' },
-      { id: '4', name: 'Dr. Grace Hopper', avatar: 'https://ui-avatars.com/api/?name=Grace+Hopper&background=BA8B02', department: 'Computer Science', qualification: 'PhD' }
+      { id: '1', name: 'Dr. Nikola Tesla', avatar: 'https://ui-avatars.com/api/?name=Nikola+Tesla&background=0D8ABC', department: 'Electrical Engineering', qualification: 'PhD' },
+      { id: '2', name: 'Dr. James Watt', avatar: 'https://ui-avatars.com/api/?name=James+Watt&background=FF6B6B', department: 'Mechanical Engineering', qualification: 'PhD' },
+      { id: '3', name: 'Dr. Isambard Brunel', avatar: 'https://ui-avatars.com/api/?name=Isambard+Brunel&background=59C173', department: 'Civil Engineering', qualification: 'PhD' },
+      { id: '4', name: 'Dr. Maria Rodriguez', avatar: 'https://ui-avatars.com/api/?name=Maria+Rodriguez&background=BA8B02', department: 'Footwear Engineering', qualification: 'PhD' },
+      { id: '5', name: 'Dr. Norman Borlaug', avatar: 'https://ui-avatars.com/api/?name=Norman+Borlaug&background=9B59B6', department: 'Agricultural Engineering', qualification: 'PhD' }
     ];
+  }
+};
+
+/**
+ * Get available colleges for department assignment
+ * @returns {Promise<Array>} Array of college options
+ */
+export const getAvailableColleges = async () => {
+  try {
+    const colleges = await getActiveColleges();
+    return colleges.map(college => ({
+      id: college.id,
+      name: college.name,
+      code: college.code,
+      type: college.type
+    }));
+  } catch (error) {
+    console.error('Error fetching available colleges for departments:', error);
+    // Return empty array instead of fallback options
+    return [];
   }
 };
 
 /**
  * Search departments by name, type, or HOD
  * @param {string} searchTerm Search term
- * @returns {Promise<Array>} Filtered departments
+ * @returns {Promise<Array} Filtered departments
  */
 export const searchDepartments = async (searchTerm) => {
   try {
@@ -153,7 +254,7 @@ export const searchDepartments = async (searchTerm) => {
         return {
           id: doc.id,
           name: data.name || '',
-          type: data.type || '',
+          category: data.category || '',
           hod: data.hodName || 'Not Assigned',
           hodId: data.hodId || null,
           hodAvatar: data.hodAvatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(data.hodName || 'NA')}&background=random`,
@@ -167,7 +268,7 @@ export const searchDepartments = async (searchTerm) => {
     return allDepartments.filter(dept => {
       return (
         dept.name.toLowerCase().includes(searchTermLower) ||
-        dept.type.toLowerCase().includes(searchTermLower) ||
+        dept.category.toLowerCase().includes(searchTermLower) ||
         dept.hod.toLowerCase().includes(searchTermLower) ||
         (dept.description && dept.description.toLowerCase().includes(searchTermLower))
       );
@@ -210,7 +311,7 @@ export const createDepartment = async (departmentData) => {
     // Create the department document
     const newDepartment = {
       name: departmentData.name,
-      type: departmentData.type,
+      category: departmentData.category,
       hodName: departmentData.hod || 'Not Assigned',
       hodId: hodId,
       hodAvatar: hodAvatar,
@@ -356,7 +457,7 @@ export const updateDepartment = async (departmentData) => {
     // Update the department
     const updateData = {
       name: departmentData.name,
-      type: departmentData.type,
+      category: departmentData.category,
       hodName: departmentData.hod || 'Not Assigned',
       hodId: hodId,
       hodAvatar: hodAvatar,
@@ -441,8 +542,11 @@ const DepartmentManagementService = {
   createDepartment,
   updateDepartment,
   deleteDepartment,
-  departmentTypes,
-  getHODOptions
+  departmentCategories,
+  getHODOptions,
+  getCoursesCountForDepartment,
+  getCourseStatisticsForDepartment,
+  getAvailableColleges
 };
 
 export default DepartmentManagementService;

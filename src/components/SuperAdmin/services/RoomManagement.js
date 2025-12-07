@@ -13,56 +13,25 @@ import {
   orderBy,
   generateId
 } from '../../../firebase/config';
+import { getCollegeColorClass, getActiveColleges } from '../../../services/CollegeService';
 
 // Collection name
 const ROOMS_COLLECTION = 'rooms';
 
 // Mock data for rooms
 const dummyRooms = [
-  { 
-    id: '1', 
-    roomNumber: 'CS101', 
-    capacity: 60,
-    features: ['Projector', 'AC', 'Wi-Fi'],
-    faculty: 'Faculty of Engineering'
-  },
-  { 
-    id: '2', 
-    roomNumber: 'LH201', 
-    capacity: 120,
-    features: ['Projector', 'SmartBoard', 'Audio System', 'AC', 'Wi-Fi'],
-    faculty: 'Faculty of Engineering'
-  },
-  { 
-    id: '3', 
-    roomNumber: 'LAB302', 
-    capacity: 40,
-    features: ['Computers', 'Projector', 'AC', 'Wi-Fi'],
-    faculty: 'Faculty of Science'
-  },
-  { 
-    id: '4', 
-    roomNumber: 'PH101', 
-    capacity: 30,
-    features: ['Audio System', 'Wi-Fi'],
-    faculty: 'Faculty of Science'
-  },
-  { 
-    id: '5', 
-    roomNumber: 'CH202', 
-    capacity: 35,
-    features: ['Audio System', 'SmartBoard'],
-    faculty: 'Faculty of Social Science'
-  },
 ];
 
 // Room types for dropdown
 export const roomTypes = [
   'Classroom',
   'Lecture Hall',
-  'Computer Lab',
-  'Chemistry Lab',
-  'Physics Lab',
+  'Electronics Lab',
+  'Electrical Lab',
+  'Mechanical Lab',
+  'Civil Lab',
+  'Footwear Lab',
+  'Agriculture Lab',
   'Workshop',
   'Seminar Hall',
   'Conference Room'
@@ -70,12 +39,12 @@ export const roomTypes = [
 
 // Building options
 export const buildings = [
-  'CSE Block',
+  'EE Block',
   'Main Block',
-  'IT Block',
-  'Mechanical Block',
-  'Electronics Block',
-  'Civil Block',
+  'ME Block',
+  'CE Block',
+  'FE Block',
+  'AE Block',
   'Admin Block',
   'Library Building'
 ];
@@ -90,15 +59,15 @@ export const statusOptions = [
 
 // Faculty options for dropdown (renamed from departmentOptions)
 export const facultyOptions = [
-  'Faculty of Engineering',
-  'Faculty of Science',
-  'Faculty of Social Science',
-  'Faculty of Arts',
-  'Faculty of Management',
-  'Faculty of Law',
-  'Faculty of Medicine',
-  'Faculty of Education',
-  'Common Facilities'
+  'Electrical Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Footwear Engineering',
+  'Agricultural Engineering',
+  'Common Facilities',
+  'Admin Block',
+  'Library',
+  'General'
 ];
 
 // Feature options with name and id
@@ -117,19 +86,8 @@ export const featureOptions = [
  * @returns {string} CSS class for color
  */
 export const getFacultyColorClass = (faculty) => {
-  const colorMap = {
-    'Faculty of Engineering': 'bg-blue-100 text-blue-800',
-    'Faculty of Science': 'bg-green-100 text-green-800',
-    'Faculty of Social Science': 'bg-orange-100 text-orange-800',
-    'Faculty of Arts': 'bg-purple-100 text-purple-800',
-    'Faculty of Management': 'bg-yellow-100 text-yellow-800',
-    'Faculty of Law': 'bg-indigo-100 text-indigo-800',
-    'Faculty of Medicine': 'bg-red-100 text-red-800',
-    'Faculty of Education': 'bg-teal-100 text-teal-800',
-    'Common Facilities': 'bg-gray-100 text-gray-800'
-  };
-  
-  return colorMap[faculty] || 'bg-gray-100 text-gray-800';
+  // Use the shared college service for consistent colors
+  return getCollegeColorClass(faculty);
 };
 
 /**
@@ -199,15 +157,105 @@ export const getExampleJSONDataset = () => {
         "roomNumber": "CS101",
         "capacity": 60,
         "features": ["Projector", "AC", "Wi-Fi"],
-        "faculty": "Faculty of Engineering"
+        "faculty": "Faculty of Engineering",
+        "allowOtherFaculties": true,
+        "freeTimings": {
+          "monday": ["8:00-9:00", "14:00-15:00", "15:00-16:00"],
+          "tuesday": ["9:00-10:00", "15:00-16:00", "16:00-17:00"],
+          "wednesday": ["10:00-11:00", "11:00-12:00"],
+          "thursday": ["8:00-9:00", "16:00-17:00"],
+          "friday": ["13:00-14:00", "14:00-15:00"],
+          "saturday": ["8:00-9:00", "9:00-10:00", "10:00-11:00"]
+        }
       },
       {
         "roomNumber": "LH201",
         "capacity": 120,
-        "features": ["Projector", "SmartBoard", "Audio System"],
-        "faculty": "Faculty of Science"
+        "features": ["Projector", "SmartBoard", "Audio System", "AC"],
+        "faculty": "Faculty of Science",
+        "allowOtherFaculties": false,
+        "freeTimings": {
+          "monday": [],
+          "tuesday": [],
+          "wednesday": [],
+          "thursday": [],
+          "friday": [],
+          "saturday": []
+        }
+      },
+      {
+        "roomNumber": "LAB305",
+        "capacity": 30,
+        "features": ["Electronics Equipment", "AC", "Wi-Fi", "Projector"],
+        "faculty": "Electrical Engineering",
+        "allowOtherFaculties": true,
+        "freeTimings": {
+          "monday": ["12:00-13:00", "13:00-14:00"],
+          "tuesday": ["8:00-9:00", "11:00-12:00", "17:00-18:00"],
+          "wednesday": ["9:00-10:00", "15:00-16:00"],
+          "thursday": ["10:00-11:00", "12:00-13:00", "14:00-15:00"],
+          "friday": ["8:00-9:00", "16:00-17:00"],
+          "saturday": ["8:00-9:00", "9:00-10:00", "10:00-11:00", "11:00-12:00"]
+        }
+      },
+      {
+        "roomNumber": "AUD400",
+        "capacity": 200,
+        "features": ["Audio System", "Projector", "SmartBoard", "AC"],
+        "faculty": "Civil Engineering",
+        "allowOtherFaculties": true,
+        "freeTimings": {
+          "monday": ["16:00-17:00", "17:00-18:00"],
+          "tuesday": ["13:00-14:00", "14:00-15:00"],
+          "wednesday": ["12:00-13:00", "16:00-17:00"],
+          "thursday": ["15:00-16:00"],
+          "friday": ["11:00-12:00", "12:00-13:00"],
+          "saturday": []
+        }
+      },
+      {
+        "roomNumber": "SEM202",
+        "capacity": 40,
+        "features": ["Wi-Fi", "AC"],
+        "faculty": "Faculty of Social Science",
+        "allowOtherFaculties": false,
+        "freeTimings": {
+          "monday": [],
+          "tuesday": [],
+          "wednesday": [],
+          "thursday": [],
+          "friday": [],
+          "saturday": []
+        }
       }
-    ]
+    ],
+    "_metadata": {
+      "description": "Room Management Dataset Example",
+      "version": "1.0",
+      "availableFeatures": ["Projector", "SmartBoard", "Electronics Equipment", "Machinery", "AC", "Wi-Fi", "Audio System"],
+      "availableFaculties": [
+        "Electrical Engineering",
+        "Mechanical Engineering", 
+        "Civil Engineering",
+        "Footwear Engineering",
+        "Agricultural Engineering",
+        "Common Facilities"
+      ],
+      "timeSlotFormat": "HH:MM-HH:MM (24-hour format)",
+      "availableTimeSlots": [
+        "8:00-9:00", "9:00-10:00", "10:00-11:00", "11:00-12:00",
+        "12:00-13:00", "13:00-14:00", "14:00-15:00", "15:00-16:00",
+        "16:00-17:00", "17:00-18:00"
+      ],
+      "requiredFields": ["roomNumber", "capacity", "faculty"],
+      "optionalFields": ["features", "allowOtherFaculties", "freeTimings"],
+      "notes": [
+        "allowOtherFaculties: true allows other faculties to book during free timings",
+        "freeTimings: specify available time slots for each day when allowOtherFaculties is true",
+        "features: array of available room features",
+        "capacity: number of seats/people the room can accommodate"
+      ]
+    }
   };
 };
 
@@ -271,6 +319,116 @@ export const processRoomImport = async (jsonData) => {
 };
 
 /**
+ * Process a single room import (used for rate-limited uploads)
+ * @param {Object} roomData - Single room data object
+ * @returns {Promise<Object>} Result object with success status
+ */
+export const processSingleRoomImport = async (roomData) => {
+  try {
+    // Detailed validation with specific error messages
+    const validationErrors = [];
+    
+    if (!roomData.roomNumber || roomData.roomNumber.trim() === '') {
+      validationErrors.push('Room number is required');
+    }
+    
+    if (!roomData.capacity && roomData.capacity !== 0) {
+      validationErrors.push('Capacity is required');
+    } else if (isNaN(parseInt(roomData.capacity)) || parseInt(roomData.capacity) < 0) {
+      validationErrors.push('Capacity must be a valid positive number');
+    }
+    
+    if (!roomData.faculty || roomData.faculty.trim() === '') {
+      validationErrors.push('Faculty is required');
+    } else if (!facultyOptions.includes(roomData.faculty)) {
+      validationErrors.push(`Invalid faculty "${roomData.faculty}". Valid options: ${facultyOptions.join(', ')}`);
+    }
+    
+    if (validationErrors.length > 0) {
+      return {
+        success: false,
+        error: validationErrors.join('; '),
+        item: roomData
+      };
+    }
+
+    // Prepare room data
+    const roomDoc = {
+      number: roomData.roomNumber.trim(),
+      capacity: parseInt(roomData.capacity) || 0,
+      features: Array.isArray(roomData.features) ? roomData.features : [],
+      faculty: roomData.faculty.trim(),
+      active: roomData.active !== false, // Default to true unless explicitly false
+      building: roomData.building || '',
+      floor: roomData.floor || '',
+      description: roomData.description || '',
+      freeTimings: roomData.freeTimings || {
+        monday: [],
+        tuesday: [],
+        wednesday: [],
+        thursday: [],
+        friday: [],
+        saturday: []
+      },
+      allowOtherFaculties: roomData.allowOtherFaculties || false,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Generate unique document ID
+    const docId = `${roomData.faculty.replace(/[^a-zA-Z0-9]/g, '_')}_${roomData.roomNumber.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const roomRef = doc(db, ROOMS_COLLECTION, docId);
+    
+    // Check if room already exists
+    const existingDoc = await getDoc(roomRef);
+    if (existingDoc.exists()) {
+      // Update existing room
+      await updateDoc(roomRef, {
+        ...roomDoc,
+        createdAt: existingDoc.data().createdAt, // Keep original creation date
+      });
+      
+      return {
+        success: true,
+        action: 'updated',
+        roomNumber: roomData.roomNumber,
+        item: roomData
+      };
+    } else {
+      // Create new room
+      await setDoc(roomRef, roomDoc);
+      
+      return {
+        success: true,
+        action: 'created',
+        roomNumber: roomData.roomNumber,
+        item: roomData
+      };
+    }
+
+  } catch (error) {
+    console.error('Error processing single room import:', error);
+    
+    // Provide more specific error messages based on error type
+    let errorMessage = 'Unknown error occurred';
+    
+    if (error.code === 'permission-denied') {
+      errorMessage = 'Permission denied - please check your access rights';
+    } else if (error.code === 'network-error') {
+      errorMessage = 'Network error - please check your connection';
+    } else if (error.message) {
+      errorMessage = error.message;
+    }
+    
+    return {
+      success: false,
+      error: errorMessage,
+      item: roomData
+    };
+  }
+};
+
+/**
  * Get all rooms from Firebase
  * @returns {Promise} Promise object with rooms data
  */
@@ -297,7 +455,16 @@ export const getAllRooms = async () => {
         floor: data.floor,
         status: data.status || 'Available',
         faculty: data.faculty,
-        features: data.features || []
+        features: data.features || [],
+        freeTimings: data.freeTimings || {
+          monday: [],
+          tuesday: [],
+          wednesday: [],
+          thursday: [],
+          friday: [],
+          saturday: []
+        },
+        allowOtherFaculties: data.allowOtherFaculties || false
       };
     });
   } catch (error) {
@@ -387,6 +554,15 @@ export const createRoom = async (roomData) => {
       status: roomData.status || 'Available',
       faculty: roomData.faculty,
       features: roomData.features || [],
+      freeTimings: roomData.freeTimings || {
+        monday: [],
+        tuesday: [],
+        wednesday: [],
+        thursday: [],
+        friday: [],
+        saturday: []
+      },
+      allowOtherFaculties: roomData.allowOtherFaculties || false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };
@@ -421,6 +597,15 @@ export const updateRoom = async (roomData) => {
       status: roomData.status || 'Available',
       faculty: roomData.faculty,
       features: roomData.features || [],
+      freeTimings: roomData.freeTimings || {
+        monday: [],
+        tuesday: [],
+        wednesday: [],
+        thursday: [],
+        friday: [],
+        saturday: []
+      },
+      allowOtherFaculties: roomData.allowOtherFaculties || false,
       updatedAt: new Date().toISOString()
     };
     
@@ -454,6 +639,118 @@ export const deleteRoom = async (id) => {
   }
 };
 
+/**
+ * Get available rooms for a specific time slot and day
+ * @param {Array} rooms - Array of all rooms
+ * @param {string} day - Day of the week (monday, tuesday, etc.)
+ * @param {string} timeSlot - Time slot ID (e.g., '9:00-10:00')
+ * @param {string} requesterFaculty - Faculty requesting the room
+ * @returns {Array} Available rooms for the specified time
+ */
+export const getAvailableRooms = (rooms, day, timeSlot, requesterFaculty) => {
+  return rooms.filter(room => {
+    // If it's the room's own faculty, they can always use it during non-occupied times
+    if (room.faculty === requesterFaculty) {
+      return true;
+    }
+    
+    // For other faculties, check if room allows other faculties and has free timing
+    return room.allowOtherFaculties && 
+           room.freeTimings && 
+           room.freeTimings[day] && 
+           room.freeTimings[day].includes(timeSlot);
+  });
+};
+
+/**
+ * Get room availability summary for the week
+ * @param {Object} room - Room object
+ * @returns {Object} Summary of room availability
+ */
+export const getRoomAvailabilitySummary = (room) => {
+  if (!room.allowOtherFaculties || !room.freeTimings) {
+    return {
+      totalFreeSlots: 0,
+      daysAvailable: 0,
+      peakAvailabilityDay: null,
+      availableForOthers: false
+    };
+  }
+
+  let totalFreeSlots = 0;
+  let daysAvailable = 0;
+  let peakDay = '';
+  let maxSlotsInDay = 0;
+
+  Object.entries(room.freeTimings).forEach(([day, slots]) => {
+    if (slots.length > 0) {
+      daysAvailable++;
+      totalFreeSlots += slots.length;
+      
+      if (slots.length > maxSlotsInDay) {
+        maxSlotsInDay = slots.length;
+        peakDay = day;
+      }
+    }
+  });
+
+  return {
+    totalFreeSlots,
+    daysAvailable,
+    peakAvailabilityDay: peakDay,
+    availableForOthers: true
+  };
+};
+
+/**
+ * Generate room utilization report
+ * @param {Array} rooms - Array of rooms
+ * @returns {Object} Utilization statistics
+ */
+export const generateRoomUtilizationReport = (rooms) => {
+  const totalRooms = rooms.length;
+  const sharedRooms = rooms.filter(room => room.allowOtherFaculties).length;
+  const facultyOnlyRooms = totalRooms - sharedRooms;
+  
+  let totalAvailableSlots = 0;
+  let totalPossibleSlots = rooms.length * 6 * 10; // 6 days * 10 time slots per day
+  
+  rooms.forEach(room => {
+    if (room.allowOtherFaculties && room.freeTimings) {
+      Object.values(room.freeTimings).forEach(slots => {
+        totalAvailableSlots += slots.length;
+      });
+    }
+  });
+  
+  const utilizationRate = totalPossibleSlots > 0 ? 
+    ((totalPossibleSlots - totalAvailableSlots) / totalPossibleSlots * 100) : 0;
+  
+  return {
+    totalRooms,
+    sharedRooms,
+    facultyOnlyRooms,
+    totalAvailableSlots,
+    utilizationRate: Math.round(utilizationRate * 100) / 100,
+    sharingRate: totalRooms > 0 ? Math.round((sharedRooms / totalRooms) * 100) : 0
+  };
+};
+
+/**
+ * Get available faculties/colleges for room assignment
+ * @returns {Promise<Array>} Array of faculty/college names
+ */
+export const getAvailableFaculties = async () => {
+  try {
+    const colleges = await getActiveColleges();
+    return colleges.map(college => college.name);
+  } catch (error) {
+    console.error('Error fetching available faculties:', error);
+    // Return empty array instead of fallback data
+    return [];
+  }
+};
+
 // Export all functions as a service object
 const RoomManagementService = {
   getRooms,
@@ -470,7 +767,24 @@ const RoomManagementService = {
   featureOptions,
   getFacultyColorClass,
   getExampleJSONDataset,
-  processRoomImport
+  processRoomImport,
+  processSingleRoomImport,
+  getAvailableRooms,
+  getRoomAvailabilitySummary,
+  generateRoomUtilizationReport,
+  getAvailableFaculties
 };
 
 export default RoomManagementService;
+
+// Additional named exports for direct import
+// export { 
+//   getRooms,
+//   getAllRooms,
+//   filterRooms,
+//   createRoom,
+//   addRoom,
+//   updateRoom,
+//   deleteRoom,
+//   getAvailableFaculties
+// };

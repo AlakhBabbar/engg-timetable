@@ -3,7 +3,7 @@ import * as Yup from 'yup';
 import { useState, useEffect, useContext } from 'react';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import CampusIllustration from './CampusIllustration';
+import TimetableIllustration from './TimetableIllustration';
 import { loginUser, checkSession } from './services/Login';
 import { AuthContext } from '../../App';
 
@@ -130,24 +130,79 @@ const Login = () => {
   });
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-blue-900 via-blue-800 to-indigo-900">
+    <div className="min-h-screen relative overflow-hidden bg-gradient-to-br from-slate-900 via-blue-900 to-indigo-900">
       {/* Animated background patterns */}
-      <div className="absolute inset-0 opacity-20">
-        <div className="absolute inset-0 bg-[linear-gradient(45deg,#ffffff20_25%,transparent_25%,transparent_75%,#ffffff20_75%,#ffffff20)] bg-[length:60px_60px] animate-flow" />
-        <div className="absolute inset-0 bg-[linear-gradient(45deg,#ffffff20_25%,transparent_25%,transparent_75%,#ffffff20_75%,#ffffff20)] bg-[length:60px_60px] animate-flow-reverse" 
-             style={{ animationDelay: '-2s' }} />
+      <div className="absolute inset-0 opacity-10">
+        {/* Grid pattern to simulate timetable */}
+        <div className="absolute inset-0 bg-[linear-gradient(90deg,rgba(255,255,255,0.1)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.1)_1px,transparent_1px)] bg-[length:60px_40px] animate-pulse" />
+        <div className="absolute inset-0 bg-[linear-gradient(45deg,#ffffff10_25%,transparent_25%,transparent_75%,#ffffff10_75%,#ffffff10)] bg-[length:100px_100px] animate-flow" />
+      </div>
+
+      {/* Floating timetable cards in background */}
+      <div className="absolute inset-0 overflow-hidden pointer-events-none">
+        <motion.div
+          animate={{
+            y: [0, -20, 0],
+            rotate: [0, 5, 0],
+          }}
+          transition={{
+            duration: 6,
+            repeat: Infinity,
+            ease: "easeInOut"
+          }}
+          className="absolute top-20 left-10 w-16 h-10 bg-blue-500/20 rounded-lg backdrop-blur-sm border border-blue-300/30"
+        />
+        <motion.div
+          animate={{
+            y: [0, 15, 0],
+            rotate: [0, -3, 0],
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            ease: "easeInOut",
+            delay: 1
+          }}
+          className="absolute top-40 right-20 w-20 h-12 bg-purple-500/20 rounded-lg backdrop-blur-sm border border-purple-300/30"
+        />
+        <motion.div
+          animate={{
+            y: [0, -10, 0],
+            rotate: [0, 2, 0],
+          }}
+          transition={{
+            duration: 7,
+            repeat: Infinity,
+            ease: "easeInOut",
+            delay: 2
+          }}
+          className="absolute bottom-32 left-20 w-14 h-8 bg-green-500/20 rounded-lg backdrop-blur-sm border border-green-300/30"
+        />
+        <motion.div
+          animate={{
+            y: [0, 12, 0],
+            rotate: [0, -4, 0],
+          }}
+          transition={{
+            duration: 5,
+            repeat: Infinity,
+            ease: "easeInOut",
+            delay: 0.5
+          }}
+          className="absolute bottom-20 right-10 w-18 h-10 bg-red-500/20 rounded-lg backdrop-blur-sm border border-red-300/30"
+        />
       </div>
 
       <div className="relative min-h-screen flex items-center justify-center px-4">
-        <div className="max-w-6xl w-full flex items-center gap-8">
-          {/* 3D Illustration */}
+        <div className="max-w-6xl w-full flex flex-col lg:flex-row items-center gap-8">
+          {/* Timetable Illustration */}
           <motion.div 
             initial={{ opacity: 0, x: -50 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.6 }}
-            className="hidden lg:block w-1/2 h-[500px]"
+            className="w-full lg:w-1/2 h-[300px] lg:h-[500px] lg:block"
           >
-            <CampusIllustration />
+            <TimetableIllustration />
           </motion.div>
 
           {/* Login Form */}
@@ -157,18 +212,27 @@ const Login = () => {
             transition={{ duration: 0.6 }}
             className="w-full lg:w-1/2 max-w-md"
           >
-            <div className="backdrop-blur-lg bg-white/10 rounded-2xl shadow-2xl p-8 border border-white/20">
+            <div className="backdrop-blur-lg bg-white/10 rounded-2xl shadow-2xl p-8 border border-white/20 relative overflow-hidden">
+              {/* Subtle grid pattern overlay */}
+              <div className="absolute inset-0 opacity-5 pointer-events-none">
+                <div className="w-full h-full bg-[linear-gradient(90deg,rgba(255,255,255,0.3)_1px,transparent_1px),linear-gradient(0deg,rgba(255,255,255,0.3)_1px,transparent_1px)] bg-[length:20px_20px]" />
+              </div>
+              
               <motion.div
                 initial={{ y: -20 }}
                 animate={{ y: 0 }}
                 transition={{ duration: 0.5 }}
+                className="relative z-10"
               >
-                <h2 className="text-center text-3xl font-extrabold text-white mb-8">
-                  University Timetable System
+                <h2 className="text-center text-3xl font-extrabold text-white mb-2">
+                  DEI Timetable System
                 </h2>
+                <p className="text-center text-sm text-blue-200 mb-6">
+                  Smart scheduling • Conflict resolution • Resource management
+                </p>
               </motion.div>
 
-              <form className="space-y-6" onSubmit={formik.handleSubmit}>
+              <form className="space-y-6 relative z-10" onSubmit={formik.handleSubmit}>
                 {successMessage && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}

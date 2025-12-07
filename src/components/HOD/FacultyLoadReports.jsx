@@ -1,131 +1,40 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   FiDownload, FiFilter, FiMail, FiBarChart2, FiCheckCircle, 
   FiChevronDown, FiChevronUp, FiAlertTriangle, FiX, FiPrinter,
-  FiSearch, FiUser, FiClock, FiBook
+  FiSearch, FiUser, FiClock, FiBook, FiLoader
 } from 'react-icons/fi';
+import { AuthContext } from '../../App';
+import { useToast } from '../../context/ToastContext';
+import { useSemester } from '../../context/SemesterContext';
 
-// Mock data for faculty and courses
-// Using similar data structure as in FacultyAssignment.jsx
-const dummySemesters = ['Semester 7', 'Semester 6', 'Semester 5', 'Semester 4'];
-
-const dummyCourses = [
-  { id: 1, code: 'CS101', title: 'Introduction to Computer Science', semester: 'Semester 6', weeklyHours: '3L+1T', faculty: 1, tags: ['programming', 'introductory'] },
-  { id: 2, code: 'CS202', title: 'Data Structures and Algorithms', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 1, tags: ['algorithms', 'data structures'] },
-  { id: 3, code: 'CS303', title: 'Database Systems', semester: 'Semester 6', weeklyHours: '3L+1T+2P', faculty: 7, tags: ['databases', 'SQL'] },
-  { id: 4, code: 'CS405', title: 'Artificial Intelligence', semester: 'Semester 7', weeklyHours: '4L+2P', faculty: 4, tags: ['AI', 'machine learning'] },
-  { id: 5, code: 'CS301', title: 'Software Engineering', semester: 'Semester 6', weeklyHours: '3L+1T', faculty: 3, tags: ['software', 'project management'] },
-  { id: 6, code: 'CS210', title: 'Computer Networks', semester: 'Semester 7', weeklyHours: '3L+1T+1P', faculty: 5, tags: ['networking', 'protocols'] },
-  { id: 7, code: 'CS450', title: 'Cloud Computing', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 7, tags: ['cloud', 'distributed systems'] },
-  { id: 8, code: 'CS320', title: 'Web Development', semester: 'Semester 6', weeklyHours: '2L+3P', faculty: 6, tags: ['web', 'javascript', 'html'] },
-  { id: 9, code: 'CS410', title: 'Machine Learning', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 4, tags: ['ML', 'statistics'] },
-  { id: 10, code: 'CS250', title: 'Computer Architecture', semester: 'Semester 6', weeklyHours: '4L+1T', faculty: 2, tags: ['hardware', 'systems'] },
-  { id: 11, code: 'CS350', title: 'Operating Systems', semester: 'Semester 7', weeklyHours: '3L+2P', faculty: 2, tags: ['OS', 'systems'] },
-  { id: 12, code: 'CS430', title: 'Cybersecurity', semester: 'Semester 6', weeklyHours: '3L+1T+1P', faculty: 5, tags: ['security', 'cryptography'] },
-  { id: 13, code: 'CS222', title: 'Advanced Programming', semester: 'Semester 7', weeklyHours: '2L+3P', faculty: 6, tags: ['programming', 'advanced'] },
-  { id: 14, code: 'CS401', title: 'Project Management', semester: 'Semester 6', weeklyHours: '2L+2T', faculty: 3, tags: ['project management', 'software'] },
-];
-
-const dummyFaculty = [
-  { 
-    id: 1, 
-    name: 'Dr. Alex Johnson', 
-    avatar: 'https://i.pravatar.cc/150?img=11', 
-    department: 'Computer Science',
-    status: 'available', 
-    loadHours: 9,
-    maxHours: 18,
-    expertise: ['programming', 'algorithms', 'theory'],
-    assignedCourses: [1, 2]
-  },
-  { 
-    id: 2, 
-    name: 'Dr. Sarah Miller', 
-    avatar: 'https://i.pravatar.cc/150?img=5', 
-    department: 'Computer Science',
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['databases', 'data mining', 'systems'],
-    assignedCourses: [10, 11]
-  },
-  { 
-    id: 3, 
-    name: 'Prof. Robert Chen', 
-    avatar: 'https://i.pravatar.cc/150?img=12', 
-    department: 'Computer Science',
-    status: 'available', 
-    loadHours: 10,
-    maxHours: 20,
-    expertise: ['software engineering', 'project management'],
-    assignedCourses: [5, 14]
-  },
-  { 
-    id: 4, 
-    name: 'Dr. Emily Zhang', 
-    avatar: 'https://i.pravatar.cc/150?img=9', 
-    department: 'Computer Science',
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['AI', 'machine learning', 'neural networks'],
-    assignedCourses: [4, 9]
-  },
-  { 
-    id: 5, 
-    name: 'Prof. David Wilson', 
-    avatar: 'https://i.pravatar.cc/150?img=15',
-    department: 'Computer Science', 
-    status: 'overloaded', 
-    loadHours: 21,
-    maxHours: 20,
-    expertise: ['networking', 'security', 'protocols'],
-    assignedCourses: [6, 12]
-  },
-  { 
-    id: 6, 
-    name: 'Dr. Lisa Kumar', 
-    avatar: 'https://i.pravatar.cc/150?img=3',
-    department: 'Computer Science', 
-    status: 'available', 
-    loadHours: 12,
-    maxHours: 18,
-    expertise: ['theory', 'algorithms', 'computational logic'],
-    assignedCourses: [8, 13]
-  },
-  { 
-    id: 7, 
-    name: 'Prof. Michael Brown', 
-    avatar: 'https://i.pravatar.cc/150?img=13',
-    department: 'Computer Science', 
-    status: 'nearlyFull', 
-    loadHours: 15,
-    maxHours: 18,
-    expertise: ['databases', 'cloud', 'data warehousing'],
-    assignedCourses: [3, 7]
-  },
-];
-
-// Helper function to calculate weekly hours as a number
-const calculateHoursFromString = (hoursString) => {
-  // Extract numbers from strings like "3L+1T+2P"
-  const lectureMatch = hoursString.match(/(\d+)L/);
-  const tutorialMatch = hoursString.match(/(\d+)T/);
-  const practicalMatch = hoursString.match(/(\d+)P/);
-  
-  const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
-  const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
-  const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
-  
-  return lectureHours + tutorialHours + practicalHours;
-};
+// Import service functions and data
+import { 
+  fetchSemesters,
+  fetchFaculty,
+  fetchCourses,
+  calculateHoursFromString,
+  getFacultyWithLoadData,
+  getFilteredFacultyData,
+  generateReport,
+  emailFacultyReport,
+  exportReportAs
+} from './services/FacultyLoadReports';
 
 // Main component for Faculty Load Reports
 export default function FacultyLoadReports() {
-  const [faculty, setFaculty] = useState([...dummyFaculty]);
-  const [courses, setCourses] = useState([...dummyCourses]);
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
+  const { user } = useContext(AuthContext);
+  const { showSuccess, showError } = useToast();
+  const { selectedSemester, availableSemesters } = useSemester();
+  
+  // State for data
+  const [faculty, setFaculty] = useState([]);
+  const [courses, setCourses] = useState([]);
+  
+  // State for UI
+  const [loading, setLoading] = useState(true);
+  const [loadingData, setLoadingData] = useState(false);
   const [showOverloadedOnly, setShowOverloadedOnly] = useState(false);
   const [exportFormat, setExportFormat] = useState('PDF');
   const [expandedFaculty, setExpandedFaculty] = useState({});
@@ -134,67 +43,59 @@ export default function FacultyLoadReports() {
   const [reportGenerated, setReportGenerated] = useState(false);
   const [emailingFaculty, setEmailingFaculty] = useState(false);
   const [emailSent, setEmailSent] = useState(false);
+  
+  // Get department ID from user context
+  const departmentId = user?.department;
 
-  // Calculate the faculty load data with course information
-  const getFacultyWithLoadData = () => {
-    // Filter courses based on selected semester
-    const semesterCourses = courses.filter(course => course.semester === selectedSemester);
-    
-    // Enhance faculty data with detailed course information
-    const enhancedFacultyData = faculty.map(f => {
-      // Get courses assigned to this faculty member for the selected semester
-      const facultyCourses = semesterCourses.filter(course => f.assignedCourses.includes(course.id));
-      
-      // Calculate total load hours for this semester
-      const semesterLoadHours = facultyCourses.reduce((total, course) => 
-        total + calculateHoursFromString(course.weeklyHours), 0);
-      
-      // Determine faculty status based on load
-      const loadPercentage = (semesterLoadHours / f.maxHours) * 100;
-      let status = 'available';
-      if (loadPercentage > 90) {
-        status = 'overloaded';
-      } else if (loadPercentage > 70) {
-        status = 'nearlyFull';
+  // Load initial data when component mounts
+  useEffect(() => {
+    const loadInitialData = async () => {
+      try {
+        setLoading(true);
+        
+        // Load faculty and courses for the department
+        if (departmentId) {
+          const [facultyData, coursesData] = await Promise.all([
+            fetchFaculty(departmentId),
+            fetchCourses(departmentId)
+          ]);
+          
+          setFaculty(facultyData);
+          setCourses(coursesData);
+        } else {
+          showError('Department information not found. Please log in again.');
+        }
+        
+      } catch (error) {
+        console.error('Error loading initial data:', error);
+        showError('Failed to load data. Please refresh the page.');
+      } finally {
+        setLoading(false);
       }
-      
-      return {
-        ...f,
-        semesterLoadHours,
-        loadPercentage,
-        status,
-        facultyCourses
-      };
-    });
-    
-    return enhancedFacultyData;
-  };
+    };
 
-  // Get filtered faculty data
-  const getFilteredFacultyData = () => {
-    const enhancedData = getFacultyWithLoadData();
-    
-    let filtered = enhancedData;
-    
-    // Apply overloaded filter if selected
-    if (showOverloadedOnly) {
-      filtered = filtered.filter(f => f.status === 'overloaded');
-    }
-    
-    // Apply search filter if any
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase();
-      filtered = filtered.filter(f => 
-        f.name.toLowerCase().includes(query) || 
-        f.facultyCourses.some(c => 
-          c.code.toLowerCase().includes(query) || 
-          c.title.toLowerCase().includes(query)
-        )
-      );
-    }
-    
-    return filtered;
-  };
+    loadInitialData();
+  }, [departmentId, showError]);
+
+  // Reload courses when semester changes
+  useEffect(() => {
+    const loadCoursesForSemester = async () => {
+      if (!departmentId || !selectedSemester) return;
+
+      try {
+        setLoadingData(true);
+        const coursesData = await fetchCourses(departmentId, selectedSemester);
+        setCourses(coursesData);
+      } catch (error) {
+        console.error('Error loading courses for semester:', error);
+        showError('Failed to load courses for the selected semester.');
+      } finally {
+        setLoadingData(false);
+      }
+    };
+
+    loadCoursesForSemester();
+  }, [selectedSemester, departmentId, showError]);
 
   // Handle row expansion
   const toggleExpandRow = (facultyId) => {
@@ -204,46 +105,123 @@ export default function FacultyLoadReports() {
     }));
   };
 
-  // Filtered faculty data
-  const filteredFacultyData = getFilteredFacultyData();
+  // Get filtered faculty data from service
+  const filteredFacultyData = getFilteredFacultyData(
+    faculty, 
+    courses, 
+    selectedSemester, 
+    showOverloadedOnly, 
+    searchQuery
+  );
 
   // Handle generating report
-  const handleGenerateReport = () => {
-    setGeneratingReport(true);
-    
-    // Simulate report generation
-    setTimeout(() => {
-      setGeneratingReport(false);
-      setReportGenerated(true);
+  const handleGenerateReport = async () => {
+    if (!departmentId) {
+      showError('Department information not found.');
+      return;
+    }
+
+    try {
+      setGeneratingReport(true);
       
-      // Hide success message after a delay
-      setTimeout(() => {
-        setReportGenerated(false);
-      }, 3000);
-    }, 1500);
+      const result = await generateReport(departmentId, selectedSemester, filteredFacultyData);
+      
+      if (result.success) {
+        setReportGenerated(true);
+        showSuccess('Report generated successfully!');
+        
+        // Hide success message after a delay
+        setTimeout(() => {
+          setReportGenerated(false);
+        }, 3000);
+      } else {
+        showError(result.message || 'Failed to generate report.');
+      }
+    } catch (error) {
+      console.error('Error generating report:', error);
+      showError('An error occurred while generating the report.');
+    } finally {
+      setGeneratingReport(false);
+    }
   };
 
   // Handle faculty email
-  const handleEmailFaculty = () => {
-    setEmailingFaculty(true);
-    
-    // Simulate email sending
-    setTimeout(() => {
-      setEmailingFaculty(false);
-      setEmailSent(true);
+  const handleEmailFaculty = async () => {
+    if (!departmentId) {
+      showError('Department information not found.');
+      return;
+    }
+
+    try {
+      setEmailingFaculty(true);
       
-      // Hide success message after a delay
-      setTimeout(() => {
-        setEmailSent(false);
-      }, 3000);
-    }, 1500);
+      const result = await emailFacultyReport(departmentId, selectedSemester);
+      
+      if (result.success) {
+        setEmailSent(true);
+        showSuccess('Report emailed to faculty successfully!');
+        
+        // Hide success message after a delay
+        setTimeout(() => {
+          setEmailSent(false);
+        }, 3000);
+      } else {
+        showError(result.message || 'Failed to email report.');
+      }
+    } catch (error) {
+      console.error('Error emailing report:', error);
+      showError('An error occurred while emailing the report.');
+    } finally {
+      setEmailingFaculty(false);
+    }
   };
 
   // Handle report export
-  const handleExport = () => {
-    alert(`Exporting report in ${exportFormat} format`);
-    // Actual implementation would handle the export process
+  const handleExport = async () => {
+    try {
+      const result = await exportReportAs(exportFormat);
+      
+      if (result.success) {
+        showSuccess(result.message);
+      } else {
+        showError(result.message || 'Failed to export report.');
+      }
+    } catch (error) {
+      console.error('Error exporting report:', error);
+      showError('An error occurred while exporting the report.');
+    }
   };
+
+  // Show loading spinner while initial data loads
+  if (loading) {
+    return (
+      <div className="p-6 relative bg-gray-50 min-h-screen">
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <FiLoader className="animate-spin text-4xl text-indigo-600 mx-auto mb-4" />
+            <p className="text-gray-600">Loading faculty load reports...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Show error if no semesters available
+  if (availableSemesters.length === 0) {
+    return (
+      <div className="p-6 relative bg-gray-50 min-h-screen">
+        <h1 className="text-2xl font-bold text-gray-800 mb-6">
+          Faculty Load Reports
+        </h1>
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <FiAlertTriangle className="text-4xl text-amber-500 mx-auto mb-4" />
+            <p className="text-gray-600">No semesters found. Please ask your administrator to set up semesters.</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 relative bg-gray-50 min-h-screen">
@@ -261,13 +239,12 @@ export default function FacultyLoadReports() {
               <label className="block text-sm font-medium text-gray-700 mb-1">Semester</label>
               <select
                 value={selectedSemester}
-                onChange={(e) => setSelectedSemester(e.target.value)}
-                className="rounded-lg border border-gray-300 bg-white py-2 pl-3 pr-10 text-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500"
+                disabled
+                className="rounded-lg border border-gray-300 bg-gray-100 py-2 pl-3 pr-10 text-sm cursor-not-allowed"
               >
-                {dummySemesters.map(semester => (
-                  <option key={semester} value={semester}>{semester}</option>
-                ))}
+                <option value={selectedSemester}>{selectedSemester || 'No semester selected'}</option>
               </select>
+              <p className="text-xs text-gray-500 mt-1">Semester is managed from the header dropdown</p>
             </div>
             
             {/* Overload filter checkbox */}
@@ -326,7 +303,16 @@ export default function FacultyLoadReports() {
       
       {/* Main Table */}
       <div className="bg-white rounded-2xl shadow-md overflow-hidden mb-6">
-        <div className="overflow-x-auto">
+        {loadingData && (
+          <div className="absolute inset-0 bg-white bg-opacity-75 flex items-center justify-center z-10">
+            <div className="text-center">
+              <FiLoader className="animate-spin text-2xl text-indigo-600 mx-auto mb-2" />
+              <p className="text-sm text-gray-600">Loading courses...</p>
+            </div>
+          </div>
+        )}
+        
+        <div className="overflow-x-auto relative">
           <table className="min-w-full">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
@@ -348,13 +334,13 @@ export default function FacultyLoadReports() {
                     {/* Faculty Info */}
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="flex items-center">
-                        <div className="h-10 w-10 flex-shrink-0">
+                        {/* <div className="h-10 w-10 flex-shrink-0">
                           <img
                             className="h-10 w-10 rounded-full object-cover border-2 border-gray-200"
                             src={f.avatar}
                             alt={f.name}
                           />
-                        </div>
+                        </div> */}
                         <div className="ml-4">
                           <div className="font-medium text-gray-900">{f.name}</div>
                           <div className="text-sm text-gray-500">{f.department}</div>
@@ -493,10 +479,28 @@ export default function FacultyLoadReports() {
                 </React.Fragment>
               ))}
               
-              {filteredFacultyData.length === 0 && (
+              {filteredFacultyData.length === 0 && !loadingData && (
                 <tr>
                   <td colSpan={5} className="px-6 py-10 text-center text-gray-500">
-                    No faculty members found matching your criteria.
+                    {!selectedSemester ? (
+                      'Please select a semester to view faculty load reports.'
+                    ) : faculty.length === 0 ? (
+                      <div className="text-center">
+                        <p className="mb-2">No faculty members found in this department.</p>
+                        <p className="text-sm text-gray-400">Ask your administrator to add faculty members.</p>
+                      </div>
+                    ) : courses.length === 0 ? (
+                      <div className="text-center">
+                        <p className="mb-2">No courses found for the selected semester.</p>
+                        <p className="text-sm text-gray-400">Ask your administrator to add courses for this semester.</p>
+                      </div>
+                    ) : searchQuery ? (
+                      `No faculty members found matching "${searchQuery}".`
+                    ) : showOverloadedOnly ? (
+                      'No overloaded faculty members found for this semester.'
+                    ) : (
+                      'No faculty load data available for this semester.'
+                    )}
                   </td>
                 </tr>
               )}
@@ -548,9 +552,9 @@ export default function FacultyLoadReports() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={handleGenerateReport}
-          disabled={generatingReport}
+          disabled={generatingReport || filteredFacultyData.length === 0}
           className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 
-                   text-white font-medium shadow-md hover:shadow-lg flex items-center gap-2 disabled:opacity-70"
+                   text-white font-medium shadow-md hover:shadow-lg flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {generatingReport ? (
             <>
@@ -569,8 +573,9 @@ export default function FacultyLoadReports() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={handleExport}
+          disabled={filteredFacultyData.length === 0}
           className="px-6 py-3 rounded-xl bg-white border border-gray-300
-                   text-gray-700 font-medium shadow-sm hover:bg-gray-50 flex items-center gap-2"
+                   text-gray-700 font-medium shadow-sm hover:bg-gray-50 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <FiDownload />
           <span>📥 Export {exportFormat}</span>
@@ -580,9 +585,9 @@ export default function FacultyLoadReports() {
           whileHover={{ scale: 1.05 }}
           whileTap={{ scale: 0.95 }}
           onClick={handleEmailFaculty}
-          disabled={emailingFaculty}
+          disabled={emailingFaculty || filteredFacultyData.length === 0}
           className="px-6 py-3 rounded-xl bg-teal-600 
-                   text-white font-medium shadow-md hover:bg-teal-700 flex items-center gap-2 disabled:opacity-70"
+                   text-white font-medium shadow-md hover:bg-teal-700 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           {emailingFaculty ? (
             <>
@@ -597,6 +602,33 @@ export default function FacultyLoadReports() {
           )}
         </motion.button>
       </div>
+
+      {/* Empty State Help */}
+      {faculty.length === 0 || courses.length === 0 ? (
+        <div className="mt-8 bg-blue-50 border border-blue-200 rounded-xl p-6">
+          <div className="text-center">
+            <FiAlertTriangle className="text-3xl text-blue-500 mx-auto mb-4" />
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">
+              {faculty.length === 0 ? 'No Faculty Data Found' : 'No Course Data Found'}
+            </h3>
+            <p className="text-blue-600 mb-4">
+              {faculty.length === 0 
+                ? 'To use Faculty Load Reports, you need faculty members in your department.'
+                : 'To use Faculty Load Reports, you need courses for the selected semester.'
+              }
+            </p>
+            <p className="text-sm text-blue-500">
+              Please contact your administrator to:
+            </p>
+            <ul className="text-sm text-blue-500 mt-2 list-disc list-inside">
+              {faculty.length === 0 && <li>Add faculty members to your department</li>}
+              {courses.length === 0 && <li>Add courses for the selected semester</li>}
+              <li>Assign courses to faculty members</li>
+              <li>Set up proper course load information</li>
+            </ul>
+          </div>
+        </div>
+      ) : null}
       
       {/* Success Messages */}
       <AnimatePresence>

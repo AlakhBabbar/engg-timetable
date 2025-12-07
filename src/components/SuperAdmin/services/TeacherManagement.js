@@ -1,10 +1,5 @@
 // TeacherManagement.js - Firebase Integration
 import { 
-  auth, 
-  createUserWithEmailAndPassword,
-  sendPasswordResetEmail
-} from '../../../firebase/config.js';
-import { 
   db, 
   collection, 
   doc, 
@@ -21,41 +16,47 @@ import {
 
 // Collection names
 const TEACHERS_COLLECTION = 'teachers';
-const PROFILES_COLLECTION = 'profiles';
 
 // Subject areas that teachers can specialize in
 export const subjectAreas = [
-  'Algorithms & Data Structures',
-  'Artificial Intelligence',
-  'Computer Networks',
-  'Database Systems',
-  'Operating Systems',
-  'Software Engineering',
-  'Web Development',
-  'Machine Learning',
-  'Embedded Systems',
-  'Cybersecurity',
-  'Cloud Computing',
-  'Mobile Development',
-  'Computer Architecture',
-  'Theoretical Computer Science',
-  'Graphics & Visualization'
+  'Power Systems',
+  'Control Engineering',
+  'Electronics',
+  'Electrical Machines',
+  'Thermodynamics',
+  'Heat Transfer',
+  'Machine Design',
+  'Manufacturing',
+  'Structural Analysis',
+  'Construction Management',
+  'Transportation Engineering',
+  'Environmental Engineering',
+  'Footwear Design',
+  'Leather Technology',
+  'Manufacturing Processes',
+  'Quality Control',
+  'Agricultural Machinery',
+  'Irrigation Engineering',
+  'Soil Science',
+  'Farm Mechanization',
+  'Food Processing',
+  'Renewable Energy'
 ];
 
 // Department options
 export const departments = [
-  'Computer Science', 
   'Electrical Engineering', 
   'Mechanical Engineering',
   'Civil Engineering',
-  'Chemical Engineering'
+  'Footwear Engineering',
+  'Agricultural Engineering'
 ];
 
 // Sample teachers data for fallback
 export const dummyTeachers = [
-  { id: 1, name: 'Dr. Jane Smith', email: 'jane@univ.edu', department: 'Computer Science', expertise: ['Algorithms & Data Structures', 'Artificial Intelligence'], qualification: 'Ph.D Computer Science', experience: 8, active: true },
-  { id: 2, name: 'Prof. Michael Johnson', email: 'michael@univ.edu', department: 'Electrical Engineering', expertise: ['Computer Networks', 'Embedded Systems'], qualification: 'Ph.D Electrical Engineering', experience: 12, active: true },
-  { id: 3, name: 'Dr. Sarah Williams', email: 'sarah@univ.edu', department: 'Computer Science', expertise: ['Database Systems', 'Web Development'], qualification: 'Ph.D Information Systems', experience: 6, active: false },
+  { id: 1, name: 'Dr. Jane Smith', email: 'jane@univ.edu', department: 'Electrical Engineering', expertise: ['Power Systems', 'Control Engineering'], qualification: 'Ph.D Electrical Engineering', experience: 8, active: true },
+  { id: 2, name: 'Prof. Michael Johnson', email: 'michael@univ.edu', department: 'Mechanical Engineering', expertise: ['Thermodynamics', 'Heat Transfer'], qualification: 'Ph.D Mechanical Engineering', experience: 12, active: true },
+  { id: 3, name: 'Dr. Sarah Williams', email: 'sarah@univ.edu', department: 'Civil Engineering', expertise: ['Structural Analysis', 'Construction Management'], qualification: 'Ph.D Civil Engineering', experience: 6, active: false },
 ];
 
 /**
@@ -98,24 +99,19 @@ export const fetchTeachers = async () => {
 };
 
 /**
- * Create a new teacher using Firebase for auth and data storage
+ * Create a new teacher record in Firestore (without creating an auth account)
  * @param {Object} teacherData - The teacher data to create
  * @returns {Promise} Promise object with result
  */
 export const createTeacher = async (teacherData) => {
   try {
-    // Generate a random initial password
-    const initialPassword = generateSecurePassword();
-    
-    // Create user account in Firebase Auth
-    const { name, email } = teacherData;
-    const userCredential = await createUserWithEmailAndPassword(auth, email, initialPassword);
-    const userId = userCredential.user.uid;
+    // Generate a unique ID for the teacher
+    const teacherId = crypto.randomUUID();
     
     // Create teacher document in Firestore
-    const teacherRef = doc(db, TEACHERS_COLLECTION, userId);
+    const teacherRef = doc(db, TEACHERS_COLLECTION, teacherId);
     const facultyData = {
-      userId,
+      teacherId,
       name: teacherData.name,
       email: teacherData.email,
       department: teacherData.department,
@@ -131,30 +127,10 @@ export const createTeacher = async (teacherData) => {
     
     await setDoc(teacherRef, facultyData);
     
-    // Create a basic user profile document
-    await setDoc(doc(db, PROFILES_COLLECTION, userId), {
-      userId,
-      name: teacherData.name,
-      email: teacherData.email,
-      role: 'Faculty',
-      department: teacherData.department,
-      active: teacherData.active !== false,
-      createdAt: new Date().toISOString()
-    });
-    
-    // Send password reset email so the faculty can set their own password
-    try {
-      await sendPasswordResetEmail(auth, email, {
-        url: window.location.origin + '/login'
-      });
-    } catch (recoveryError) {
-      console.warn('Could not send password reset email:', recoveryError);
-    }
-    
     return {
       success: true,
       faculty: {
-        id: userId,
+        id: teacherId,
         ...facultyData
       },
       error: null
@@ -162,10 +138,7 @@ export const createTeacher = async (teacherData) => {
   } catch (error) {
     console.error('Error creating teacher in Firebase:', error);
     
-    let errorMessage = 'Failed to create faculty account';
-    if (error.code === 'auth/email-already-in-use') {
-      errorMessage = 'A user with this email already exists';
-    }
+    let errorMessage = 'Failed to create faculty record';
     
     return {
       success: false,
@@ -204,21 +177,7 @@ export const updateTeacher = async (teacherData) => {
     
     await updateDoc(teacherRef, updateData);
     
-    // If the teacher record has a userId, update the corresponding profile document
     const existingData = teacherDocSnap.data();
-    if (existingData.userId) {
-      const profileRef = doc(db, PROFILES_COLLECTION, existingData.userId);
-      const profileSnap = await getDoc(profileRef);
-      
-      if (profileSnap.exists()) {
-        await updateDoc(profileRef, {
-          name: teacherData.name,
-          department: teacherData.department,
-          active: teacherData.active !== false,
-          updatedAt: new Date().toISOString()
-        });
-      }
-    }
     
     return {
       success: true,
@@ -246,7 +205,7 @@ export const updateTeacher = async (teacherData) => {
  */
 export const deleteTeacher = async (teacherId) => {
   try {
-    // Get the teacher document to check for userId
+    // Get the teacher document
     const teacherRef = doc(db, TEACHERS_COLLECTION, teacherId);
     const teacherSnap = await getDoc(teacherRef);
     
@@ -254,24 +213,8 @@ export const deleteTeacher = async (teacherId) => {
       throw new Error('Teacher not found');
     }
     
-    const teacherData = teacherSnap.data();
-    
     // Delete the teacher document
     await deleteDoc(teacherRef);
-    
-    // If there's a userId, delete the profile document and try to delete the Auth user
-    if (teacherData.userId) {
-      // Delete profile document
-      const profileRef = doc(db, PROFILES_COLLECTION, teacherData.userId);
-      const profileSnap = await getDoc(profileRef);
-      
-      if (profileSnap.exists()) {
-        await deleteDoc(profileRef);
-      }
-      
-      // Note: Deleting the Firebase Auth user requires the Admin SDK in a Cloud Function
-      // This would be implemented server-side in production
-    }
     
     return {
       success: true,
@@ -282,6 +225,78 @@ export const deleteTeacher = async (teacherId) => {
     return {
       success: false,
       error: 'Failed to delete faculty member'
+    };
+  }
+};
+
+/**
+ * Delete multiple teachers by their IDs
+ * @param {Array<string>} teacherIds - Array of teacher IDs to delete
+ * @returns {Promise<Object>} Object with success status and results
+ */
+export const bulkDeleteTeachers = async (teacherIds) => {
+  try {
+    if (!Array.isArray(teacherIds) || teacherIds.length === 0) {
+      return {
+        success: false,
+        error: 'No teachers selected for deletion',
+        results: []
+      };
+    }
+
+    const results = [];
+    let successCount = 0;
+    let failureCount = 0;
+
+    // Process deletions sequentially to avoid overwhelming the database
+    for (const teacherId of teacherIds) {
+      try {
+        const result = await deleteTeacher(teacherId);
+        if (result.success) {
+          successCount++;
+          results.push({
+            teacherId,
+            success: true
+          });
+        } else {
+          failureCount++;
+          results.push({
+            teacherId,
+            success: false,
+            error: result.error
+          });
+        }
+      } catch (error) {
+        failureCount++;
+        results.push({
+          teacherId,
+          success: false,
+          error: error.message
+        });
+      }
+    }
+
+    return {
+      success: failureCount === 0,
+      results,
+      summary: {
+        total: teacherIds.length,
+        successful: successCount,
+        failed: failureCount
+      },
+      error: failureCount > 0 ? `${failureCount} out of ${teacherIds.length} deletions failed` : null
+    };
+  } catch (error) {
+    console.error('Error in bulk delete operation:', error);
+    return {
+      success: false,
+      error: 'Bulk delete operation failed',
+      results: [],
+      summary: {
+        total: teacherIds.length,
+        successful: 0,
+        failed: teacherIds.length
+      }
     };
   }
 };
@@ -358,14 +373,219 @@ export const searchTeachers = async (searchTerm) => {
   }
 };
 
-// Helper function to generate a secure password
-const generateSecurePassword = () => {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!@#$%^&*()';
-  let password = '';
-  for (let i = 0; i < 12; i++) {
-    password += chars.charAt(Math.floor(Math.random() * chars.length));
+/**
+ * Get example JSON dataset format
+ * @returns {Object} Example dataset
+ */
+export const getExampleJSONDataset = () => {
+  return {
+    "teachers": [
+      {
+        "name": "Dr. John Smith",
+        "email": "john.smith@university.edu",
+        "department": "Electrical Engineering",
+        "expertise": ["Power Systems", "Control Engineering"],
+        "qualification": "Ph.D Electrical Engineering",
+        "experience": 10,
+        "active": true
+      },
+      {
+        "name": "Prof. Maria Garcia",
+        "email": "maria.garcia@university.edu",
+        "department": "Mechanical Engineering",
+        "expertise": ["Thermodynamics", "Heat Transfer"],
+        "qualification": "Ph.D Mechanical Engineering",
+        "experience": 8,
+        "active": true
+      }
+    ]
+  };
+};
+
+/**
+ * Process faculty data import from JSON
+ * @param {Object} jsonData - Imported JSON data
+ * @returns {Object} Import results
+ */
+export const processFacultyImport = async (jsonData) => {
+  try {
+    // Handle both "teachers" and "faculty" root keys
+    const teacherArray = jsonData.teachers || jsonData.faculty;
+    
+    if (!teacherArray || !Array.isArray(teacherArray)) {
+      return { success: false, error: "Invalid JSON format. Expected 'teachers' or 'faculty' array." };
+    }
+    
+    const results = [];
+    const departmentMap = {
+      "Mechanical": "Mechanical Engineering",
+      "Electrical": "Electrical Engineering",
+      "Civil": "Civil Engineering",
+      "Agricultural": "Agricultural Engineering",
+      "Footwear": "Footwear Technology",
+      // Add more mappings as needed
+    };
+    
+    for (const teacherData of teacherArray) {
+      try {
+        // Validate required fields
+        if (!teacherData.name) {
+          results.push({
+            name: teacherData.name || 'Unknown',
+            success: false,
+            error: "Missing name field"
+          });
+          continue;
+        }
+        
+        // Map department names if needed
+        let department = teacherData.department || '';
+        if (departmentMap[department]) {
+          department = departmentMap[department];
+        }
+        
+        // Generate a default email if not provided
+        const email = teacherData.email || 
+          `${teacherData.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@university.edu`;
+        
+        // Add teacher using the existing create function
+        const result = await createTeacher({
+          name: teacherData.name,
+          email: email,
+          department: department,
+          expertise: Array.isArray(teacherData.expertise) ? teacherData.expertise : [],
+          qualification: teacherData.qualification || '',
+          experience: teacherData.experience || 0,
+          active: teacherData.active !== false
+        });
+        
+        if (result.success) {
+          results.push({
+            name: teacherData.name,
+            success: true
+          });
+        } else {
+          results.push({
+            name: teacherData.name,
+            success: false,
+            error: result.error
+          });
+        }
+      } catch (err) {
+        results.push({
+          name: teacherData.name || 'Unknown',
+          success: false,
+          error: err.message
+        });
+      }
+    }
+    
+    return {
+      success: true,
+      results
+    };
+  } catch (error) {
+    console.error("Error processing faculty import:", error);
+    return {
+      success: false,
+      error: error.message
+    };
   }
-  return password;
+};
+
+/**
+ * Process a single faculty member import (used for rate-limited uploads)
+ * @param {Object} teacherData - Single teacher data object
+ * @returns {Promise<Object>} Result object with success status
+ */
+export const processSingleFacultyImport = async (teacherData) => {
+  try {
+    // Validate required fields
+    if (!teacherData.name) {
+      return {
+        success: false,
+        error: "Missing name field",
+        item: teacherData
+      };
+    }
+
+    const departmentMap = {
+      "Mechanical": "Mechanical Engineering",
+      "Electrical": "Electrical Engineering", 
+      "Civil": "Civil Engineering",
+      "Agricultural": "Agricultural Engineering",
+      "Footwear": "Footwear Technology",
+      // Add more mappings as needed
+    };
+
+    // Map department names if needed
+    let department = teacherData.department || '';
+    if (departmentMap[department]) {
+      department = departmentMap[department];
+    }
+
+    // Generate a default email if not provided
+    const email = teacherData.email || 
+      `${teacherData.name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}@university.edu`;
+
+    // Prepare teacher document
+    const teacherDoc = {
+      name: teacherData.name,
+      email: email,
+      department: department,
+      expertise: Array.isArray(teacherData.expertise) ? teacherData.expertise : 
+                  typeof teacherData.expertise === 'string' ? [teacherData.expertise] : [],
+      qualification: teacherData.qualification || 'Not specified',
+      experience: parseInt(teacherData.experience) || 0,
+      active: teacherData.active !== false, // Default to true unless explicitly false
+      employeeId: teacherData.employeeId || teacherData.id || null,
+      phoneNumber: teacherData.phoneNumber || teacherData.phone || '',
+      address: teacherData.address || '',
+      joiningDate: teacherData.joiningDate || new Date().toISOString().split('T')[0],
+      designation: teacherData.designation || 'Faculty',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+
+    // Create unique document ID based on email
+    const docId = email.replace(/[@.]/g, '_');
+    const teacherRef = doc(db, TEACHERS_COLLECTION, docId);
+    
+    // Check if teacher already exists
+    const existingDoc = await getDoc(teacherRef);
+    if (existingDoc.exists()) {
+      // Update existing teacher
+      await updateDoc(teacherRef, {
+        ...teacherDoc,
+        createdAt: existingDoc.data().createdAt, // Keep original creation date
+      });
+      
+      return {
+        success: true,
+        action: 'updated',
+        name: teacherData.name,
+        item: teacherData
+      };
+    } else {
+      // Create new teacher
+      await setDoc(teacherRef, teacherDoc);
+      
+      return {
+        success: true,
+        action: 'created',
+        name: teacherData.name,
+        item: teacherData
+      };
+    }
+
+  } catch (error) {
+    console.error('Error processing single faculty import:', error);
+    return {
+      success: false,
+      error: error.message || 'Unknown error occurred',
+      item: teacherData
+    };
+  }
 };
 
 /**
@@ -400,19 +620,25 @@ export const getAvatarBg = (name) => {
   return colors[hash % colors.length];
 };
 
+
+
 // Export all functions as a service object
 const TeacherManagementService = {
   fetchTeachers,
   createTeacher,
   updateTeacher,
   deleteTeacher,
+  bulkDeleteTeachers,
   getTeacherById,
   searchTeachers,
+  getExampleJSONDataset,
+  processFacultyImport,
+  processSingleFacultyImport,
   getInitials,
   getAvatarBg,
   subjectAreas,
   departments,
-  dummyTeachers
+  dummyTeachers,
 };
 
 export default TeacherManagementService;

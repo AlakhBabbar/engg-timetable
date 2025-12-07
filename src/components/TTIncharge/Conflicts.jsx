@@ -17,198 +17,22 @@ import {
   FiShield
 } from 'react-icons/fi';
 
-// Sample room conflict data (in a real app, this would come from an API)
-const roomConflictsData = [
-  {
-    id: 1,
-    course1: { 
-      id: 'CS101', 
-      name: 'Introduction to Computer Science', 
-      faculty: { id: 1, name: 'Dr. Alex Johnson' }, 
-      time: 'Monday, 09:00 - 10:00',
-      room: 'A101'
-    },
-    course2: { 
-      id: 'EE201', 
-      name: 'Circuit Theory', 
-      faculty: { id: 5, name: 'Prof. Maria Garcia' }, 
-      time: 'Monday, 09:00 - 10:00',
-      room: 'A101'
-    },
-    isCritical: true,
-    date: new Date().toISOString(),
-    resolved: false
-  },
-  {
-    id: 2,
-    course1: { 
-      id: 'CS303', 
-      name: 'Database Systems', 
-      faculty: { id: 3, name: 'Prof. Robert Chen' }, 
-      time: 'Tuesday, 11:00 - 12:00',
-      room: 'B201'
-    },
-    course2: { 
-      id: 'CS202', 
-      name: 'Data Structures and Algorithms', 
-      faculty: { id: 2, name: 'Dr. Sarah Miller' }, 
-      time: 'Tuesday, 11:00 - 12:00',
-      room: 'B201'
-    },
-    isCritical: false,
-    date: new Date(Date.now() - 86400000).toISOString(), // yesterday
-    resolved: false
-  },
-  {
-    id: 3,
-    course1: { 
-      id: 'CS405', 
-      name: 'Artificial Intelligence', 
-      faculty: { id: 4, name: 'Dr. Emily Zhang' }, 
-      time: 'Wednesday, 14:00 - 15:00',
-      room: 'C302'
-    },
-    course2: { 
-      id: 'ME101', 
-      name: 'Engineering Mechanics', 
-      faculty: { id: 6, name: 'Dr. John Smith' }, 
-      time: 'Wednesday, 14:00 - 15:00',
-      room: 'C302'
-    },
-    isCritical: true,
-    date: new Date().toISOString(),
-    resolved: false
-  },
-];
-
-// Sample faculty conflict data
-const facultyConflictsData = [
-  {
-    id: 4,
-    faculty: { id: 2, name: 'Dr. Sarah Miller' },
-    course1: { 
-      id: 'CS202', 
-      name: 'Data Structures and Algorithms', 
-      time: 'Thursday, 09:00 - 10:00',
-      room: 'A105'
-    },
-    course2: { 
-      id: 'CS204', 
-      name: 'Computer Architecture', 
-      time: 'Thursday, 09:00 - 10:00',
-      room: 'B204'
-    },
-    isCritical: true,
-    date: new Date().toISOString(),
-    resolved: false
-  },
-  {
-    id: 5,
-    faculty: { id: 3, name: 'Prof. Robert Chen' },
-    course1: { 
-      id: 'CS303', 
-      name: 'Database Systems', 
-      time: 'Friday, 11:00 - 12:00',
-      room: 'D101'
-    },
-    course2: { 
-      id: 'CS401', 
-      name: 'Advanced Databases', 
-      time: 'Friday, 11:00 - 12:00',
-      room: 'A101'
-    },
-    isCritical: false,
-    date: new Date().toISOString(),
-    resolved: false
-  }
-];
-
-// Sample overlapping courses data
-const overlappingCoursesData = [
-  {
-    id: 6,
-    course1: { 
-      id: 'CS101', 
-      name: 'Introduction to Computer Science', 
-      semester: 1,
-      program: 'B.Tech CS',
-      time: 'Monday, 14:00 - 15:00',
-      faculty: { id: 1, name: 'Dr. Alex Johnson' },
-      room: 'A101'
-    },
-    course2: { 
-      id: 'CS303', 
-      name: 'Database Systems', 
-      semester: 1,
-      program: 'B.Tech CS',
-      time: 'Monday, 14:00 - 15:00',
-      faculty: { id: 3, name: 'Prof. Robert Chen' },
-      room: 'B201'
-    },
-    isCritical: true,
-    date: new Date().toISOString(),
-    resolved: false
-  },
-  {
-    id: 7,
-    course1: { 
-      id: 'CS202', 
-      name: 'Data Structures and Algorithms', 
-      semester: 2,
-      program: 'B.Tech CS',
-      time: 'Wednesday, 09:00 - 10:00',
-      faculty: { id: 2, name: 'Dr. Sarah Miller' },
-      room: 'A105'
-    },
-    course2: { 
-      id: 'CS204', 
-      name: 'Computer Architecture', 
-      semester: 2,
-      program: 'B.Tech CS',
-      time: 'Wednesday, 09:00 - 10:00',
-      faculty: { id: 4, name: 'Dr. Emily Zhang' },
-      room: 'C302'
-    },
-    isCritical: false,
-    date: new Date(Date.now() - 86400000).toISOString(), // yesterday
-    resolved: false
-  }
-];
-
-// List of available rooms
-const availableRooms = [
-  'A101', 'A105', 'B201', 'B204', 'C302', 'D101'
-];
-
-// List of available faculty
-const availableFaculty = [
-  { id: 1, name: 'Dr. Alex Johnson' },
-  { id: 2, name: 'Dr. Sarah Miller' },
-  { id: 3, name: 'Prof. Robert Chen' },
-  { id: 4, name: 'Dr. Emily Zhang' },
-  { id: 5, name: 'Prof. Maria Garcia' },
-  { id: 6, name: 'Dr. John Smith' }
-];
-
-// List of available time slots
-const availableTimeSlots = [
-  'Monday, 08:00 - 09:00', 
-  'Monday, 09:00 - 10:00',
-  'Monday, 10:00 - 11:00',
-  'Monday, 11:00 - 12:00',
-  'Monday, 14:00 - 15:00',
-  'Tuesday, 09:00 - 10:00',
-  'Tuesday, 10:00 - 11:00',
-  'Tuesday, 11:00 - 12:00',
-  'Tuesday, 14:00 - 15:00',
-  'Wednesday, 09:00 - 10:00',
-  'Wednesday, 10:00 - 11:00',
-  'Wednesday, 14:00 - 15:00',
-  'Thursday, 09:00 - 10:00',
-  'Thursday, 11:00 - 12:00',
-  'Friday, 09:00 - 10:00',
-  'Friday, 11:00 - 12:00',
-];
+// Import services and data from the service file
+import {
+  roomConflictsData,
+  facultyConflictsData,
+  overlappingCoursesData,
+  availableRooms,
+  availableFaculty,
+  availableTimeSlots,
+  markAsResolved,
+  changeRoom,
+  swapTime,
+  reassignFaculty,
+  autoResolveConflicts,
+  calculateSummary,
+  markAllAsResolved
+} from './services/Conflicts';
 
 export default function Conflicts() {
   // State for active tab
@@ -235,23 +59,7 @@ export default function Conflicts() {
   
   // Calculate summary on component mount and when conflicts change
   useEffect(() => {
-    const allConflicts = [...roomConflicts, ...facultyConflicts, ...overlappingCourses];
-    const total = allConflicts.length;
-    const critical = allConflicts.filter(c => c.isCritical).length;
-    const minor = total - critical;
-    
-    // Count conflicts resolved today
-    const today = new Date().toDateString();
-    const resolvedToday = allConflicts.filter(c => {
-      return c.resolved && new Date(c.resolvedDate).toDateString() === today;
-    }).length;
-    
-    setSummary({
-      total,
-      critical,
-      minor,
-      resolvedToday
-    });
+    setSummary(calculateSummary(roomConflicts, facultyConflicts, overlappingCourses));
   }, [roomConflicts, facultyConflicts, overlappingCourses]);
   
   // Toggle expanded card
@@ -263,27 +71,16 @@ export default function Conflicts() {
   };
   
   // Mark conflict as resolved
-  const markAsResolved = (id, type) => {
-    const updateConflict = (conflict) => {
-      if (conflict.id === id) {
-        return {
-          ...conflict,
-          resolved: true,
-          resolvedDate: new Date().toISOString()
-        };
-      }
-      return conflict;
-    };
-    
+  const handleMarkAsResolved = (id, type) => {
     switch (type) {
       case 'room':
-        setRoomConflicts(prev => prev.map(updateConflict));
+        setRoomConflicts(prev => markAsResolved(prev, id));
         break;
       case 'faculty':
-        setFacultyConflicts(prev => prev.map(updateConflict));
+        setFacultyConflicts(prev => markAsResolved(prev, id));
         break;
       case 'overlapping':
-        setOverlappingCourses(prev => prev.map(updateConflict));
+        setOverlappingCourses(prev => markAsResolved(prev, id));
         break;
       default:
         break;
@@ -292,39 +89,12 @@ export default function Conflicts() {
   
   // Change room for a conflict
   const handleChangeRoom = (id, type, courseIndex, newRoom) => {
-    const updateRoomConflict = (conflict) => {
-      if (conflict.id === id) {
-        if (courseIndex === 1) {
-          return {
-            ...conflict,
-            course1: {
-              ...conflict.course1,
-              room: newRoom
-            },
-            resolved: true,
-            resolvedDate: new Date().toISOString()
-          };
-        } else {
-          return {
-            ...conflict,
-            course2: {
-              ...conflict.course2,
-              room: newRoom
-            },
-            resolved: true,
-            resolvedDate: new Date().toISOString()
-          };
-        }
-      }
-      return conflict;
-    };
-    
     switch (type) {
       case 'room':
-        setRoomConflicts(prev => prev.map(updateRoomConflict));
+        setRoomConflicts(prev => changeRoom(prev, id, courseIndex, newRoom));
         break;
       case 'overlapping':
-        setOverlappingCourses(prev => prev.map(updateRoomConflict));
+        setOverlappingCourses(prev => changeRoom(prev, id, courseIndex, newRoom));
         break;
       default:
         break;
@@ -333,42 +103,15 @@ export default function Conflicts() {
   
   // Swap time for a conflict
   const handleSwapTime = (id, type, courseIndex, newTime) => {
-    const updateTimeConflict = (conflict) => {
-      if (conflict.id === id) {
-        if (courseIndex === 1) {
-          return {
-            ...conflict,
-            course1: {
-              ...conflict.course1,
-              time: newTime
-            },
-            resolved: true,
-            resolvedDate: new Date().toISOString()
-          };
-        } else {
-          return {
-            ...conflict,
-            course2: {
-              ...conflict.course2,
-              time: newTime
-            },
-            resolved: true,
-            resolvedDate: new Date().toISOString()
-          };
-        }
-      }
-      return conflict;
-    };
-    
     switch (type) {
       case 'room':
-        setRoomConflicts(prev => prev.map(updateTimeConflict));
+        setRoomConflicts(prev => swapTime(prev, id, courseIndex, newTime));
         break;
       case 'faculty':
-        setFacultyConflicts(prev => prev.map(updateTimeConflict));
+        setFacultyConflicts(prev => swapTime(prev, id, courseIndex, newTime));
         break;
       case 'overlapping':
-        setOverlappingCourses(prev => prev.map(updateTimeConflict));
+        setOverlappingCourses(prev => swapTime(prev, id, courseIndex, newTime));
         break;
       default:
         break;
@@ -377,32 +120,7 @@ export default function Conflicts() {
   
   // Reassign faculty for a conflict
   const handleReassignFaculty = (id, courseIndex, newFaculty) => {
-    setFacultyConflicts(prev => prev.map(conflict => {
-      if (conflict.id === id) {
-        if (courseIndex === 1) {
-          return {
-            ...conflict,
-            course1: {
-              ...conflict.course1,
-              faculty: newFaculty
-            },
-            resolved: true,
-            resolvedDate: new Date().toISOString()
-          };
-        } else {
-          return {
-            ...conflict,
-            course2: {
-              ...conflict.course2,
-              faculty: newFaculty
-            },
-            resolved: true,
-            resolvedDate: new Date().toISOString()
-          };
-        }
-      }
-      return conflict;
-    }));
+    setFacultyConflicts(prev => reassignFaculty(prev, id, courseIndex, newFaculty));
   };
   
   // Auto resolve all conflicts
@@ -411,45 +129,20 @@ export default function Conflicts() {
     
     // Simulate auto-resolution with a delay to show progress
     setTimeout(() => {
-      // For room conflicts, change rooms
-      const updatedRoomConflicts = roomConflicts.map(conflict => ({
-        ...conflict,
-        course2: {
-          ...conflict.course2,
-          room: availableRooms.find(r => r !== conflict.course1.room && r !== conflict.course2.room) || 'D101'
-        },
-        resolved: true,
-        resolvedDate: new Date().toISOString()
-      }));
-      
-      // For faculty conflicts, swap times
-      const updatedFacultyConflicts = facultyConflicts.map(conflict => ({
-        ...conflict,
-        course2: {
-          ...conflict.course2,
-          time: availableTimeSlots.find(t => t !== conflict.course1.time && t !== conflict.course2.time) || 'Monday, 08:00 - 09:00'
-        },
-        resolved: true,
-        resolvedDate: new Date().toISOString()
-      }));
-      
-      // For overlapping courses, change rooms and times
-      const updatedOverlappingCourses = overlappingCourses.map(conflict => ({
-        ...conflict,
-        course2: {
-          ...conflict.course2,
-          time: availableTimeSlots.find(t => t !== conflict.course1.time && t !== conflict.course2.time) || 'Tuesday, 09:00 - 10:00',
-          room: availableRooms.find(r => r !== conflict.course1.room) || 'A105'
-        },
-        resolved: true,
-        resolvedDate: new Date().toISOString()
-      }));
-      
-      setRoomConflicts(updatedRoomConflicts);
-      setFacultyConflicts(updatedFacultyConflicts);
-      setOverlappingCourses(updatedOverlappingCourses);
+      const result = autoResolveConflicts(roomConflicts, facultyConflicts, overlappingCourses);
+      setRoomConflicts(result.roomConflicts);
+      setFacultyConflicts(result.facultyConflicts);
+      setOverlappingCourses(result.overlappingCourses);
       setAutoResolving(false);
     }, 1500);
+  };
+  
+  // Handle marking all conflicts as resolved
+  const handleMarkAllAsResolved = () => {
+    const result = markAllAsResolved(roomConflicts, facultyConflicts, overlappingCourses);
+    setRoomConflicts(result.roomConflicts);
+    setFacultyConflicts(result.facultyConflicts);
+    setOverlappingCourses(result.overlappingCourses);
   };
   
   // Render conflict card for room conflicts
@@ -625,7 +318,7 @@ export default function Conflicts() {
                     
                     <div className="pt-2">
                       <button
-                        onClick={() => markAsResolved(conflict.id, 'room')}
+                        onClick={() => handleMarkAsResolved(conflict.id, 'room')}
                         className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-md flex items-center justify-center gap-2 text-sm font-medium"
                       >
                         <FiCheckCircle size={16} />
@@ -821,7 +514,7 @@ export default function Conflicts() {
                     
                     <div className="pt-2">
                       <button
-                        onClick={() => markAsResolved(conflict.id, 'faculty')}
+                        onClick={() => handleMarkAsResolved(conflict.id, 'faculty')}
                         className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-md flex items-center justify-center gap-2 text-sm font-medium"
                       >
                         <FiCheckCircle size={16} />
@@ -1026,7 +719,7 @@ export default function Conflicts() {
                     
                     <div className="pt-2">
                       <button
-                        onClick={() => markAsResolved(conflict.id, 'overlapping')}
+                        onClick={() => handleMarkAsResolved(conflict.id, 'overlapping')}
                         className="w-full py-2 bg-green-600 hover:bg-green-700 text-white rounded-md flex items-center justify-center gap-2 text-sm font-medium"
                       >
                         <FiCheckCircle size={16} />
@@ -1102,12 +795,7 @@ export default function Conflicts() {
             
             <button 
               className="px-4 py-2 rounded-lg bg-green-100 text-green-800 hover:bg-green-200 flex items-center gap-2 transition-colors"
-              onClick={() => {
-                // Mark all conflicts as resolved
-                setRoomConflicts(prev => prev.map(c => ({...c, resolved: true, resolvedDate: new Date().toISOString()})));
-                setFacultyConflicts(prev => prev.map(c => ({...c, resolved: true, resolvedDate: new Date().toISOString()})));
-                setOverlappingCourses(prev => prev.map(c => ({...c, resolved: true, resolvedDate: new Date().toISOString()})));
-              }}
+              onClick={handleMarkAllAsResolved}
             >
               <FiCheckCircle />
               ✅ Mark All as Resolved

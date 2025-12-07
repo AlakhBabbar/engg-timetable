@@ -1,80 +1,39 @@
 // filepath: /Users/nihalsarandasduggirala/Downloads/engg-timetable/src/components/HODLayout.jsx
-import React, { useState, useEffect } from 'react';
-import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { FiGrid, FiBook, FiUsers, FiFileText, FiCalendar, FiBell, FiSearch, FiChevronDown, FiChevronUp, FiLogOut } from 'react-icons/fi';
-import { logoutUser } from '../Auth/services/Login';
+import React, { useContext, useState, useEffect } from 'react';
+import { Outlet } from 'react-router-dom';
+import { FiBell, FiSearch, FiChevronDown, FiChevronUp, FiLogOut } from 'react-icons/fi';
+import { AuthContext } from '../../App';
+import { useHODLayout } from './services/HODLayout';
+import RateLimitStatusMonitor from '../common/RateLimitStatusMonitor';
+import SemesterDropdown from '../common/SemesterDropdown';
 
 export default function HODLayout() {
-  const [activeSidebarItem, setActiveSidebarItem] = useState('Dashboard');
-  const [semesterDropdownOpen, setSemesterDropdownOpen] = useState(false);
+  const { user, setUser } = useContext(AuthContext);
+  const {
+    activeSidebarItem,
+    sidebarItems,
+    handleNavigation,
+    handleLogout
+  } = useHODLayout(user, setUser);
+  
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [selectedSemester, setSelectedSemester] = useState('Semester 7');
-  const navigate = useNavigate();
-  const location = useLocation();
-  
-  // List of available semesters
-  const availableSemesters = [
-    'Semester 7',
-    'Semester 6',
-    'Semester 5',
-    'Semester 4'
-  ];
-  
-  // Close dropdowns when clicking outside
+
+  // Close dropdown when clicking outside
   useEffect(() => {
-    const closeDropdowns = (e) => {
-      if (!e.target.closest('.semester-dropdown')) {
-        setSemesterDropdownOpen(false);
-      }
+    const closeDropdown = (e) => {
       if (!e.target.closest('.profile-dropdown')) {
         setProfileDropdownOpen(false);
       }
     };
     
-    document.addEventListener('mousedown', closeDropdowns);
-    return () => document.removeEventListener('mousedown', closeDropdowns);
+    document.addEventListener('mousedown', closeDropdown);
+    return () => document.removeEventListener('mousedown', closeDropdown);
   }, []);
-  
-  // Handle logout
-  const handleLogout = async () => {
-    try {
-      await logoutUser();
-      // Redirect to login page after successful logout
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout failed:', error);
-      // Show error message to user
-      alert('Logout failed. Please try again.');
-    }
-  };
-  
-  // Set active item based on current path
-  useEffect(() => {
-    const path = location.pathname;
-    if (path.includes('/hod/dashboard')) {
-      setActiveSidebarItem('Dashboard');
-    } else if (path.includes('/hod/courses')) {
-      setActiveSidebarItem('Courses');
-    } else if (path.includes('/hod/assign-faculty')) {
-      setActiveSidebarItem('Assign-Course');
-    } else if (path.includes('/hod/reports')) {
-      setActiveSidebarItem('Reports');
-    } else if (path.includes('/hod/timetable')) {
-      setActiveSidebarItem('Timetable');
-    }
-  }, [location]);
-  
-  const sidebarItems = [
-    { label: 'Dashboard', icon: <FiGrid size={18} />, path: '/hod/dashboard' },
-    { label: 'Courses', icon: <FiBook size={18} />, path: '/hod/courses' },
-    { label: 'Assign-Course', icon: <FiUsers size={18} />, path: '/hod/assign-faculty' },
-    { label: 'Reports', icon: <FiFileText size={18} />, path: '/hod/reports' },
-    { label: 'Timetable', icon: <FiCalendar size={18} />, path: '/hod/timetable' },
-  ];
 
-  const handleNavigation = (path, label) => {
-    setActiveSidebarItem(label);
-    navigate(path);
+  // Render sidebar icon component
+  const renderIcon = (item) => {
+    const IconComponent = item.icon;
+    return <IconComponent size={item.iconSize} />;
   };
 
   return (
@@ -95,7 +54,7 @@ export default function HODLayout() {
                   ? 'bg-white/10 font-semibold' 
                   : 'hover:bg-white/5'}`}
             >
-              <div>{item.icon}</div>
+              <div>{renderIcon(item)}</div>
               <span className="hidden lg:block">{item.label}</span>
             </button>
           ))}
@@ -106,38 +65,11 @@ export default function HODLayout() {
         {/* Top bar - Fixed */}
         <header className="bg-white shadow flex items-center justify-between p-4 fixed top-0 right-0 left-20 lg:left-64 z-10">
           <div className="flex items-center">
-            <h2 className="text-xl font-semibold text-gray-800">Computer Science Department</h2>
-            <div className="relative semester-dropdown">
-              <div 
-                className="ml-4 flex items-center border rounded-lg px-3 py-1 cursor-pointer hover:bg-gray-50"
-                onClick={() => setSemesterDropdownOpen(!semesterDropdownOpen)}
-              >
-                <span className="text-gray-600 mr-1">{selectedSemester}</span>
-                {semesterDropdownOpen ? 
-                  <FiChevronUp className="text-gray-500" /> : 
-                  <FiChevronDown className="text-gray-500" />
-                }
-              </div>
-              
-              {semesterDropdownOpen && (
-                <div className="absolute top-full left-4 mt-1 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
-                  {availableSemesters.map((semester) => (
-                    <div
-                      key={semester}
-                      className={`px-4 py-2 cursor-pointer hover:bg-gray-100 ${
-                        selectedSemester === semester ? 'bg-teal-50 text-teal-600' : ''
-                      }`}
-                      onClick={() => {
-                        setSelectedSemester(semester);
-                        setSemesterDropdownOpen(false);
-                      }}
-                    >
-                      {semester}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
+            <h2 className="text-xl font-semibold text-gray-800">{user?.department || 'Department'}</h2>
+            <SemesterDropdown 
+              variant="header" 
+              showOnlyActive={true}
+            />
           </div>
           <div className="flex items-center gap-5">
             <div className="relative">
@@ -165,8 +97,8 @@ export default function HODLayout() {
                   className="rounded-full h-10 w-10 object-cover border-2 border-teal-500"
                 />
                 <div className="hidden md:block">
-                  <p className="text-sm font-medium">Dr. Sarah Johnson</p>
-                  <p className="text-xs text-gray-500">HOD, Computer Science</p>
+                  <p className="text-sm font-medium">{user?.name || 'HOD'}</p>
+                  <p className="text-xs text-gray-500">{user?.department || 'Department'}</p>
                 </div>
                 {profileDropdownOpen ? 
                   <FiChevronUp className="text-gray-500" /> : 
@@ -177,8 +109,8 @@ export default function HODLayout() {
               {profileDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg py-1 z-20">
                   <div className="px-4 py-3 border-b">
-                    <p className="text-sm font-medium">Dr. Sarah Johnson</p>
-                    <p className="text-xs text-gray-500">sarah.johnson@example.com</p>
+                    <p className="text-sm font-medium">{user?.name || 'HOD'}</p>
+                    <p className="text-xs text-gray-500">{user?.email || 'hod@example.com'}</p>
                   </div>
                   <div className="py-1">
                     <button
@@ -200,6 +132,9 @@ export default function HODLayout() {
           <Outlet />
         </main>
       </div>
+      
+      {/* Rate Limit Status Monitor */}
+      <RateLimitStatusMonitor />
     </div>
   );
 }

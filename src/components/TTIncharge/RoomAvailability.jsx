@@ -15,7 +15,17 @@ import {
   FiChevronDown,
   FiX
 } from 'react-icons/fi';
-import { roomsData, weekDays, timeSlots, coursesData } from './services/TimetableBuilder';
+import { weekDays, timeSlots } from './services/TimetableBuilder';
+import {
+  departments,
+  roomTypes,
+  fetchRoomAvailabilityFromDB, // <-- use new Firestore fetch
+  filterRooms,
+  getVisibleTimeSlots,
+  getVisibleDays,
+  getStatusColorClass,
+  getStatusText
+} from './services/RoomAvailability';
 
 export default function RoomAvailability() {
   // States for filters
@@ -32,78 +42,26 @@ export default function RoomAvailability() {
   // Enhanced room data with availability status
   const [enhancedRoomsData, setEnhancedRoomsData] = useState([]);
 
-  // Department list derived from rooms
-  const departments = ['Computer Science', 'Electrical Engineering', 'Mechanical Engineering', 'Civil Engineering'];
-  
-  // Room types
-  const roomTypes = ['Lecture Hall', 'Classroom', 'Computer Lab', 'Conference Room', 'Seminar Hall'];
-  
-  // Filtered rooms
-  const filteredRooms = enhancedRoomsData.filter(room => {
-    if (selectedDepartment && !room.departments.includes(selectedDepartment)) return false;
-    if (selectedRoomType && room.type !== selectedRoomType) return false;
-    return true;
-  });
-
-  // Initialize room data with availability
+  // Fetch room data from Firestore on mount (real-time)
   useEffect(() => {
-    generateRoomAvailabilityData();
+    const unsubscribe = fetchRoomAvailabilityFromDB((roomsWithAvailability) => {
+      setEnhancedRoomsData(roomsWithAvailability);
+      if (!selectedRoom && roomsWithAvailability.length > 0) {
+        setSelectedRoom(roomsWithAvailability[0]);
+      }
+    });
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
   }, []);
 
-  // Function to generate room availability data
-  const generateRoomAvailabilityData = () => {
-    // Start with base room data and add availability
-    const roomsWithAvailability = roomsData.map(room => {
-      // Generate mock availability data for each room
-      const availability = {};
-      weekDays.forEach(day => {
-        availability[day] = {};
-        timeSlots.forEach(slot => {
-          // Random status: 0 = free, 1 = occupied, 2 = tentative
-          const randStatus = Math.random();
-          const status = randStatus > 0.7 ? 0 : randStatus > 0.2 ? 1 : 2;
-          
-          let course = null;
-          if (status === 1 || status === 2) {
-            // Assign a random course if slot is occupied or tentative
-            const randomCourse = coursesData[Math.floor(Math.random() * coursesData.length)];
-            course = {
-              id: randomCourse.id,
-              name: randomCourse.name,
-              faculty: randomCourse.faculty
-            };
-          }
-          
-          availability[day][slot] = {
-            status,
-            course
-          };
-        });
-      });
-      
-      // Add random department allocations for filtering
-      const departments = [];
-      if (Math.random() > 0.5) departments.push('Computer Science');
-      if (Math.random() > 0.6) departments.push('Electrical Engineering');
-      if (Math.random() > 0.7) departments.push('Mechanical Engineering');
-      if (Math.random() > 0.8) departments.push('Civil Engineering');
-      
-      return {
-        ...room,
-        availability,
-        departments: departments.length ? departments : ['General']
-      };
-    });
-    
-    setEnhancedRoomsData(roomsWithAvailability);
-    setSelectedRoom(roomsWithAvailability[0]);
-  };
+  // Filtered rooms using the service function
+  const filteredRooms = filterRooms(enhancedRoomsData, selectedDepartment, selectedRoomType);
 
   // Function to refresh data with animation
   const handleRefresh = () => {
     setIsRefreshing(true);
     setTimeout(() => {
-      generateRoomAvailabilityData();
       setIsRefreshing(false);
     }, 1000);
   };
@@ -113,43 +71,11 @@ export default function RoomAvailability() {
     window.print();
   };
 
-  // Function to get status color class
-  const getStatusColorClass = (status) => {
-    switch(status) {
-      case 0:
-        return 'bg-green-100 border-green-300 hover:bg-green-200';
-      case 1:
-        return 'bg-red-100 border-red-300 hover:bg-red-200';
-      case 2:
-        return 'bg-yellow-100 border-yellow-300 hover:bg-yellow-200';
-      default:
-        return 'bg-gray-100';
-    }
-  };
-
-  // Function to get status text
-  const getStatusText = (status) => {
-    switch(status) {
-      case 0:
-        return 'Available';
-      case 1:
-        return 'Occupied';
-      case 2:
-        return 'Tentative';
-      default:
-        return 'Unknown';
-    }
-  };
-
   // Get visible time slots based on time range filter
-  const visibleTimeSlots = timeSlots.filter(slot => {
-    const slotStart = slot.split(' - ')[0];
-    const slotEnd = slot.split(' - ')[1];
-    return slotStart >= timeRange.start && slotEnd <= timeRange.end;
-  });
+  const visibleTimeSlots = getVisibleTimeSlots(timeSlots, timeRange);
 
   // Get visible days based on view mode
-  const visibleDays = viewMode === 'week' ? weekDays : [selectedDay];
+  const visibleDays = getVisibleDays(weekDays, viewMode, selectedDay);
 
   return (
     <div className="space-y-6 max-w-7xl mx-auto print:max-w-full">
@@ -278,32 +204,32 @@ export default function RoomAvailability() {
       <div className="bg-white p-4 rounded-xl shadow-md">
         <div className="mb-4">
           <h3 className="text-lg font-semibold text-gray-800 mb-2">Select Room</h3>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex gap-2 overflow-x-auto whitespace-nowrap pb-2" style={{ WebkitOverflowScrolling: 'touch' }}>
             {filteredRooms.map(room => (
               <button
                 key={room.id}
                 onClick={() => setSelectedRoom(room)}
-                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors
+                className={`px-3 py-2 rounded-md text-sm font-medium transition-colors flex-shrink-0 min-w-[120px] max-w-xs text-ellipsis overflow-hidden
                   ${selectedRoom?.id === room.id 
                     ? 'bg-indigo-600 text-white' 
                     : 'bg-gray-100 text-gray-800 hover:bg-gray-200'}`}
               >
                 <div className="flex items-center gap-1">
-                  <span>{room.id}</span>
+                  <span>{room.number || room.id}</span>
                   <span className="text-xs">({room.capacity})</span>
                 </div>
                 <div className="flex flex-wrap gap-1 mt-1">
-                  {room.facilities.includes('AC') && (
+                  {(room.facilities || []).includes('AC') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                       AC
                     </span>
                   )}
-                  {room.facilities.includes('Smart Board') && (
+                  {(room.facilities || []).includes('Smart Board') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
                       Smart
                     </span>
                   )}
-                  {room.facilities.includes('Projector') && (
+                  {(room.facilities || []).includes('Projector') && (
                     <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
                       Proj
                     </span>
@@ -318,8 +244,8 @@ export default function RoomAvailability() {
           <div className="bg-gray-50 p-3 rounded-lg mb-4">
             <div className="flex justify-between items-center">
               <div>
-                <h4 className="font-semibold text-gray-800">{selectedRoom.id} - {selectedRoom.type}</h4>
-                <p className="text-sm text-gray-600">Capacity: {selectedRoom.capacity} | Facilities: {selectedRoom.facilities.join(', ')}</p>
+                <h4 className="font-semibold text-gray-800">{selectedRoom.number || selectedRoom.id} - {selectedRoom.type}</h4>
+                <p className="text-sm text-gray-600">Capacity: {selectedRoom.capacity} | Facilities: {(selectedRoom.features || []).join(', ')}</p>
               </div>
               
               <div className="flex space-x-2">
@@ -393,7 +319,13 @@ export default function RoomAvailability() {
                           {slot}
                         </td>
                         {visibleDays.map(day => {
-                          const slotData = selectedRoom.availability[day][slot];
+                          const slotData =
+                            selectedRoom &&
+                            selectedRoom.availability &&
+                            selectedRoom.availability[day] &&
+                            selectedRoom.availability[day][slot]
+                              ? selectedRoom.availability[day][slot]
+                              : {};
                           return (
                             <td 
                               key={`${day}-${slot}`}
@@ -410,7 +342,7 @@ export default function RoomAvailability() {
                                 {slotData.course ? (
                                   <>
                                     <div className="font-semibold text-sm">{slotData.course.id}</div>
-                                    <div className="text-xs">{slotData.course.faculty.name}</div>
+                                    <div className="text-xs">{slotData.course.faculty?.name}</div>
                                   </>
                                 ) : (
                                   <div className="flex items-center justify-center h-full">

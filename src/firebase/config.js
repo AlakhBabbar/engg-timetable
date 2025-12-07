@@ -22,7 +22,13 @@ import {
     where,
     orderBy,
     limit,
-    Timestamp
+    Timestamp,
+    addDoc,
+    onSnapshot,
+    serverTimestamp,
+    arrayRemove,
+    arrayUnion,
+    writeBatch
 } from 'firebase/firestore';
 
 // Firebase configuration using environment variables
@@ -62,7 +68,13 @@ export {
     where,
     orderBy,
     limit,
-    Timestamp
+    addDoc,
+    Timestamp,
+    onSnapshot,
+    serverTimestamp,
+    arrayRemove,
+    arrayUnion,
+    writeBatch
 };
 
 // Helper function to generate unique IDs (similar to Appwrite's ID.unique())

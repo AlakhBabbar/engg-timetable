@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { FiBookOpen, FiUser, FiSearch, FiEdit, FiTrash2, FiBook, FiToggleRight } from 'react-icons/fi';
+import { useToast } from '../../context/ToastContext';
 import { 
   getAllDepartments, 
   getHODOptions, 
@@ -7,15 +8,19 @@ import {
   createDepartment, 
   updateDepartment, 
   deleteDepartment,
-  departmentTypes 
+  departmentCategories 
 } from './services/DepartmentManagement';
 
 export default function DepartmentManagement() {
   const [showModal, setShowModal] = useState(false);
-  const [formData, setFormData] = useState({ name: '', type: '', hod: '', description: '', status: 'Active' });
+  const [formData, setFormData] = useState({ name: '', category: '', hod: '', description: '', status: 'Active' });
   const [searchTerm, setSearchTerm] = useState('');
   const [departments, setDepartments] = useState([]);
   const [hodOptions, setHodOptions] = useState([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [editingDepartment, setEditingDepartment] = useState(null);
+  const { addToast } = useToast();
 
   useEffect(() => {
     // Load initial data
@@ -30,41 +35,148 @@ export default function DepartmentManagement() {
     fetchData();
   }, []);
 
-  const openModal = () => setShowModal(true);
-  const closeModal = () => setShowModal(false);
+  // Handle escape key to close modal
+  useEffect(() => {
+    const handleEscape = (event) => {
+      if (event.key === 'Escape' && showModal) {
+        closeModal();
+      }
+    };
+
+    if (showModal) {
+      document.addEventListener('keydown', handleEscape);
+      // Prevent body scroll when modal is open
+      document.body.style.overflow = 'hidden';
+    }
+
+    return () => {
+      document.removeEventListener('keydown', handleEscape);
+      document.body.style.overflow = 'unset';
+    };
+  }, [showModal]);
+
+  const openModal = () => {
+    setFormData({ name: '', category: '', hod: '', description: '', status: 'Active' });
+    setEditingDepartment(null);
+    setError('');
+    setShowModal(true);
+  };
+  
+  const openEditModal = (department) => {
+    setFormData({
+      name: department.name,
+      category: department.category,
+      hod: department.hod === 'Not Assigned' ? '' : department.hod,
+      description: department.description || '',
+      status: department.status
+    });
+    setEditingDepartment(department);
+    setError('');
+    setShowModal(true);
+  };
+  
+  const closeModal = () => {
+    setShowModal(false);
+    setFormData({ name: '', category: '', hod: '', description: '', status: 'Active' });
+    setEditingDepartment(null);
+    setError('');
+  };
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const { name, value } = e.target;
+    setFormData({ ...formData, [name]: value });
+    
+    // Clear error when user starts typing
+    if (error) {
+      setError('');
+    }
+  };
+
+  const validateForm = () => {
+    if (!formData.name.trim()) {
+      setError('Department name is required');
+      return false;
+    }
+    if (!formData.category) {
+      setError('Department category is required');
+      return false;
+    }
+    if (formData.name.trim().length < 2) {
+      setError('Department name must be at least 2 characters long');
+      return false;
+    }
+    return true;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const newDepartment = await createDepartment(formData);
-    setDepartments([...departments, newDepartment]);
-    setFormData({ name: '', type: '', hod: '', description: '', status: 'Active' });
-    closeModal();
+    
+    if (!validateForm()) {
+      return;
+    }
+    
+    setIsLoading(true);
+    setError('');
+    
+    try {
+      if (editingDepartment) {
+        // Update existing department
+        const updatedDepartment = await updateDepartment({
+          ...formData,
+          id: editingDepartment.id
+        });
+        setDepartments(departments.map(d => d.id === updatedDepartment.id ? updatedDepartment : d));
+        addToast(`Department "${formData.name}" updated successfully!`, 'success');
+      } else {
+        // Create new department
+        const newDepartment = await createDepartment(formData);
+        setDepartments([...departments, newDepartment]);
+        addToast(`Department "${formData.name}" created successfully!`, 'success');
+      }
+      
+      setFormData({ name: '', category: '', hod: '', description: '', status: 'Active' });
+      closeModal();
+    } catch (err) {
+      const errorMessage = err.message || `Failed to ${editingDepartment ? 'update' : 'create'} department`;
+      setError(errorMessage);
+      addToast(errorMessage, 'error');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleSearch = async (e) => {
     const term = e.target.value;
     setSearchTerm(term);
-    const filtered = await searchDepartments(term);
-    setDepartments(filtered);
-  };
-
-  const handleEdit = async (dept) => {
-    // In a real app, you might open an edit modal here
-    console.log('Edit department:', dept);
-    const updated = await updateDepartment(dept);
-    if (updated) {
-      setDepartments(departments.map(d => d.id === updated.id ? updated : d));
+    
+    try {
+      const filtered = await searchDepartments(term);
+      setDepartments(filtered);
+    } catch (err) {
+      addToast('Search failed. Please try again.', 'error');
+      console.error('Search error:', err);
     }
   };
 
+  const handleEdit = (dept) => {
+    openEditModal(dept);
+  };
+
   const handleDelete = async (id) => {
-    const result = await deleteDepartment(id);
-    if (result.success) {
-      setDepartments(departments.filter(dept => dept.id !== id));
+    if (!window.confirm('Are you sure you want to delete this department? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      const result = await deleteDepartment(id);
+      if (result.success) {
+        setDepartments(departments.filter(dept => dept.id !== id));
+        addToast('Department deleted successfully!', 'success');
+      } else {
+        addToast(result.error || 'Failed to delete department', 'error');
+      }
+    } catch (err) {
+      addToast('Failed to delete department', 'error');
     }
   };
 
@@ -106,10 +218,10 @@ export default function DepartmentManagement() {
             
             <div className="space-y-4">
               <div>
-                <span className="text-sm text-gray-500">Type</span>
+                <span className="text-sm text-gray-500">Category</span>
                 <div className="mt-1">
                   <span className="px-3 py-1 rounded-full text-xs font-semibold bg-indigo-100 text-indigo-600">
-                    {dept.type}
+                    {dept.category}
                   </span>
                 </div>
               </div>
@@ -160,107 +272,214 @@ export default function DepartmentManagement() {
 
       {/* Add Department Modal */}
       {showModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm z-50">
-          <div className="bg-white/90 backdrop-blur-xl rounded-3xl shadow-2xl p-8 w-11/12 max-w-md animate-fade-in-up border border-white/50">
-            <h2 className="text-xl font-semibold mb-6">Add Department</h2>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div className="relative flex items-center">
-                <FiBookOpen className="absolute left-4 text-gray-400" />
-                <input
-                  name="name"
-                  value={formData.name}
-                  onChange={handleChange}
-                  required
-                  placeholder="Department Name"
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                />
-              </div>
-              <div className="relative flex items-center">
-                <FiBookOpen className="absolute left-4 text-gray-400" />
-                <select
-                  name="type"
-                  value={formData.type}
-                  onChange={handleChange}
-                  required
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                >
-                  <option value="">Select Department Type</option>
-                  {departmentTypes.map((type) => (
-                    <option key={type} value={type}>
-                      {type}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Assign HOD</label>
-                <select
-                  name="hod"
-                  value={formData.hod}
-                  onChange={handleChange}
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                >
-                  <option value="">Select HOD</option>
-                  {hodOptions.map((hod) => (
-                    <option key={hod.name} value={hod.name}>
-                      {hod.name}
-                    </option>
-                  ))}
-                </select>
-                <div className="flex gap-2 mt-2 flex-wrap">
-                  {hodOptions.map((hod) => (
-                    <div 
-                      key={hod.name} 
-                      onClick={() => setFormData({...formData, hod: hod.name})}
-                      className={`flex items-center gap-1 px-3 py-2 rounded-full border cursor-pointer transition-all
-                      ${formData.hod === hod.name 
-                        ? 'border-indigo-500 bg-indigo-50' 
-                        : 'border-gray-200 hover:border-gray-300'}`}
-                    >
-                      <img src={hod.avatar} alt={hod.name} className="w-6 h-6 rounded-full" />
-                      <span className="text-sm">{hod.name}</span>
-                    </div>
-                  ))}
+        <div 
+          className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm z-50 p-4"
+          onClick={(e) => {
+            // Close modal when clicking outside
+            if (e.target === e.currentTarget) {
+              closeModal();
+            }
+          }}
+        >
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-hidden animate-fade-in-up">
+            {/* Modal Header */}
+            <div className="flex justify-between items-center p-6 border-b border-gray-200">
+              <h2 className="text-2xl font-bold text-gray-800">
+                {editingDepartment ? 'Edit Department' : 'Add New Department'}
+              </h2>
+              <button
+                onClick={closeModal}
+                className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Modal Body - Scrollable */}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-140px)]">
+              {error && (
+                <div className="mb-4 p-4 bg-red-50 border border-red-200 rounded-lg">
+                  <p className="text-red-600 text-sm">{error}</p>
                 </div>
-              </div>
-              <div>
-                <label className="block mb-1 font-medium">Description (Optional)</label>
-                <textarea
-                  name="description"
-                  value={formData.description}
-                  onChange={handleChange}
-                  placeholder="Department description..."
-                  className="w-full px-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 shadow-sm min-h-[100px]"
-                />
-              </div>
-              <div className="relative flex items-center">
-                <FiToggleRight className="absolute left-4 text-gray-400" />
-                <select
-                  name="status"
-                  value={formData.status}
-                  onChange={handleChange}
-                  className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg focus:ring-2 focus:ring-indigo-400 shadow-sm"
-                >
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
-                </select>
-              </div>
-              <div className="flex justify-end gap-4 mt-6">
-                <button
-                  type="button"
-                  onClick={closeModal}
-                  className="px-4 py-2 rounded-full border border-gray-300 hover:bg-gray-100 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 rounded-full bg-gradient-to-r from-green-500 to-emerald-600 text-white hover:shadow-lg transition"
-                >
-                  ✅ Create Department
-                </button>
-              </div>
-            </form>
+              )}
+
+              <form onSubmit={handleSubmit} className="space-y-6">
+                {/* Department Name */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Department Name *
+                    <span className="text-xs text-gray-500 block font-normal">The specific name of your department</span>
+                  </label>
+                  <div className="relative">
+                    <FiBookOpen className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                    <input
+                      name="name"
+                      value={formData.name}
+                      onChange={handleChange}
+                      required
+                      placeholder="e.g., Computer Science & Engineering, Applied Mathematics, etc."
+                      className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                    />
+                  </div>
+                </div>
+
+                {/* Department Type */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Department Category *
+                    <span className="text-xs text-gray-500 block font-normal">The academic field or broad category</span>
+                  </label>
+                  <select
+                    name="category"
+                    value={formData.category}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                  >
+                    <option value="">Select Department Category</option>
+                    {departmentCategories.map((category) => (
+                      <option key={category} value={category}>
+                        {category}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* HOD Assignment */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Assign Head of Department
+                  </label>
+                  <div className="space-y-3">
+                    {/* Quick selection pills */}
+                    <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto">
+                      <div
+                        onClick={() => setFormData({...formData, hod: ''})}
+                        className={`flex items-center gap-2 px-3 py-2 rounded-full border cursor-pointer transition-all ${
+                          formData.hod === '' 
+                            ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                            : 'border-gray-200 hover:border-gray-300 text-gray-600'
+                        }`}
+                      >
+                        <span className="text-sm font-medium">No HOD Assigned</span>
+                      </div>
+                      {hodOptions.map((hod) => (
+                        <div 
+                          key={hod.id}
+                          onClick={() => setFormData({...formData, hod: hod.name})}
+                          className={`flex items-center gap-2 px-3 py-2 rounded-full border cursor-pointer transition-all ${
+                            formData.hod === hod.name 
+                              ? 'border-indigo-500 bg-indigo-50 text-indigo-700' 
+                              : 'border-gray-200 hover:border-gray-300'
+                          }`}
+                        >
+                          <img src={hod.avatar} alt={hod.name} className="w-6 h-6 rounded-full" />
+                          <span className="text-sm font-medium">{hod.name}</span>
+                          {hod.department && (
+                            <span className="text-xs text-gray-500">({hod.department})</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    
+                    {/* Alternative dropdown for easier searching */}
+                    <select
+                      name="hod"
+                      value={formData.hod}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors"
+                    >
+                      <option value="">No HOD Assigned</option>
+                      {hodOptions.map((hod) => (
+                        <option key={hod.id} value={hod.name}>
+                          {hod.name} {hod.department ? `- ${hod.department}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Description */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Description
+                  </label>
+                  <textarea
+                    name="description"
+                    value={formData.description}
+                    onChange={handleChange}
+                    placeholder="Brief description of the department..."
+                    rows={3}
+                    className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors resize-none"
+                  />
+                </div>
+
+                {/* Status */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Status
+                  </label>
+                  <div className="flex gap-4">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="status"
+                        value="Active"
+                        checked={formData.status === 'Active'}
+                        onChange={handleChange}
+                        className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-700">Active</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        name="status"
+                        value="Inactive"
+                        checked={formData.status === 'Inactive'}
+                        onChange={handleChange}
+                        className="w-4 h-4 text-indigo-600 border-gray-300 focus:ring-indigo-500"
+                      />
+                      <span className="ml-2 text-sm font-medium text-gray-700">Inactive</span>
+                    </label>
+                  </div>
+                </div>
+              </form>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="px-6 py-4 border-t border-gray-200 bg-gray-50 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={closeModal}
+                disabled={isLoading}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={isLoading || !formData.name || !formData.category}
+                className="px-6 py-2 text-sm font-medium text-white bg-gradient-to-r from-indigo-500 to-purple-600 rounded-lg hover:from-indigo-600 hover:to-purple-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isLoading ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    {editingDepartment ? 'Updating...' : 'Creating...'}
+                  </>
+                ) : (
+                  <>
+                    <FiBookOpen className="w-4 h-4" />
+                    {editingDepartment ? 'Update Department' : 'Create Department'}
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         </div>
       )}

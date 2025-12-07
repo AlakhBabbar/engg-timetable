@@ -1,22 +1,69 @@
-import React, { useState } from 'react';
-import { FiGrid, FiBook, FiUsers, FiFileText, FiCalendar, FiBell, FiSearch, FiChevronDown } from 'react-icons/fi';
+import React, { useState, useEffect, useContext } from 'react';
+import { FiBell, FiSearch, FiChevronDown, FiUsers, FiBook, FiCalendar } from 'react-icons/fi';
 import { useNavigate } from 'react-router-dom';
+import { getSidebarItems, getDashboardMetrics, getRecentActivities, handleSidebarNavigation } from './services/HODDashboard';
+import { AuthContext } from '../../App';
 
 export default function HODDashboard() {
+  // Authentication context
+  const { user } = useContext(AuthContext);
+  
   const [activeSidebarItem, setActiveSidebarItem] = useState('Dashboard');
   const navigate = useNavigate();
+  
+  // State for metrics and activities
+  const [metrics, setMetrics] = useState({
+    faculty: { total: 0, newThisWeek: 0 },
+    courses: { total: 0, pendingApproval: 0 },
+    timetable: { status: 'Loading...', completionPercentage: 0 }
+  });
+  const [recentActivities, setRecentActivities] = useState([]);
+  const [loading, setLoading] = useState(true);
+  
+  // Get data from services
+  const sidebarItems = getSidebarItems();
 
-  const sidebarItems = [
-    { label: 'Dashboard', icon: <FiGrid size={18} />, path: '/hod-dashboard' },
-    { label: 'Courses', icon: <FiBook size={18} />, path: '/courses' },
-    { label: 'Faculty', icon: <FiUsers size={18} />, path: '/faculty' },
-    { label: 'Reports', icon: <FiFileText size={18} />, path: '/reports' },
-    { label: 'Timetable', icon: <FiCalendar size={18} />, path: '/timetable' },
-  ];
+  // Early return if user is not authenticated or doesn't have department info
+  if (!user?.department) {
+    return (
+      <div className="p-6 text-center">
+        <div className="text-red-500">
+          <p className="text-lg font-semibold mb-2">Department Access Required</p>
+          <p>Please ensure you are logged in with a department-associated account.</p>
+        </div>
+      </div>
+    );
+  }
+
+  useEffect(() => {
+    const fetchDashboardData = async () => {
+      try {
+        setLoading(true);
+        // Fetch metrics using user's department
+        const metricsData = await getDashboardMetrics(user.department);
+        setMetrics(metricsData);
+        
+        // Fetch activities using user's department
+        const activitiesData = await getRecentActivities(user.department);
+        setRecentActivities(activitiesData);
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    fetchDashboardData();
+  }, [user.department]);
 
   const handleNavigation = (path, label) => {
-    setActiveSidebarItem(label);
-    navigate(path);
+    handleSidebarNavigation(navigate, path, label, setActiveSidebarItem);
+  };
+
+  // Render sidebar items with icon components (not JSX elements)
+  const renderSidebarIcon = (item) => {
+    const IconComponent = item.icon;
+    return <IconComponent size={item.iconSize} />;
   };
 
   return (
@@ -34,8 +81,8 @@ export default function HODDashboard() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-gray-700">Faculty Assigned</h2>
-                <p className="text-3xl font-bold text-teal-600">15</p>
-                <p className="text-sm text-gray-500">3 new this week</p>
+                <p className="text-3xl font-bold text-teal-600">{metrics.faculty.total}</p>
+                <p className="text-sm text-gray-500">{metrics.faculty.newThisWeek} new this week</p>
               </div>
             </div>
 
@@ -45,8 +92,8 @@ export default function HODDashboard() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-gray-700">Total Courses</h2>
-                <p className="text-3xl font-bold text-blue-600">12</p>
-                <p className="text-sm text-gray-500">2 pending approval</p>
+                <p className="text-3xl font-bold text-blue-600">{metrics.courses.total}</p>
+                <p className="text-sm text-gray-500">{metrics.courses.pendingApproval} pending approval</p>
               </div>
             </div>
 
@@ -56,9 +103,9 @@ export default function HODDashboard() {
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-gray-700">Timetable Status</h2>
-                <p className="text-xl font-bold text-indigo-600">In Progress</p>
+                <p className="text-xl font-bold text-indigo-600">{metrics.timetable.status}</p>
                 <div className="w-full bg-gray-200 rounded-full h-2.5 mt-2">
-                  <div className="bg-indigo-600 h-2.5 rounded-full" style={{ width: '70%' }}></div>
+                  <div className="bg-indigo-600 h-2.5 rounded-full" style={{ width: `${metrics.timetable.completionPercentage}%` }}></div>
                 </div>
               </div>
             </div>
@@ -68,20 +115,26 @@ export default function HODDashboard() {
           <div className="bg-white p-6 rounded-2xl shadow-md">
             <h2 className="text-xl font-semibold mb-6 text-gray-800">Quick Actions</h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              <button className="px-6 py-4 rounded-xl bg-gradient-to-r from-teal-500 to-teal-700 text-white font-semibold hover:opacity-90 transition shadow-lg flex items-center justify-center gap-3 group">
+              <button 
+                onClick={() => navigate('/hod/assign-faculty')}
+                className="px-6 py-4 rounded-xl bg-gradient-to-r from-teal-500 to-teal-700 text-white font-semibold hover:opacity-90 transition shadow-lg flex items-center justify-center gap-3 group"
+              >
                 <span className="text-2xl group-hover:scale-110 transition">📘</span>
                 <span>Assign Faculty</span>
               </button>
 
               <button
-                onClick={() => navigate('/timetable')}
+                onClick={() => navigate('/hod/timetable')}
                 className="px-6 py-4 rounded-xl bg-gradient-to-r from-blue-500 to-blue-700 text-white font-semibold hover:opacity-90 transition shadow-lg flex items-center justify-center gap-3 group"
               >
                 <span className="text-2xl group-hover:scale-110 transition">🗂</span>
                 <span>View Timetable</span>
               </button>
 
-              <button className="px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white font-semibold hover:opacity-90 transition shadow-lg flex items-center justify-center gap-3 group">
+              <button 
+                onClick={() => navigate('/hod/courses')}
+                className="px-6 py-4 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-700 text-white font-semibold hover:opacity-90 transition shadow-lg flex items-center justify-center gap-3 group"
+              >
                 <span className="text-2xl group-hover:scale-110 transition">➕</span>
                 <span>Add Course</span>
               </button>
@@ -94,17 +147,26 @@ export default function HODDashboard() {
               <h2 className="text-xl font-semibold text-gray-800">Recent Activity</h2>
               <button className="text-sm text-teal-600 hover:underline">View All</button>
             </div>
-            <div className="space-y-4">
-              {[...Array(3)].map((_, idx) => (
-                <div key={idx} className="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-lg transition">
-                  <div className={`w-2 h-2 rounded-full ${idx === 0 ? 'bg-teal-500' : idx === 1 ? 'bg-blue-500' : 'bg-indigo-500'}`}></div>
-                  <div className="flex-1">
-                    <p className="text-gray-800">{idx === 0 ? 'Dr. Alex Johnson assigned to CS301' : idx === 1 ? 'New course CS405 added' : 'Timetable draft updated'}</p>
-                    <p className="text-xs text-gray-500">{idx === 0 ? '2 hours ago' : idx === 1 ? 'Yesterday' : '2 days ago'}</p>
+            {loading ? (
+              <div className="flex justify-center items-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-teal-500"></div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {recentActivities.map((activity, idx) => (
+                  <div key={idx} className="flex items-center gap-4 p-3 hover:bg-gray-50 rounded-lg transition">
+                    <div className={`w-2 h-2 rounded-full ${activity.colorClass}`}></div>
+                    <div className="flex-1">
+                      <p className="text-gray-800">{activity.description}</p>
+                      <p className="text-xs text-gray-500">{activity.timeAgo}</p>
+                    </div>
                   </div>
-                </div>
-              ))}
-            </div>
+                ))}
+                {recentActivities.length === 0 && (
+                  <p className="text-center text-gray-500 py-4">No recent activities found.</p>
+                )}
+              </div>
+            )}
           </div>
         </main>
       </div>

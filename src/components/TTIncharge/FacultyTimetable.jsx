@@ -5,10 +5,20 @@ import {
   FiCalendar, FiMail, FiEdit, FiChevronDown, FiChevronUp, FiBook,
   FiCheckCircle, FiAlertOctagon
 } from 'react-icons/fi';
-import { facultyData, coursesData, roomsData, timeSlots, weekDays } from './services/TimetableBuilder';
+
+// Import business logic from service file
+import {
+  prepareFacultyData,
+  getStatusColorClass,
+  timeSlots,
+  weekDays,
+  fetchFacultyTimetableFromDB,
+  fetchFacultyListFromDB // <-- new import
+} from './services/FacultyTimetable';
 
 export default function FacultyTimetable() {
   // State for faculty data with timetable information
+  const [facultyList, setFacultyList] = useState([]); // <-- new state
   const [enhancedFacultyData, setEnhancedFacultyData] = useState([]);
   
   // State for filters
@@ -25,120 +35,37 @@ export default function FacultyTimetable() {
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
   const [successMessageType, setSuccessMessageType] = useState('');
   
-  // Get unique departments from faculty data
-  const departments = [...new Set(facultyData.map(faculty => faculty.department))];
+  // State for faculty timetable grids
+  const [facultyTimetables, setFacultyTimetables] = useState({});
 
-  // Prepare the enhanced faculty data with their schedules on component mount
+  // Get unique departments from faculty data
+  const departments = [...new Set(facultyList.map(faculty => faculty.department))];
+
+  // Fetch faculty list from Firestore on mount
   useEffect(() => {
-    const enhanced = prepareFacultyData();
-    setEnhancedFacultyData(enhanced);
+    const unsubscribe = fetchFacultyListFromDB((list) => {
+      setFacultyList(list);
+    });
+    return () => unsubscribe();
   }, []);
-  
-  // Function to prepare faculty data with courses and time calculations
-  const prepareFacultyData = () => {
-    return facultyData.map(faculty => {
-      // Get courses assigned to this faculty
-      const assignedCourses = coursesData.filter(
-        course => course.faculty.id === faculty.id
-      );
-      
-      // Calculate weekly teaching hours
-      const weeklyHours = assignedCourses.reduce((total, course) => {
-        return total + calculateHoursFromString(course.weeklyHours);
-      }, 0);
-      
-      // Create a timetable grid for the faculty
-      const timetableGrid = createFacultyTimetableGrid(assignedCourses);
-      
-      // Calculate load percentage
-      const maxHours = 20; // Assuming max hours is 20 per week
-      const loadPercentage = Math.min(100, Math.round((weeklyHours / maxHours) * 100));
-      
-      // Determine status based on load
-      let status = 'normal';
-      if (loadPercentage > 90) {
-        status = 'overloaded';
-      } else if (loadPercentage > 75) {
-        status = 'nearlyFull';
-      }
-      
-      return {
-        ...faculty,
-        assignedCourses,
-        weeklyHours,
-        maxHours,
-        loadPercentage,
-        status,
-        timetableGrid
-      };
-    });
-  };
-  
-  // Helper function to calculate weekly hours from string format
-  const calculateHoursFromString = (hoursString) => {
-    // Extract numbers from strings like "3L+1T+2P"
-    const lectureMatch = hoursString.match(/(\d+)L/);
-    const tutorialMatch = hoursString.match(/(\d+)T/);
-    const practicalMatch = hoursString.match(/(\d+)P/);
-    
-    const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
-    const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
-    const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
-    
-    return lectureHours + tutorialHours + practicalHours;
-  };
-  
-  // Create a timetable grid for a faculty based on their assigned courses
-  const createFacultyTimetableGrid = (facultyCourses) => {
-    const grid = {};
-    
-    // Initialize empty grid
-    weekDays.forEach(day => {
-      grid[day] = {};
-      timeSlots.forEach(slot => {
-        grid[day][slot] = null;
-      });
-    });
-    
-    // Randomly assign courses to time slots for demo purposes
-    // In a real app, this would come from the actual timetable data
-    facultyCourses.forEach(course => {
-      // For demonstration purposes, assign each course to 1-3 random slots
-      const slotsToAssign = Math.min(3, Math.floor(Math.random() * 3) + 1);
-      let assigned = 0;
-      
-      while (assigned < slotsToAssign) {
-        const randomDay = weekDays[Math.floor(Math.random() * weekDays.length)];
-        const randomSlot = timeSlots[Math.floor(Math.random() * timeSlots.length)];
-        
-        // Only assign if the slot is empty
-        if (!grid[randomDay][randomSlot]) {
-          // Find a random room for this slot
-          const randomRoom = roomsData[Math.floor(Math.random() * roomsData.length)];
-          
-          grid[randomDay][randomSlot] = {
-            ...course,
-            room: randomRoom.id
-          };
-          assigned++;
-        }
-      }
-    });
-    
-    return grid;
-  };
-  
-  // Get color class for faculty card based on their status
-  const getStatusColorClass = (status) => {
-    switch(status) {
-      case 'overloaded':
-        return 'bg-red-100 border-red-300';
-      case 'nearlyFull':
-        return 'bg-yellow-100 border-yellow-300';
-      default:
-        return 'bg-green-100 border-green-300';
-    }
-  };
+
+  // Prepare the enhanced faculty data with their schedules when facultyList changes
+  useEffect(() => {
+    // You may want to fetch courses for each faculty here if needed
+    // For now, just pass through the facultyList
+    setEnhancedFacultyData(facultyList);
+  }, [facultyList]);
+
+  // Fetch timetable for each faculty in real time
+  useEffect(() => {
+    // For each faculty, subscribe to their timetable
+    const unsubscribes = facultyList.map(faculty =>
+      fetchFacultyTimetableFromDB(faculty.id, (grid) => {
+        setFacultyTimetables(prev => ({ ...prev, [faculty.id]: grid }));
+      })
+    );
+    return () => unsubscribes.forEach(unsub => unsub());
+  }, [facultyList]);
   
   // Handle sending timetable to faculty
   const handleSendTimetable = (faculty) => {
@@ -198,21 +125,24 @@ export default function FacultyTimetable() {
   
   // Generate the timetable for the mini grid view
   const renderMiniTimetable = (timetableGrid) => {
+    if (!timetableGrid) {
+      return <div className="text-xs text-gray-400">No timetable</div>;
+    }
     // Show only workdays (Monday to Friday) and limited hours
     const daysToShow = weekDays.slice(0, 5);
     const slotsToShow = timeSlots.slice(2, 8); // Show mid-day slots only
-    
+
     return (
       <div className="grid grid-cols-5 gap-0.5 mt-2">
         {daysToShow.map(day => (
           slotsToShow.map(slot => {
-            const cellData = timetableGrid[day][slot];
+            const cellData = timetableGrid?.[day]?.[slot] || null;
             return (
               <div 
                 key={`${day}-${slot}`}
                 className={`w-2 h-2 rounded-sm ${
                   cellData 
-                    ? `bg-${cellData.color}-500` 
+                    ? `bg-${cellData.color || 'gray'}-500` 
                     : 'bg-gray-200'
                 }`}
                 title={cellData ? `${cellData.id} - ${day} ${slot}` : 'Free'}
@@ -383,16 +313,20 @@ export default function FacultyTimetable() {
             <div className="mt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-1">Assigned Courses</h4>
               <div className="flex flex-wrap gap-1">
-                {faculty.assignedCourses.map(course => (
+                {(faculty.assignedCourses || []).map(course => (
                   <span 
                     key={course.id}
-                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-${course.color}-100 text-${course.color}-800`}
+                    className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-${course.color || 'gray'}-100 text-${course.color || 'gray'}-800`}
                   >
                     {course.id}
                   </span>
                 ))}
                 
-                {faculty.assignedCourses.length === 0 && (
+                {(faculty.assignedCourses && faculty.assignedCourses.length === 0) && (
+                  <span className="text-sm text-gray-500 italic">No courses assigned</span>
+                )}
+                
+                {(!faculty.assignedCourses) && (
                   <span className="text-sm text-gray-500 italic">No courses assigned</span>
                 )}
               </div>
@@ -401,7 +335,10 @@ export default function FacultyTimetable() {
             {/* Mini Timetable Grid */}
             <div className="mt-4">
               <h4 className="text-sm font-medium text-gray-700 mb-1">Weekly Schedule</h4>
-              {renderMiniTimetable(faculty.timetableGrid)}
+              {facultyTimetables[faculty.id]
+                ? renderMiniTimetable(facultyTimetables[faculty.id])
+                : <div className="text-xs text-gray-400">No timetable</div>
+              }
             </div>
             
             {/* Action Buttons */}
@@ -526,7 +463,7 @@ export default function FacultyTimetable() {
                   
                   <div className="bg-gray-50 rounded-lg p-4">
                     <h3 className="text-sm font-medium text-gray-500">Assigned Courses</h3>
-                    <p className="text-lg font-medium">{selectedFaculty.assignedCourses.length} courses</p>
+                    <p className="text-lg font-medium">{(selectedFaculty.assignedCourses ? selectedFaculty.assignedCourses.length : 0)} courses</p>
                   </div>
                 </div>
                 
@@ -543,11 +480,11 @@ export default function FacultyTimetable() {
                       </tr>
                     </thead>
                     <tbody className="bg-white divide-y divide-gray-200">
-                      {selectedFaculty.assignedCourses.map(course => {
+                      {(selectedFaculty.assignedCourses || []).map(course => {
                         // Count unique time slots for this course
                         const slots = [];
-                        Object.entries(selectedFaculty.timetableGrid).forEach(([day, daySlots]) => {
-                          Object.entries(daySlots).forEach(([timeSlot, slotData]) => {
+                        Object.entries(selectedFaculty.timetableGrid || {}).forEach(([day, daySlots]) => {
+                          Object.entries(daySlots || {}).forEach(([timeSlot, slotData]) => {
                             if (slotData && slotData.id === course.id) {
                               slots.push(`${day}, ${timeSlot}`);
                             }
@@ -610,7 +547,7 @@ export default function FacultyTimetable() {
                         );
                       })}
                       
-                      {selectedFaculty.assignedCourses.length === 0 && (
+                      {(!selectedFaculty.assignedCourses || selectedFaculty.assignedCourses.length === 0) && (
                         <tr>
                           <td colSpan="4" className="px-6 py-4 text-center text-gray-500">
                             No courses assigned
@@ -640,7 +577,7 @@ export default function FacultyTimetable() {
                             {slot}
                           </td>
                           {weekDays.slice(0, 5).map(day => {
-                            const cellData = selectedFaculty.timetableGrid[day][slot];
+                            const cellData = selectedFaculty.timetableGrid?.[day]?.[slot];
                             return (
                               <td key={`${day}-${slot}`} className="px-4 py-2 whitespace-nowrap text-sm text-gray-500 border-r">
                                 {cellData ? (

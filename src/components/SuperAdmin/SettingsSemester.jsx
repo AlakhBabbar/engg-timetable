@@ -1,503 +1,525 @@
-import { useState } from 'react';
-import { FiCalendar, FiSettings, FiUsers, FiInfo, FiArrowRight, FiCheck, FiClock, FiEdit } from 'react-icons/fi';
+import { useState, useEffect } from 'react';
+import { FiPlus, FiTrash2, FiCheck, FiX, FiEdit2, FiCalendar, FiAlertCircle, FiSave, FiInfo, FiRefreshCw } from 'react-icons/fi';
+import { useSemester } from '../../context/SemesterContext';
+import { 
+  fetchSemesters, 
+  addSemester, 
+  updateSemester, 
+  deleteSemester,
+  updateActiveSemester,
+  activateAllSemesters
+} from './services/SettingsSemester';
 
-const dummySemesters = [
-  { id: 1, name: 'Semester 1', status: 'Completed', startDate: '2024-01-15', endDate: '2024-05-15' },
-  { id: 2, name: 'Semester 2', status: 'Completed', startDate: '2024-08-20', endDate: '2024-12-20' },
-  { id: 3, name: 'Semester 3', status: 'Current', startDate: '2025-01-15', endDate: '2025-05-15' },
-];
+// Import our enhanced semester service
+import { 
+  getCurrentSemesterPeriod,
+  getSemesterNumbersForPeriod,
+  getCurrentSemesterNumbers,
+  getAllSemesterNumbers,
+  generateSemesterOptions,
+  parseSemesterString,
+  formatSemesterName
+} from '../../services/SemesterService';
 
 export default function SettingsSemester() {
-  const [activeTab, setActiveTab] = useState('semester');
-  const [showCloneModal, setShowCloneModal] = useState(false);
-  const [showNewSemesterModal, setShowNewSemesterModal] = useState(false);
-  const [cloneTimetable, setCloneTimetable] = useState(true);
-  const [showTooltip, setShowTooltip] = useState(false);
-  const [selectedSemester, setSelectedSemester] = useState(null);
+  const { refreshSemesters } = useSemester(); // Hook to refresh semester context
+  const [semesters, setSemesters] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [newSemester, setNewSemester] = useState('');
+  const [editingSemester, setEditingSemester] = useState(null);
+  const [activeSemesterIds, setActiveSemesterIds] = useState([]);
+  const [savingChanges, setSavingChanges] = useState(false);
+  const [successMessage, setSuccessMessage] = useState('');
+  const [showSemesterGuide, setShowSemesterGuide] = useState(false);
   
-  // Form state for new semester
-  const [newSemester, setNewSemester] = useState({
-    name: '',
-    startDate: '',
-    endDate: ''
-  });
+  // Get the current period and available semester numbers
+  const currentPeriod = getCurrentSemesterPeriod();
+  const availableSemesters = getSemesterNumbersForPeriod(currentPeriod);
+  const allSemesters = getAllSemesterNumbers();
+  
+  // Helper function to determine semester type (Odd/Even)
+  const getSemesterType = (semesterName) => {
+    const parsed = parseSemesterString(semesterName);
+    if (parsed.isValid) {
+      return parsed.type === 'odd' ? 'Odd' : 'Even';
+    }
+    // Fallback logic for non-standard formats
+    const numberMatch = semesterName.match(/(\d+)/);
+    if (numberMatch) {
+      const semesterNumber = parseInt(numberMatch[1]);
+      return (semesterNumber % 2 === 1) ? 'Odd' : 'Even';
+    }
+    return 'Unknown';
+  };
+  
+  // Helper function to refresh semester context after changes
+  const refreshContextAfterChange = async () => {
+    try {
+      await refreshSemesters();
+    } catch (error) {
+      console.error('Error refreshing semester context:', error);
+    }
+  };
 
-  const handleNewSemesterSubmit = (e) => {
+  // Fetch semesters on component mount
+  useEffect(() => {
+    const loadSemesters = async () => {
+      try {
+        setLoading(true);
+        const semestersData = await fetchSemesters();
+        setSemesters(semestersData);
+        
+        // Set currently active semesters
+        const activeSemesters = semestersData.filter(sem => sem.status === 'active');
+        if (activeSemesters.length > 0) {
+          setActiveSemesterIds(activeSemesters.map(sem => sem.id));
+        }
+      } catch (error) {
+        console.error('Error loading semesters:', error);
+        setError('Failed to load semesters. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadSemesters();
+  }, []);
+  
+  // Quick add semester from current period
+  const handleQuickAddSemester = async (semesterNumber) => {
+    const semesterName = `Semester ${semesterNumber}`;
+    
+    try {
+      setSavingChanges(true);
+      const newSemesterObj = await addSemester(semesterName);
+      setSemesters(prev => [...prev, newSemesterObj]);
+      
+      setSuccessMessage(`Semester ${semesterNumber} added successfully`);
+      
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error adding semester:', error);
+      setError('Failed to add semester. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSavingChanges(false);
+    }
+  };
+
+  // Handle adding a new semester
+  const handleAddSemester = async (e) => {
     e.preventDefault();
-    // In a real app, this would create a new semester
-    console.log('Creating new semester:', newSemester);
-    setShowNewSemesterModal(false);
+    if (!newSemester.trim()) return;
+    
+    try {
+      setSavingChanges(true);
+      const newSemesterObj = await addSemester(newSemester);
+      setSemesters(prev => [...prev, newSemesterObj]);
+      setNewSemester('');
+      
+      setSuccessMessage('Semester added successfully');
+      
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error adding semester:', error);
+      setError('Failed to add semester. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSavingChanges(false);
+    }
   };
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setNewSemester({ ...newSemester, [name]: value });
+  // Handle editing a semester
+  const handleStartEdit = (semester) => {
+    setEditingSemester({ ...semester, newName: semester.name });
   };
 
-  const handleCloneSemester = () => {
-    // In a real app, this would clone the semester
-    console.log('Cloning semester with timetable:', cloneTimetable);
-    setShowCloneModal(false);
+  const handleCancelEdit = () => {
+    setEditingSemester(null);
+  };
+
+  const handleUpdateSemester = async (e) => {
+    e.preventDefault();
+    if (!editingSemester?.newName?.trim()) return;
+    
+    try {
+      setSavingChanges(true);
+      await updateSemester(editingSemester.id, editingSemester.newName);
+      setSemesters(semesters.map(sem => 
+        sem.id === editingSemester.id 
+          ? { ...sem, name: editingSemester.newName } 
+          : sem
+      ));
+      setEditingSemester(null);
+      setSuccessMessage('Semester updated successfully');
+      
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error updating semester:', error);
+      setError('Failed to update semester. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSavingChanges(false);
+    }
+  };
+
+  // Handle deleting a semester
+  const handleDeleteSemester = async (semesterId) => {
+    if (!window.confirm('Are you sure you want to delete this semester? This action cannot be undone.')) {
+      return;
+    }
+    
+    try {
+      setSavingChanges(true);
+      await deleteSemester(semesterId);
+      setSemesters(semesters.filter(sem => sem.id !== semesterId));
+      setSuccessMessage('Semester deleted successfully');
+      
+      // Refresh semester context after changes
+      await refreshContextAfterChange();
+      
+      setTimeout(() => setSuccessMessage(''), 3000);
+    } catch (error) {
+      console.error('Error deleting semester:', error);
+      setError('Failed to delete semester. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSavingChanges(false);
+    }
+  };
+
+  // Handle activating all semesters
+  const handleActivateAllSemesters = async () => {
+    try {
+      setSavingChanges(true);
+      const activatedSemesters = await activateAllSemesters();
+      
+      if (activatedSemesters.length > 0) {
+        // Update local state to reflect all semesters as active
+        setSemesters(prev => prev.map(sem => ({
+          ...sem,
+          status: 'active'
+        })));
+        setActiveSemesterIds(activatedSemesters.map(sem => sem.id));
+        
+        setSuccessMessage('All semesters activated successfully');
+        
+        // Refresh semester context after changes
+        await refreshContextAfterChange();
+      } else {
+        setError('No semesters found to activate');
+      }
+      
+      setTimeout(() => {
+        setSuccessMessage('');
+        setError(null);
+      }, 3000);
+    } catch (error) {
+      console.error('Error activating all semesters:', error);
+      setError('Failed to activate all semesters. Please try again.');
+      setTimeout(() => setError(null), 3000);
+    } finally {
+      setSavingChanges(false);
+    }
+  };
+
+  // Check if a semester number is already in the list
+  const isSemesterInList = (semesterNumber) => {
+    return semesters.some(sem => sem.name === `Semester ${semesterNumber}`);
+  };
+
+  // Toggle the semester guide display
+  const toggleSemesterGuide = () => {
+    setShowSemesterGuide(!showSemesterGuide);
   };
 
   return (
-    <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold">Settings</h1>
-
-      {/* Enhanced Tab Navigation with Icons */}
-      <div className="flex gap-4 mb-8 border-b pb-1">
-        <button
-          onClick={() => setActiveTab('general')}
-          className={`px-4 py-2 rounded-tl-lg rounded-tr-lg flex items-center gap-2 transition-all ${
-            activeTab === 'general' 
-              ? 'bg-white text-indigo-600 border-t border-l border-r border-indigo-200 shadow-sm -mb-px' 
-              : 'text-gray-500 hover:text-indigo-500'
-          }`}
-        >
-          <FiSettings className="text-lg" />
-          <span>General</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('roles')}
-          className={`px-4 py-2 rounded-tl-lg rounded-tr-lg flex items-center gap-2 transition-all ${
-            activeTab === 'roles' 
-              ? 'bg-white text-indigo-600 border-t border-l border-r border-indigo-200 shadow-sm -mb-px' 
-              : 'text-gray-500 hover:text-indigo-500'
-          }`}
-        >
-          <FiUsers className="text-lg" />
-          <span>Roles & Permissions</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('semester')}
-          className={`px-4 py-2 rounded-tl-lg rounded-tr-lg flex items-center gap-2 transition-all ${
-            activeTab === 'semester' 
-              ? 'bg-white text-indigo-600 border-t border-l border-r border-indigo-200 shadow-sm -mb-px' 
-              : 'text-gray-500 hover:text-indigo-500'
-          }`}
-        >
-          <FiCalendar className="text-lg" />
-          <span>Semester Management</span>
-        </button>
+    <div className="p-6 bg-gray-50 min-h-screen">
+      <h1 className="text-2xl font-bold text-gray-800 mb-6">Semester Settings</h1>
+      
+      {/* Current Period Info */}
+      <div className="mb-6 p-4 bg-white rounded-lg shadow-sm">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-lg font-medium text-gray-700">
+              Current Period: {currentPeriod === 'odd' ? 'July to December (Odd Semesters)' : 'January to May (Even Semesters)'}
+            </h2>
+            <p className="text-sm text-gray-600 mt-1">
+              Available semester numbers for this period: {availableSemesters.join(', ')}
+            </p>
+            <p className="text-xs text-gray-500 mt-1">
+              Teachers can create timetables for any active semester
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={handleActivateAllSemesters}
+              disabled={savingChanges}
+              className="flex items-center gap-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50"
+            >
+              <FiCheck className={savingChanges ? 'animate-spin' : ''} />
+              <span className="text-sm">Activate All Semesters</span>
+            </button>
+            <button 
+              onClick={toggleSemesterGuide}
+              className="text-blue-600 hover:text-blue-800 flex items-center"
+            >
+              <FiInfo className="mr-1" /> Info
+            </button>
+          </div>
+        </div>
+        
+        {showSemesterGuide && (
+          <div className="mt-4 p-3 bg-blue-50 rounded-lg text-sm">
+            <p className="font-medium text-blue-700 mb-2">Semester Management:</p>
+            <ul className="list-disc pl-5 space-y-1 text-blue-700">
+              <li><strong>Activate All:</strong> Click "Activate All Semesters" to enable all semesters for timetable creation</li>
+              <li><strong>July-December:</strong> Odd semesters (1, 3, 5, 7) are typically used during this period</li>
+              <li><strong>January-May:</strong> Even semesters (2, 4, 6, 8) are typically used during this period</li>
+              <li><strong>Flexibility:</strong> Teachers can create timetables for any active semester regardless of the current period</li>
+              <li><strong>Management:</strong> You can edit or delete inactive semesters as needed</li>
+            </ul>
+          </div>
+        )}
       </div>
-
-      {activeTab === 'general' && (
-        <div className="bg-white rounded-2xl p-6 shadow-md">
-          <h2 className="text-lg font-semibold mb-4">General Settings</h2>
-          <div className="space-y-4">
-            <div className="flex flex-col space-y-2">
-              <label className="text-sm font-medium text-gray-600">Institute Name</label>
-              <input 
-                type="text" 
-                defaultValue="Engineering College" 
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-            
-            <div className="flex flex-col space-y-2">
-              <label className="text-sm font-medium text-gray-600">System Email</label>
-              <input 
-                type="email" 
-                defaultValue="admin@engg-college.edu" 
-                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent" 
-              />
-            </div>
-            
-            <div className="flex items-center justify-between">
-              <span className="text-sm font-medium text-gray-600">Enable Notifications</span>
-              <label className="relative inline-flex items-center cursor-pointer">
-                <input type="checkbox" defaultChecked className="sr-only peer" />
-                <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-              </label>
-            </div>
-          </div>
+      
+      {/* Success/Error Messages */}
+      {successMessage && (
+        <div className="mb-4 p-3 bg-green-100 text-green-700 rounded-lg flex items-center">
+          <FiCheck className="mr-2" />
+          {successMessage}
         </div>
       )}
-
-      {activeTab === 'roles' && (
-        <div className="bg-white rounded-2xl p-6 shadow-md">
-          <h2 className="text-lg font-semibold mb-4">Roles & Permissions</h2>
-          <div className="space-y-4">
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b">
-                <h3 className="font-medium">Super Admin</h3>
-              </div>
-              <div className="p-4">
-                <div className="flex items-center justify-between py-2">
-                  <span>Full System Access</span>
-                  <span className="text-green-600 flex items-center gap-1">
-                    <FiCheck />
-                    Granted
-                  </span>
-                </div>
-              </div>
-            </div>
-            
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b">
-                <h3 className="font-medium">HOD</h3>
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="flex items-center justify-between py-1">
-                  <span>Manage Faculty</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                    <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between py-1">
-                  <span>View Timetable</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                    <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-                <div className="flex items-center justify-between py-1">
-                  <span>Modify Timetable</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" className="sr-only peer" />
-                    <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-              </div>
-            </div>
-            
-            <div className="border rounded-lg overflow-hidden">
-              <div className="bg-gray-50 px-4 py-3 border-b">
-                <h3 className="font-medium">TT Incharge</h3>
-              </div>
-              <div className="p-4 space-y-2">
-                <div className="flex items-center justify-between py-1">
-                  <span>Build Timetable</span>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" defaultChecked className="sr-only peer" />
-                    <div className="w-9 h-5 bg-gray-200 rounded-full peer peer-focus:ring-2 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-600"></div>
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
+      
+      {error && (
+        <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg flex items-center">
+          <FiAlertCircle className="mr-2" />
+          {error}
         </div>
       )}
-
-      {activeTab === 'semester' && (
-        <div className="space-y-8">
-          <div className="bg-white rounded-2xl p-6 shadow-md">
-            <h2 className="text-lg font-semibold mb-4">Current Semester</h2>
-            {dummySemesters.filter(sem => sem.status === 'Current').map((sem) => (
-              <div key={sem.id} className="p-4 bg-gradient-to-r from-indigo-50 to-blue-50 rounded-xl border border-indigo-100 hover:shadow-md transition">
-                <div className="flex justify-between items-start">
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="inline-block w-3 h-3 bg-green-500 rounded-full"></span>
-                      <h3 className="font-bold text-xl">{sem.name}</h3>
-                    </div>
-                    <div className="mt-2 flex items-center text-sm text-gray-600 gap-2">
-                      <FiClock className="text-gray-400" />
-                      <span>
-                        {new Date(sem.startDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} - 
-                        {new Date(sem.endDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="bg-green-100 text-green-800 text-xs font-semibold px-3 py-1 rounded-full">
-                    Active
-                  </div>
-                </div>
-                
-                <div className="mt-4">
-                  <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
-                    <div 
-                      className="h-full bg-gradient-to-r from-green-400 to-blue-500" 
-                      style={{ width: '60%' }}
-                    ></div>
-                  </div>
-                  <div className="flex justify-between text-xs mt-1 text-gray-500">
-                    <span>0%</span>
-                    <span>60% Complete</span>
-                    <span>100%</span>
-                  </div>
-                </div>
-              </div>
+      
+      {/* Quick Add Current Period Semesters */}
+      <div className="mb-6 bg-white p-5 rounded-lg shadow-sm">
+        <h2 className="text-lg font-medium text-gray-700 mb-3">Quick Add Current Period Semesters</h2>
+        <div className="flex flex-wrap gap-2 mb-4">
+          {availableSemesters.map(semNum => (
+            <button
+              key={semNum}
+              onClick={() => handleQuickAddSemester(semNum)}
+              disabled={isSemesterInList(semNum) || savingChanges}
+              className={`px-3 py-2 rounded-lg flex items-center ${
+                isSemesterInList(semNum)
+                  ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                  : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+              }`}
+            >
+              <FiCalendar className="mr-2" />
+              Semester {semNum}
+              {isSemesterInList(semNum) && <span className="ml-1 text-xs">(exists)</span>}
+            </button>
+          ))}
+        </div>
+        
+        <div className="border-t pt-4">
+          <h3 className="text-md font-medium text-gray-600 mb-3">Add All Semesters (1-8)</h3>
+          <div className="flex flex-wrap gap-2">
+            {allSemesters.map(semNum => (
+              <button
+                key={`all-${semNum}`}
+                onClick={() => handleQuickAddSemester(semNum)}
+                disabled={isSemesterInList(semNum) || savingChanges}
+                className={`px-3 py-2 rounded-lg flex items-center text-sm ${
+                  isSemesterInList(semNum)
+                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                    : availableSemesters.includes(semNum)
+                      ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 border-2 border-blue-300'
+                      : 'bg-gray-50 text-gray-600 hover:bg-gray-100 border border-gray-300'
+                }`}
+              >
+                <FiCalendar className="mr-1" size={14} />
+                Sem {semNum}
+                {isSemesterInList(semNum) && <span className="ml-1 text-xs">✓</span>}
+              </button>
             ))}
           </div>
-          
-          <div className="bg-white rounded-2xl p-6 shadow-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">Semester Timeline</h2>
-              <button className="text-xs text-indigo-600 hover:underline">View All</button>
-            </div>
-            
-            <div className="relative border-l-2 border-indigo-300 ml-4">
-              {dummySemesters
-                .filter(sem => sem.status !== 'Current')
-                .map((sem) => (
-                <div key={sem.id} className="mb-6 ml-4">
-                  <div className="absolute -left-3 top-1.5 w-6 h-6 rounded-full border-2 border-indigo-500 bg-white"></div>
-                  <div className="p-4 bg-white rounded-xl border border-gray-100 hover:shadow-md transition">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-semibold">{sem.name}</h3>
-                        <p className="text-sm text-gray-500 mt-1">
-                          {new Date(sem.startDate).toLocaleDateString()} - {new Date(sem.endDate).toLocaleDateString()}
-                        </p>
-                      </div>
-                      <span className={`text-xs px-2 py-1 rounded-full ${
-                        sem.status === 'Completed' ? 'bg-gray-100 text-gray-800' : 'bg-yellow-100 text-yellow-800'
-                      }`}>
-                        {sem.status}
-                      </span>
-                    </div>
-                    <div className="mt-3 flex justify-end">
-                      <button 
-                        onClick={() => setSelectedSemester(sem)}
-                        className="text-indigo-600 text-sm hover:underline flex items-center gap-1"
-                      >
-                        View Details
-                        <FiArrowRight size={14} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
+          <p className="text-xs text-gray-500 mt-2">
+            <strong>Bold bordered:</strong> Current period semesters • <strong>Regular:</strong> All other semesters
+          </p>
+        </div>
+      </div>
+      
+      {/* Add New Semester Form */}
+      <div className="mb-8 bg-white p-5 rounded-lg shadow-sm">
+        <h2 className="text-lg font-medium text-gray-700 mb-4">Add Custom Semester</h2>
+        
+        <form onSubmit={handleAddSemester} className="flex gap-3">
+          <div className="flex-1">
+            <input
+              type="text"
+              value={newSemester}
+              onChange={(e) => setNewSemester(e.target.value)}
+              placeholder="Enter semester name (e.g. Fall 2025)"
+              className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              disabled={savingChanges}
+            />
           </div>
           
-          <div className="bg-white rounded-2xl p-6 shadow-md">
-            <h2 className="text-lg font-semibold mb-4">Semester Settings</h2>
-            
-            <div className="space-y-4">
-              <div className="flex items-center justify-between relative">
-                <div className="flex items-center gap-2">
-                  <span className="text-gray-700">Clone Timetable with New Semester</span>
-                  <div className="relative">
-                    <button
-                      onMouseEnter={() => setShowTooltip(true)}
-                      onMouseLeave={() => setShowTooltip(false)}
-                      className="text-gray-400 hover:text-gray-600"
-                    >
-                      <FiInfo size={16} />
-                    </button>
-                    
-                    {showTooltip && (
-                      <div className="absolute left-full ml-2 top-1/2 transform -translate-y-1/2 w-64 bg-gray-800 text-white text-xs p-2 rounded z-10 shadow-lg">
-                        When creating a new semester, clone the timetable structure from the previous semester as a starting point.
-                      </div>
-                    )}
-                  </div>
-                </div>
-                
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input 
-                    type="checkbox" 
-                    checked={cloneTimetable} 
-                    onChange={() => setCloneTimetable(!cloneTimetable)} 
-                    className="sr-only peer" 
-                  />
-                  <div className="w-11 h-6 bg-gray-200 rounded-full peer peer-focus:ring-4 peer-focus:ring-indigo-300 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-0.5 after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                </label>
-              </div>
-            </div>
-            
-            <div className="flex flex-wrap gap-4 mt-8">
-              <button 
-                onClick={() => setShowNewSemesterModal(true)}
-                className="px-6 py-3 rounded-full bg-gradient-to-r from-indigo-500 via-purple-500 to-pink-500 text-white font-semibold hover:opacity-90 transition shadow-md hover:shadow-lg hover:shadow-indigo-100 flex items-center gap-2"
-              >
-                <span className="text-lg">🚀</span>
-                <span>Start New Semester</span>
-              </button>
-              
-              <button
-                onClick={() => setShowCloneModal(true)}
-                className="px-6 py-3 rounded-full border border-gray-300 bg-white hover:bg-gray-50 transition flex items-center gap-2"
-              >
-                <span className="text-lg">♻️</span>
-                <span>Clone Last Semester</span>
-              </button>
-            </div>
+          <button
+            type="submit"
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={!newSemester.trim() || savingChanges}
+          >
+            <FiPlus size={18} />
+            <span>Add Semester</span>
+          </button>
+        </form>
+      </div>
+      
+      {/* Semesters List */}
+      <div className="bg-white p-5 rounded-lg shadow-sm">
+        <h2 className="text-lg font-medium text-gray-700 mb-4">Manage Semesters</h2>
+        
+        {loading ? (
+          <div className="text-center py-8">
+            <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500 mx-auto"></div>
+            <p className="mt-3 text-gray-600">Loading semesters...</p>
           </div>
-        </div>
-      )}
-
-      {/* New Semester Modal */}
-      {showNewSemesterModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm z-50">
-          <div className="bg-white rounded-3xl shadow-2xl p-8 w-11/12 max-w-md animate-fade-in-up">
-            <h2 className="text-xl font-semibold mb-6">Start New Semester</h2>
-            <form onSubmit={handleNewSemesterSubmit}>
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Semester Name</label>
-                  <input
-                    type="text"
-                    name="name"
-                    value={newSemester.name}
-                    onChange={handleChange}
-                    placeholder="e.g., Semester 4"
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                  <input
-                    type="date"
-                    name="startDate"
-                    value={newSemester.startDate}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                  <input
-                    type="date"
-                    name="endDate"
-                    value={newSemester.endDate}
-                    onChange={handleChange}
-                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                    required
-                  />
-                </div>
-                
-                <div className="flex items-center pt-2">
-                  <input
-                    id="clone-checkbox"
-                    type="checkbox"
-                    checked={cloneTimetable}
-                    onChange={() => setCloneTimetable(!cloneTimetable)}
-                    className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
-                  />
-                  <label htmlFor="clone-checkbox" className="ml-2 block text-sm text-gray-700">
-                    Clone timetable structure from previous semester
-                  </label>
-                </div>
-              </div>
-              
-              <div className="flex justify-end gap-4 mt-8">
-                <button
-                  type="button"
-                  onClick={() => setShowNewSemesterModal(false)}
-                  className="px-4 py-2 rounded-full border border-gray-300 hover:bg-gray-100 transition"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-6 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:shadow-lg transition"
-                >
-                  Create Semester
-                </button>
-              </div>
-            </form>
+        ) : semesters.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">
+            <FiCalendar className="mx-auto text-4xl mb-3 text-gray-400" />
+            <p>No semesters found. Add your first semester above.</p>
           </div>
-        </div>
-      )}
-
-      {/* Clone Modal */}
-      {showCloneModal && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm z-50">
-          <div className="bg-white rounded-3xl shadow-2xl p-8 w-11/12 max-w-md animate-fade-in-up">
-            <div className="flex items-center justify-center w-16 h-16 rounded-full bg-yellow-100 text-yellow-600 mb-4 mx-auto">
-              <FiInfo size={28} />
-            </div>
-            <h2 className="text-xl font-semibold mb-2 text-center">Clone Last Semester</h2>
-            <p className="text-gray-600 text-center mb-4">
-              Are you sure you want to clone the last semester? This will duplicate all timetable data including courses, faculty assignments, and schedules.
-            </p>
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-6">
-              <p className="text-amber-800 text-sm">
-                <strong>Note:</strong> Existing data for the new semester will be overwritten.
-              </p>
-            </div>
-            <div className="flex justify-center gap-4 mt-6">
-              <button
-                onClick={() => setShowCloneModal(false)}
-                className="px-4 py-2 rounded-full border border-gray-300 hover:bg-gray-100 transition"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleCloneSemester}
-                className="px-6 py-2 rounded-full bg-gradient-to-r from-indigo-500 to-purple-600 text-white hover:shadow-lg transition"
-              >
-                Confirm Clone
-              </button>
-            </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Semester Name</th>
+                  <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                  <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
+                  <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {semesters.map((semester) => {
+                  // Determine if semester is odd or even using enhanced parsing
+                  const semesterType = getSemesterType(semester.name);
+                  
+                  return (
+                    <tr key={semester.id}>
+                      <td className="py-3 px-4">
+                        {editingSemester?.id === semester.id ? (
+                          <input
+                            type="text"
+                            value={editingSemester.newName}
+                            onChange={(e) => setEditingSemester({...editingSemester, newName: e.target.value})}
+                            className="w-full px-3 py-1 rounded border"
+                            autoFocus
+                          />
+                        ) : (
+                          <span className="font-medium">{formatSemesterName(semester.name)}</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center">
+                          <span 
+                            className={`inline-block w-3 h-3 rounded-full mr-2 ${semester.status === 'active' ? 'bg-green-500' : 'bg-gray-300'}`}
+                          ></span>
+                          <span>{semester.status === 'active' ? 'Active' : 'Inactive'}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                            semesterType === 'Odd' ? 'bg-purple-100 text-purple-800' : 'bg-blue-100 text-blue-800'
+                          }`}>
+                            {semesterType}
+                          </span>
+                          <span className="ml-2 text-xs text-gray-500">
+                            {semesterType === 'Odd' ? '(Jul-Dec)' : '(Jan-May)'}
+                          </span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center space-x-2">
+                          {editingSemester?.id === semester.id ? (
+                            <>
+                              <button
+                                onClick={handleUpdateSemester}
+                                className="p-1 text-green-600 hover:text-green-800 transition"
+                              >
+                                <FiSave size={18} />
+                              </button>
+                              <button
+                                onClick={handleCancelEdit}
+                                className="p-1 text-gray-600 hover:text-gray-800 transition"
+                              >
+                                <FiX size={18} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              {semester.status === 'active' ? (
+                                <span className="p-1 text-green-600 flex items-center gap-1">
+                                  <FiCheck size={18} /> 
+                                  <span className="text-sm font-medium">Active</span>
+                                </span>
+                              ) : (
+                                <span className="p-1 text-gray-500 flex items-center gap-1">
+                                  <span className="text-sm">Inactive</span>
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handleStartEdit(semester)}
+                                className="p-1 text-amber-600 hover:text-amber-800 transition"
+                                disabled={savingChanges}
+                              >
+                                <FiEdit2 size={18} />
+                              </button>
+                              <button
+                                onClick={() => handleDeleteSemester(semester.id)}
+                                className="p-1 text-red-600 hover:text-red-800 transition"
+                                disabled={savingChanges || semester.status === 'active'}
+                              >
+                                <FiTrash2 size={18} />
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
           </div>
+        )}
+        
+        {/* Help Text */}
+        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+          <h3 className="text-sm font-semibold text-blue-700 mb-1">About Semester Management</h3>
+          <p className="text-sm text-blue-600 mb-2">
+            All semesters can be activated simultaneously, allowing teachers to create timetables for any semester they need.
+          </p>
+          <ul className="text-sm text-blue-600 list-disc pl-5 space-y-1">
+            <li>Click "Activate All Semesters" to enable all semesters for timetable creation</li>
+            <li>Teachers can create and manage timetables for any active semester</li>
+            <li>Active semesters are available across the entire platform</li>
+            <li>You cannot delete currently active semesters</li>
+            <li>Deactivate semesters individually if needed before deletion</li>
+          </ul>
         </div>
-      )}
-
-      {/* Semester Detail Modal */}
-      {selectedSemester && (
-        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-40 backdrop-blur-sm z-50">
-          <div className="bg-white rounded-3xl shadow-2xl p-8 w-11/12 max-w-lg animate-fade-in-up">
-            <h2 className="text-xl font-semibold mb-6 flex items-center justify-between">
-              <span>{selectedSemester.name} Details</span>
-              <button 
-                onClick={() => setSelectedSemester(null)}
-                className="text-gray-400 hover:text-gray-600"
-              >
-                ✕
-              </button>
-            </h2>
-            
-            <div className="space-y-4">
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">Status:</span>
-                <span className="font-medium">{selectedSemester.status}</span>
-              </div>
-              
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">Duration:</span>
-                <span className="font-medium">
-                  {new Date(selectedSemester.startDate).toLocaleDateString()} - 
-                  {new Date(selectedSemester.endDate).toLocaleDateString()}
-                </span>
-              </div>
-              
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">Total Courses:</span>
-                <span className="font-medium">32</span>
-              </div>
-              
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">Faculty Assigned:</span>
-                <span className="font-medium">28</span>
-              </div>
-              
-              <div className="flex justify-between border-b pb-2">
-                <span className="text-gray-600">Rooms Utilized:</span>
-                <span className="font-medium">18</span>
-              </div>
-              
-              <div className="flex justify-between">
-                <span className="text-gray-600">Conflicts Resolved:</span>
-                <span className="font-medium">12/15</span>
-              </div>
-            </div>
-            
-            <div className="flex justify-end gap-4 mt-8">
-              <button
-                onClick={() => setSelectedSemester(null)}
-                className="px-4 py-2 rounded-full border border-gray-300 hover:bg-gray-100 transition"
-              >
-                Close
-              </button>
-              <button
-                className="px-6 py-2 rounded-full bg-indigo-100 text-indigo-700 hover:bg-indigo-200 transition flex items-center gap-1"
-              >
-                <FiEdit size={16} />
-                <span>Export Report</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
 }

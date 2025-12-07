@@ -40,3 +40,60 @@
 .read-the-docs {
   color: #888;
 }
+
+/* Modal animations */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 40px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
+}
+
+.animate-fade-in-up {
+  animation: fade-in-up 0.3s ease-out;
+}
+
+/* Login page animations */
+@keyframes flow {
+  0%, 100% {
+    transform: translateX(0px) translateY(0px);
+  }
+  50% {
+    transform: translateX(10px) translateY(-10px);
+  }
+}
+
+@keyframes flow-reverse {
+  0%, 100% {
+    transform: translateX(0px) translateY(0px);
+  }
+  50% {
+    transform: translateX(-10px) translateY(10px);
+  }
+}
+
+.animate-flow {
+  animation: flow 8s ease-in-out infinite;
+}
+
+.animate-flow-reverse {
+  animation: flow-reverse 8s ease-in-out infinite;
+}
+
+/* Timetable grid animations */
+@keyframes pulse-slow {
+  0%, 100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.1;
+  }
+}
+
+.animate-pulse-slow {
+  animation: pulse-slow 4s ease-in-out infinite;
+}

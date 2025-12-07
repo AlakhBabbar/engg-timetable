@@ -34,19 +34,34 @@ export const loginUser = async (credentials) => {
     const userProfileSnap = await getDoc(userProfileRef);
     
     let role = 'faculty'; // Default role
+    let department = null;
+    let name = user.displayName || '';
+    let canEditCommonCourses = false; // Default permission
     
     if (userProfileSnap.exists()) {
-      // If profile exists in Firestore, use role from there
-      role = userProfileSnap.data().role;
+      // If profile exists in Firestore, use data from there
+      const profileData = userProfileSnap.data();
+      console.log('LOGIN DEBUG: Profile data from Firestore:', profileData);
+      role = profileData.role;
+      department = profileData.department;
+      name = profileData.name || name;
+      canEditCommonCourses = profileData.canEditCommonCourses || false;
+      console.log('LOGIN DEBUG: Extracted canEditCommonCourses:', canEditCommonCourses);
+    } else {
+      console.log('LOGIN DEBUG: No profile found in Firestore for user:', user.uid);
     }
     
     const userObject = {
       id: user.uid,
       email: user.email,
-      name: user.displayName || '',
+      name: name,
       role: role,
+      department: department,
+      canEditCommonCourses: canEditCommonCourses,
       isAuthenticated: true
     };
+    
+    console.log('LOGIN DEBUG: Created user object:', userObject);
     
     // Store user data for quick access
     localStorage.setItem(USER_DATA_KEY, JSON.stringify(userObject));
@@ -121,17 +136,33 @@ export const getCurrentUser = async () => {
           const userProfileSnap = await getDoc(userProfileRef);
           
           let role = 'faculty'; // Default role
+          let department = null;
+          let name = user.displayName || '';
+          let canEditCommonCourses = false; // Default permission
+          
           if (userProfileSnap.exists()) {
-            role = userProfileSnap.data().role;
+            const profileData = userProfileSnap.data();
+            console.log('GET_CURRENT_USER DEBUG: Profile data from Firestore:', profileData);
+            role = profileData.role;
+            department = profileData.department;
+            name = profileData.name || name;
+            canEditCommonCourses = profileData.canEditCommonCourses || false;
+            console.log('GET_CURRENT_USER DEBUG: Extracted canEditCommonCourses:', canEditCommonCourses);
+          } else {
+            console.log('GET_CURRENT_USER DEBUG: No profile found in Firestore for user:', user.uid);
           }
           
           const userObject = {
             id: user.uid,
             email: user.email,
-            name: user.displayName || '',
+            name: name,
             role: role,
+            department: department,
+            canEditCommonCourses: canEditCommonCourses,
             isAuthenticated: true
           };
+          
+          console.log('GET_CURRENT_USER DEBUG: Created user object:', userObject);
           
           // Update cache
           localStorage.setItem(USER_DATA_KEY, JSON.stringify(userObject));

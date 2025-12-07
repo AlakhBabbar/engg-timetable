@@ -1,13 +1,18 @@
 // SuperAdminDashboard.js - Converted to use Firebase
+
+// Import Firebase configuration
 import { 
-  db,
-  collection,
-  getDocs,
+  db, 
+  collection, 
+  getDocs, 
   query,
-  where,
-  orderBy,
-  limit
-} from '../../../firebase/config';
+  where, 
+  orderBy, 
+  limit,
+  addDoc,
+  serverTimestamp
+} from '../../../firebase/config.js';
+import { getActiveSemester } from '../../../services/SemesterService.js';
 
 // Collection names
 const DEPARTMENTS_COLLECTION = 'departments';
@@ -16,6 +21,7 @@ const ROOMS_COLLECTION = 'rooms';
 const SETTINGS_COLLECTION = 'settings';
 const USERS_COLLECTION = 'profiles'; // Using profiles for users
 const CONFLICTS_COLLECTION = 'conflicts';
+const SEMESTERS_COLLECTION = 'semesters';
 
 /**
  * Get dashboard metrics for SuperAdmin dashboard
@@ -58,22 +64,18 @@ export const fetchDashboardStats = async () => {
     const usersSnap = await getDocs(usersRef);
     const usersCount = usersSnap.size;
     
-    // Fetch active semesters
-    const settingsRef = collection(db, SETTINGS_COLLECTION);
-    const settingsQuery = query(settingsRef, orderBy('createdAt', 'desc'), limit(1));
-    const settingsSnap = await getDocs(settingsQuery);
+    // Get active semesters from semesters collection (new approach using centralized service)
+    const semestersRef = collection(db, SEMESTERS_COLLECTION);
+    const semestersQuery = query(semestersRef, where('status', '==', 'active'));
+    const semestersSnap = await getDocs(semestersQuery);
+    const activeSemesterCount = semestersSnap.size;
     
+    // Get active semester information
     let currentSemesterInfo = null;
-    let activeSemesterCount = 0;
-    
-    if (!settingsSnap.empty) {
-      currentSemesterInfo = settingsSnap.docs[0].data();
-      
-      // If we have current semester info, get active semesters count
-      const semestersRef = collection(db, 'semesters');
-      const semestersQuery = query(semestersRef, where('status', '==', 'active'));
-      const semestersSnap = await getDocs(semestersQuery);
-      activeSemesterCount = semestersSnap.size;
+    try {
+      currentSemesterInfo = await getActiveSemester();
+    } catch (error) {
+      console.error('Error fetching active semester:', error);
     }
     
     // Get today's conflicts count
@@ -101,7 +103,7 @@ export const fetchDashboardStats = async () => {
       totalRooms: roomsCount,
       totalUsers: usersCount,
       activeSemesters: activeSemesterCount,
-      currentSemester: currentSemesterInfo ? currentSemesterInfo.currentSemester : 'No active semester',
+      currentSemester: currentSemesterInfo ? currentSemesterInfo.name : 'No active semester',
       conflictsToday: conflictsCount
     };
   } catch (error) {
@@ -118,209 +120,167 @@ export const fetchDashboardStats = async () => {
  */
 export const getRecentActivities = async (limitCount = 5) => {
   try {
-    // This would typically come from a dedicated activities collection
-    // For now we'll return mock data
-    const activities = [
-      {
-        id: '1',
-        type: 'user',
-        action: 'created',
-        subject: 'New User',
-        name: 'Professor Smith',
-        timestamp: new Date(Date.now() - 1000 * 60 * 30).toISOString(), // 30 mins ago
-        department: 'Computer Science'
-      },
-      {
-        id: '2',
-        type: 'timetable',
-        action: 'modified',
-        subject: 'CS-101 Schedule',
-        name: 'Dr. Johnson',
-        timestamp: new Date(Date.now() - 1000 * 60 * 120).toISOString(), // 2 hours ago
-        department: 'Mathematics'
-      },
-      {
-        id: '3',
-        type: 'conflict',
-        action: 'resolved',
-        subject: 'Room Double Booking',
-        name: 'Admin User',
-        timestamp: new Date(Date.now() - 1000 * 60 * 240).toISOString(), // 4 hours ago
-        department: 'Administration'
-      },
-      {
-        id: '4',
-        type: 'department',
-        action: 'added',
-        subject: 'Physics Department',
-        name: 'Admin User',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(), // 1 day ago
-        department: 'Administration'
-      },
-      {
-        id: '5',
-        type: 'room',
-        action: 'updated',
-        subject: 'Lab Capacity',
-        name: 'Dr. Williams',
-        timestamp: new Date(Date.now() - 1000 * 60 * 60 * 36).toISOString(), // 1.5 days ago
-        department: 'Chemistry'
-      }
-    ];
+    // Fetch from activity logs collection
+    const activitiesRef = collection(db, 'activityLogs');
+    const activitiesQuery = query(
+      activitiesRef,
+      orderBy('timestamp', 'desc'),
+      limit(limitCount)
+    );
     
-    return activities.slice(0, limitCount);
+    const snapshot = await getDocs(activitiesQuery);
+    
+    if (snapshot.empty) {
+      // Return mock data if no activities found
+      return getMockActivities();
+    }
+    
+    return snapshot.docs.map(doc => {
+      const data = doc.data();
+      const timestamp = data.timestamp?.toDate() || new Date();
+      
+      return {
+        id: doc.id,
+        type: data.type || 'general',
+        description: data.description || 'System activity',
+        user: data.user || 'System',
+        timestamp,
+        timeAgo: getTimeAgo(timestamp)
+      };
+    });
   } catch (error) {
     console.error('Error fetching recent activities:', error);
-    return [];
+    return getMockActivities();
   }
 };
 
 /**
- * Get recent activity 
- * @returns {Array} Recent activity data
+ * Get mock activities for fallback
+ * @returns {Array} Array of mock activity items
+ */
+const getMockActivities = () => {
+  return [];
+};
+
+/**
+ * Convert timestamp to human-readable time ago string
+ * @param {Date} timestamp The timestamp to convert
+ * @returns {string} Human readable time ago string
+ */
+const getTimeAgo = (timestamp) => {
+  const now = new Date();
+  const diffInSeconds = Math.floor((now - timestamp) / 1000);
+  
+  if (diffInSeconds < 60) {
+    return `${diffInSeconds} seconds ago`;
+  }
+  
+  const diffInMinutes = Math.floor(diffInSeconds / 60);
+  if (diffInMinutes < 60) {
+    return `${diffInMinutes} ${diffInMinutes === 1 ? 'minute' : 'minutes'} ago`;
+  }
+  
+  const diffInHours = Math.floor(diffInMinutes / 60);
+  if (diffInHours < 24) {
+    return `${diffInHours} ${diffInHours === 1 ? 'hour' : 'hours'} ago`;
+  }
+  
+  const diffInDays = Math.floor(diffInHours / 24);
+  if (diffInDays < 30) {
+    return `${diffInDays} ${diffInDays === 1 ? 'day' : 'days'} ago`;
+  }
+  
+  const diffInMonths = Math.floor(diffInDays / 30);
+  return `${diffInMonths} ${diffInMonths === 1 ? 'month' : 'months'} ago`;
+};
+
+/**
+ * Simple function for returning mock recent activity
+ * @returns {Array} Array of activity items
  */
 export const getRecentActivity = () => {
-  // Provide mock data for now
   return [
-    { id: 1, user: 'Dr. Smith', action: 'Added new course CS401', time: '10m ago' },
-    { id: 2, user: 'Prof. Johnson', action: 'Updated room capacity', time: '25m ago' },
-    { id: 3, user: 'Admin User', action: 'Generated semester report', time: '1h ago' },
-    { id: 4, user: 'Dr. Williams', action: 'Resolved schedule conflict', time: '2h ago' }
+    { id: 1, user: 'John', action: 'Created new course CS301', time: '5m ago' },
+    { id: 2, user: 'Sarah', action: 'Updated faculty schedule', time: '15m ago' },
+    { id: 3, user: 'Mike', action: 'Assigned room B201 for CS101', time: '1h ago' },
+    { id: 4, user: 'Jessica', action: 'Generated timetable report', time: '2h ago' }
   ];
 };
 
 /**
- * Get semester progress data
- * @returns {Array} Semester progress data
+ * Simple function for returning mock semester progress
+ * @returns {Array} Array of semester progress items
  */
 export const getSemesterProgress = () => {
-  const currentDate = new Date();
-  
   return [
     { 
       id: 1, 
-      name: 'Spring 2025', 
-      progress: 45, 
-      startDate: 'Jan 15, 2025', 
-      endDate: 'May 30, 2025',
-      current: true
+      name: 'Fall 2025', 
+      progress: 75, 
+      startDate: 'Aug 15, 2025', 
+      endDate: 'Dec 15, 2025' 
     },
     { 
       id: 2, 
-      name: 'Summer 2025', 
-      progress: 0, 
-      startDate: 'Jun 15, 2025', 
-      endDate: 'Aug 15, 2025',
-      current: false
+      name: 'Spring 2026', 
+      progress: 10, 
+      startDate: 'Jan 10, 2026', 
+      endDate: 'May 15, 2026' 
     }
   ];
 };
 
 /**
- * Add a new user - redirects to user management page
+ * Function to add a new user 
+ * @returns {Promise<boolean>} Success state
  */
-export const addNewUser = () => {
-  // In a real app this would navigate to the user management page
-  console.log('Navigate to add user page');
-  window.location.href = '#/superadmin/users/new';
-};
-
-/**
- * Generate a report
- * @returns {Promise<void>}
- */
-export const generateReport = async () => {
-  console.log('Generating report...');
-  // In a real app this would generate a PDF report or similar
-  alert('Report generation started. It will be available shortly in your notifications.');
-};
-
-/**
- * Manage semester settings
- */
-export const manageSemester = () => {
-  // In a real app this would navigate to the semester management page
-  console.log('Navigate to semester management');
-  window.location.href = '#/superadmin/settings';
-};
-
-/**
- * Fetch departments summary for dashboard
- * @returns {Promise<Array>} Departments data with faculty counts
- */
-export const getDepartmentsSummary = async () => {
+export const addNewUser = async () => {
   try {
-    const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
-    const departmentsSnap = await getDocs(departmentsRef);
-    
-    const departmentsData = [];
-    
-    // Process each department and get its faculty count
-    for (const deptDoc of departmentsSnap.docs) {
-      const deptData = deptDoc.data();
-      
-      // Count faculty members in this department
-      const teachersRef = collection(db, TEACHERS_COLLECTION);
-      const teachersQuery = query(teachersRef, where('department', '==', deptData.name));
-      const teachersSnap = await getDocs(teachersQuery);
-      
-      departmentsData.push({
-        id: deptDoc.id,
-        name: deptData.name,
-        facultyCount: teachersSnap.size,
-        hodName: deptData.hodName || 'Not Assigned',
-        type: deptData.type || 'Academic'
-      });
-    }
-    
-    return departmentsData;
+    // Redirect to user management page
+    window.location.href = '/superadmin/user-management';
+    return true;
   } catch (error) {
-    console.error('Error fetching departments summary:', error);
-    // Return mock data in case of error
-    return [
-      { id: '1', name: 'Computer Science', facultyCount: 12, hodName: 'Dr. Johnson', type: 'Academic' },
-      { id: '2', name: 'Electrical Engineering', facultyCount: 8, hodName: 'Prof. Williams', type: 'Academic' },
-      { id: '3', name: 'Mechanical Engineering', facultyCount: 10, hodName: 'Dr. Brown', type: 'Academic' },
-      { id: '4', name: 'Civil Engineering', facultyCount: 7, hodName: 'Prof. Davis', type: 'Academic' },
-      { id: '5', name: 'Chemical Engineering', facultyCount: 6, hodName: 'Dr. Miller', type: 'Academic' }
-    ];
+    console.error('Error navigating to user management:', error);
+    return false;
   }
 };
 
 /**
- * Get upcoming timetable events
- * @returns {Promise<Array>} Array of upcoming events
+ * Generate a report with dashboard statistics
+ * @returns {Promise<boolean>} Success state
  */
-export const getUpcomingEvents = async () => {
+export const generateReport = async () => {
   try {
-    // This would typically come from a schedules or events collection
-    // For now we'll return mock data
-    return [
-      {
-        id: '1',
-        title: 'Timetable Finalization',
-        date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 2).toISOString(), // 2 days from now
-        type: 'deadline',
-        department: 'All Departments'
-      },
-      {
-        id: '2',
-        title: 'Faculty Assignments Due',
-        date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 5).toISOString(), // 5 days from now
-        type: 'deadline',
-        department: 'Computer Science'
-      },
-      {
-        id: '3',
-        title: 'New Semester Planning',
-        date: new Date(Date.now() + 1000 * 60 * 60 * 24 * 14).toISOString(), // 14 days from now
-        type: 'meeting',
-        department: 'All Departments'
-      }
-    ];
+    alert('Report generation feature will be implemented soon.');
+    
+    // Log the report generation attempt
+    const logsRef = collection(db, 'activityLogs');
+    await addDoc(logsRef, {
+      type: 'report',
+      action: 'generate',
+      user: 'SuperAdmin',
+      timestamp: serverTimestamp()
+    });
+    
+    return true;
   } catch (error) {
-    console.error('Error fetching upcoming events:', error);
-    return [];
+    console.error('Error generating report:', error);
+    return false;
+  }
+};
+
+/**
+ * Navigate to semester management
+ * @returns {Promise<boolean>} Success state
+ */
+export const manageSemester = async () => {
+  try {
+    // Redirect to semester settings page
+    window.location.href = '/superadmin/settings-semester';
+    return true;
+  } catch (error) {
+    console.error('Error navigating to semester management:', error);
+    return false;
   }
 };
 
@@ -330,37 +290,16 @@ export const getUpcomingEvents = async () => {
  */
 export const getDepartmentDistribution = async () => {
   try {
-    const departmentsRef = collection(db, DEPARTMENTS_COLLECTION);
-    const departmentsSnap = await getDocs(departmentsRef);
-    
-    const result = [];
-    
-    for (const deptDoc of departmentsSnap.docs) {
-      const deptData = deptDoc.data();
-      
-      // Count faculty members in this department
-      const teachersRef = collection(db, TEACHERS_COLLECTION);
-      const teachersQuery = query(teachersRef, where('department', '==', deptData.name));
-      const teachersSnap = await getDocs(teachersQuery);
-      
-      result.push({
-        name: deptData.name,
-        value: teachersSnap.size,
-        color: getRandomColor()
-      });
-    }
-    
-    return result;
+    // In a real implementation, this would fetch data from Firebase
+    return [
+      { name: 'Computer Science', count: 28 },
+      { name: 'Mechanical Engineering', count: 23 },
+      { name: 'Electrical Engineering', count: 19 },
+      { name: 'Civil Engineering', count: 15 }
+    ];
   } catch (error) {
     console.error('Error fetching department distribution:', error);
-    // Return mock data
-    return [
-      { name: 'Computer Science', value: 12, color: '#4C51BF' },
-      { name: 'Electrical Engineering', value: 8, color: '#38B2AC' },
-      { name: 'Mechanical Engineering', value: 10, color: '#ED8936' },
-      { name: 'Civil Engineering', value: 7, color: '#667EEA' },
-      { name: 'Chemical Engineering', value: 6, color: '#F56565' }
-    ];
+    return [];
   }
 };
 
@@ -370,14 +309,12 @@ export const getDepartmentDistribution = async () => {
  */
 export const getRoomUtilization = async () => {
   try {
-    // In a real app, this would calculate room usage based on timetable data
-    // For now, return mock data
+    // In a real implementation, this would fetch data from Firebase
     return [
-      { day: 'Monday', usage: 85 },
-      { day: 'Tuesday', usage: 92 },
-      { day: 'Wednesday', usage: 78 },
-      { day: 'Thursday', usage: 90 },
-      { day: 'Friday', usage: 65 }
+      { name: 'A-Block', utilization: 85 },
+      { name: 'B-Block', utilization: 72 },
+      { name: 'C-Block', utilization: 63 },
+      { name: 'D-Block', utilization: 45 }
     ];
   } catch (error) {
     console.error('Error fetching room utilization:', error);
@@ -385,26 +322,42 @@ export const getRoomUtilization = async () => {
   }
 };
 
-// Helper function to generate random color
-const getRandomColor = () => {
-  const colors = [
-    '#4C51BF', '#38B2AC', '#ED8936', '#667EEA', 
-    '#F56565', '#48BB78', '#9F7AEA', '#4299E1'
-  ];
-  return colors[Math.floor(Math.random() * colors.length)];
+/**
+ * Log a new activity to Firebase (SuperAdmin version)
+ * @param {string} contextId - Context ID (department ID or 'SUPERADMIN')
+ * @param {string} type - Activity type
+ * @param {string} description - Activity description
+ * @returns {Promise<string>} ID of the created activity log
+ */
+export const logActivity = async (contextId, type, description) => {
+  try {
+    const activityRef = collection(db, 'activityLogs');
+    const docRef = await addDoc(activityRef, {
+      context: contextId, // Can be department ID or 'SUPERADMIN'
+      type: type,
+      description: description,
+      timestamp: serverTimestamp(),
+      userRole: 'superadmin'
+    });
+    
+    return docRef.id;
+  } catch (error) {
+    console.error('Error logging SuperAdmin activity:', error);
+    throw error;
+  }
 };
 
+// Export all functions for use in components
 export default {
   getDashboardMetrics,
   fetchDashboardStats,
   getRecentActivities,
   getRecentActivity,
   getSemesterProgress,
-  getDepartmentsSummary,
-  getUpcomingEvents,
   addNewUser,
   generateReport,
   manageSemester,
   getDepartmentDistribution,
-  getRoomUtilization
+  getRoomUtilization,
+  logActivity
 };

@@ -1,209 +1,25 @@
-// Sample courses data
-export const coursesData = [
-  { 
-    id: 'CS101', 
-    name: 'Introduction to Computer Science', 
-    faculty: { id: 1, name: 'Dr. Alex Johnson' }, 
-    duration: 1, // in hours
-    department: 'Computer Science',
-    semester: 'Semester 7',
-    color: 'blue',
-    weeklyHours: '3L+1T+0P'  // 3 lectures, 1 tutorial, 0 practical
-  },
-  { 
-    id: 'CS202', 
-    name: 'Data Structures and Algorithms', 
-    faculty: { id: 2, name: 'Dr. Sarah Miller' }, 
-    duration: 2, 
-    department: 'Computer Science',
-    semester: 'Semester 7',
-    color: 'indigo',
-    weeklyHours: '3L+0T+2P'
-  },
-  { 
-    id: 'CS303', 
-    name: 'Database Systems', 
-    faculty: { id: 3, name: 'Prof. Robert Chen' }, 
-    duration: 1, 
-    department: 'Computer Science',
-    semester: 'Semester 7',
-    color: 'purple',
-    weeklyHours: '3L+1T+2P'
-  },
-  { 
-    id: 'CS405', 
-    name: 'Artificial Intelligence', 
-    faculty: { id: 4, name: 'Dr. Emily Zhang' }, 
-    duration: 2, 
-    department: 'Computer Science',
-    semester: 'Semester 7',
-    color: 'green',
-    weeklyHours: '4L+0T+2P'
-  },
-  { 
-    id: 'EE201', 
-    name: 'Circuit Theory', 
-    faculty: { id: 5, name: 'Prof. Maria Garcia' }, 
-    duration: 1, 
-    department: 'Electrical Engineering',
-    semester: 'Semester 7',
-    color: 'amber',
-    weeklyHours: '3L+1T+1P'
-  },
-  { 
-    id: 'ME101', 
-    name: 'Engineering Mechanics', 
-    faculty: { id: 6, name: 'Dr. John Smith' }, 
-    duration: 1, 
-    department: 'Mechanical Engineering',
-    semester: 'Semester 7',
-    color: 'rose',
-    weeklyHours: '3L+1T+0P'
-  },
-];
+/**
+ * Timetable Builder Services - Compatibility Layer
+ * 
+ * This file serves as a compatibility layer and re-exports all functionality
+ * from the organized service modules in the TTBuilder directory.
+ * 
+ * The original monolithic code has been refactored into separate, maintainable modules:
+ * - constants.js: Sample data and configuration
+ * - timetableOperations.js: Core timetable CRUD operations
+ * - firestoreService.js: Firebase/Firestore integration
+ * - conflictDetection.js: Conflict detection and resolution
+ * - validation.js: Resource and batch validation
+ * - tabManagement.js: Tab operations
+ * - historyManager.js: Undo/redo functionality
+ * - dragDropOperations.js: Drag and drop handlers
+ * - utils.js: Utility functions
+ * - performanceOptimizer.js: Performance optimization features
+ * - auditLogger.js: Logging and audit trail
+ * 
+ * @deprecated This compatibility layer exists for backward compatibility.
+ * New code should import directly from the TTBuilder modules.
+ */
 
-// Faculty data
-export const facultyData = [
-  { id: 1, name: 'Dr. Alex Johnson', department: 'Computer Science', availableSlots: ['Monday-09:00', 'Tuesday-11:00'] },
-  { id: 2, name: 'Dr. Sarah Miller', department: 'Computer Science', availableSlots: ['Wednesday-10:00', 'Friday-09:00'] },
-  { id: 3, name: 'Prof. Robert Chen', department: 'Computer Science', availableSlots: ['Monday-14:00', 'Thursday-11:00'] },
-  { id: 4, name: 'Dr. Emily Zhang', department: 'Computer Science', availableSlots: ['Tuesday-09:00', 'Friday-14:00'] },
-  { id: 5, name: 'Prof. Maria Garcia', department: 'Electrical Engineering', availableSlots: ['Wednesday-14:00', 'Thursday-09:00'] },
-  { id: 6, name: 'Dr. John Smith', department: 'Mechanical Engineering', availableSlots: ['Monday-11:00', 'Thursday-14:00'] },
-];
-
-// Room data
-export const roomsData = [
-  { id: 'A101', capacity: 60, type: 'Lecture Hall', facilities: ['Projector', 'Smart Board'] },
-  { id: 'B201', capacity: 40, type: 'Classroom', facilities: ['Projector'] },
-  { id: 'C302', capacity: 30, type: 'Computer Lab', facilities: ['Computers', 'Projector'] },
-  { id: 'A105', capacity: 60, type: 'Lecture Hall', facilities: ['Projector', 'Smart Board'] },
-  { id: 'B204', capacity: 40, type: 'Classroom', facilities: ['Projector'] },
-  { id: 'D101', capacity: 80, type: 'Lecture Hall', facilities: ['Projector', 'Smart Board', 'Audio System'] },
-];
-
-// Time slots
-export const timeSlots = [
-  '08:00 - 09:00', '09:00 - 10:00', '10:00 - 11:00', '11:00 - 12:00',
-  '12:00 - 13:00', '13:00 - 14:00', '14:00 - 15:00', '15:00 - 16:00',
-  '16:00 - 17:00', '17:00 - 18:00'
-];
-
-// Days of the week
-export const weekDays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-
-// Initialize empty timetable data
-export const initializeEmptyTimetable = () => {
-  const initialData = {};
-  weekDays.forEach(day => {
-    initialData[day] = {};
-    timeSlots.forEach(slot => {
-      initialData[day][slot] = null;
-    });
-  });
-  return initialData;
-};
-
-// Check for conflicts before dropping a course
-export const checkConflicts = (timetableData, day, slot, course, selectedRoom) => {
-  const conflicts = [];
-  
-  // Check for room conflicts
-  Object.keys(timetableData).forEach(d => {
-    Object.keys(timetableData[d]).forEach(s => {
-      const existingCourse = timetableData[d][s];
-      if (existingCourse && existingCourse.room === selectedRoom.id && d === day && s === slot) {
-        conflicts.push({
-          type: 'room',
-          message: `Room ${selectedRoom.id} already booked for ${existingCourse.id} at ${slot} on ${day}`,
-          day,
-          slot
-        });
-      }
-    });
-  });
-  
-  // Check for faculty conflicts
-  const facultyId = course.faculty.id;
-  Object.keys(timetableData).forEach(d => {
-    Object.keys(timetableData[d]).forEach(s => {
-      const existingCourse = timetableData[d][s];
-      if (existingCourse && existingCourse.faculty.id === facultyId && d === day && s === slot) {
-        conflicts.push({
-          type: 'faculty',
-          message: `${course.faculty.name} already teaching ${existingCourse.id} at ${slot} on ${day}`,
-          day,
-          slot
-        });
-      }
-    });
-  });
-  
-  return conflicts;
-};
-
-// Add course to timetable
-export const addCourseToTimetable = (timetableData, day, slot, course, selectedRoom) => {
-  const newTimetable = JSON.parse(JSON.stringify(timetableData));
-  
-  // Add the course to the timetable with the selected room
-  newTimetable[day][slot] = {
-    ...course,
-    room: selectedRoom.id
-  };
-  
-  return newTimetable;
-};
-
-// Save timetable
-export const saveTimetable = (timetableData) => {
-  // In a real app, this would make an API call to save the data
-  return new Promise((resolve) => {
-    // Simulate API delay
-    setTimeout(() => {
-      console.log('Timetable saved:', timetableData);
-      resolve({ success: true, message: 'Timetable saved successfully!' });
-    }, 500);
-  });
-};
-
-// Publish timetable
-export const publishTimetable = (timetableData, conflicts) => {
-  return new Promise((resolve, reject) => {
-    // Check if there are any conflicts first
-    if (conflicts.length > 0) {
-      reject({ success: false, message: 'Please resolve all conflicts before publishing' });
-      return;
-    }
-    
-    // Simulate API delay
-    setTimeout(() => {
-      console.log('Timetable published:', timetableData);
-      resolve({ success: true, message: 'Timetable published successfully!' });
-    }, 500);
-  });
-};
-
-// Get color class for a course based on its color property
-export const getCourseColorClass = (course) => {
-  const colorMap = {
-    'blue': 'bg-blue-100 border-blue-300 text-blue-800',
-    'indigo': 'bg-indigo-100 border-indigo-300 text-indigo-800',
-    'purple': 'bg-purple-100 border-purple-300 text-purple-800',
-    'green': 'bg-green-100 border-green-300 text-green-800',
-    'amber': 'bg-amber-100 border-amber-300 text-amber-800',
-    'rose': 'bg-rose-100 border-rose-300 text-rose-800'
-  };
-  
-  return colorMap[course.color] || 'bg-gray-100 border-gray-300 text-gray-800';
-};
-
-// Filter courses based on selected filters
-export const filterCourses = (courses, { selectedSemester, selectedDepartment, selectedFaculty }) => {
-  return courses.filter(course => {
-    if (selectedSemester && course.semester !== selectedSemester) return false;
-    if (selectedDepartment && course.department !== selectedDepartment) return false;
-    if (selectedFaculty && course.faculty.id !== selectedFaculty.id) return false;
-    return true;
-  });
-};
+// Re-export all functionality from the organized modules
+export * from './TTBuilder/index.js';
