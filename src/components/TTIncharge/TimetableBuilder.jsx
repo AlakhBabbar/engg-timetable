@@ -206,6 +206,12 @@ export default function TimetableBuilder() {
   const [loadingTimetables, setLoadingTimetables] = useState(false);
   const [isManuallyLoading, setIsManuallyLoading] = useState({});
 
+  // State for download/export modal
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
+  const [downloadScope, setDownloadScope] = useState('current'); // 'current' or 'all'
+  const [downloadFormat, setDownloadFormat] = useState('pdf'); // 'pdf', 'docx', 'excel'
+  const [isExporting, setIsExporting] = useState(false);
+
   // Helper function to validate drop before allowing it with comprehensive checks
   const validateDrop = (day, slot, course, room) => {
     if (!course || !room) {
@@ -1003,13 +1009,102 @@ export default function TimetableBuilder() {
     }
   };
 
-  // Handle publish timetable
+  // Handle publish/download timetable
   const handlePublishTimetable = async () => {
+    setShowDownloadModal(true);
+  };
+
+  // Handle download/export
+  const handleDownload = async () => {
+    setIsExporting(true);
+    
     try {
-      const result = await publishTimetable(timetableData, conflicts);
-      alert(result.message);
+      if (downloadScope === 'current') {
+        await exportCurrentTimetable(downloadFormat);
+      } else {
+        await exportAllTimetables(downloadFormat);
+      }
+      
+      showInfo(`Timetable${downloadScope === 'all' ? 's' : ''} exported successfully as ${downloadFormat.toUpperCase()}!`);
+      setShowDownloadModal(false);
     } catch (error) {
-      alert(error.message);
+      console.error('Export error:', error);
+      showError(`Failed to export: ${error.message}`);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Export current timetable
+  const exportCurrentTimetable = async (format) => {
+    if (!timetableData || !selectedBranch || !selectedBatch) {
+      throw new Error('No timetable data to export');
+    }
+
+    const timetableInfo = {
+      semester: selectedSemester,
+      branch: selectedBranch,
+      batch: selectedBatch,
+      type: selectedType,
+      data: timetableData
+    };
+
+    await exportTimetableByFormat(timetableInfo, format);
+  };
+
+  // Export all timetables
+  const exportAllTimetables = async (format) => {
+    const timetablesToExport = await Promise.all(
+      tabs.map(async (tab) => {
+        const tabData = timetablesData[tab.id];
+        const tabConfig = tabConfigs[tab.id];
+        
+        if (tabData && tabConfig && tabConfig.selectedBranch && tabConfig.selectedBatch) {
+          return {
+            semester: tabConfig.selectedSemester,
+            branch: tabConfig.selectedBranch,
+            batch: tabConfig.selectedBatch,
+            type: tabConfig.selectedType,
+            data: tabData
+          };
+        }
+        return null;
+      })
+    );
+
+    const validTimetables = timetablesToExport.filter(t => t !== null);
+    
+    if (validTimetables.length === 0) {
+      throw new Error('No valid timetables to export');
+    }
+
+    await exportMultipleTimetablesByFormat(validTimetables, format);
+  };
+
+  // Dynamic import for export libraries
+  const exportTimetableByFormat = async (timetableInfo, format) => {
+    if (format === 'pdf') {
+      const { exportToPDF } = await import('../TTIncharge/services/exportPDF');
+      await exportToPDF(timetableInfo);
+    } else if (format === 'docx') {
+      const { exportToDOCX } = await import('../TTIncharge/services/exportDOCX');
+      await exportToDOCX(timetableInfo);
+    } else if (format === 'excel') {
+      const { exportToExcel } = await import('../TTIncharge/services/exportExcel');
+      await exportToExcel(timetableInfo);
+    }
+  };
+
+  const exportMultipleTimetablesByFormat = async (timetables, format) => {
+    if (format === 'pdf') {
+      const { exportMultipleToPDF } = await import('../TTIncharge/services/exportPDF');
+      await exportMultipleToPDF(timetables);
+    } else if (format === 'docx') {
+      const { exportMultipleToDOCX } = await import('../TTIncharge/services/exportDOCX');
+      await exportMultipleToDOCX(timetables);
+    } else if (format === 'excel') {
+      const { exportMultipleToExcel } = await import('../TTIncharge/services/exportExcel');
+      await exportMultipleToExcel(timetables);
     }
   };
 
@@ -2104,14 +2199,12 @@ export default function TimetableBuilder() {
             className={`px-3 py-2 rounded-lg transition flex items-center gap-1 text-xs ${
               isTimetableDisabled 
                 ? 'bg-gray-400 text-gray-300 cursor-not-allowed'
-                : conflicts.length > 0 
-                  ? 'bg-gray-400 text-white cursor-not-allowed' 
-                  : 'bg-green-600 text-white hover:bg-green-700'
+                : 'bg-green-600 text-white hover:bg-green-700'
             }`}
-            disabled={isTimetableDisabled || conflicts.length > 0}
+            disabled={isTimetableDisabled}
           >
             <FiUpload size={14} />
-            <span>Publish</span>
+            <span>Download</span>
           </button>
         </div>
       </div>
@@ -2227,6 +2320,155 @@ export default function TimetableBuilder() {
                 className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Download/Export Modal */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 bg-black/30 backdrop-blur-sm flex items-center justify-center z-[9999]">
+          <div className="bg-white rounded-xl shadow-2xl border border-slate-200 w-full max-w-md mx-4">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between p-4 border-b border-slate-200 bg-gradient-to-r from-green-600 to-emerald-600">
+              <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                <FiUpload className="text-white" />
+                Download Timetable
+              </h3>
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                className="p-1 hover:bg-white/20 rounded-lg transition-colors"
+                disabled={isExporting}
+              >
+                <FiX className="text-white" />
+              </button>
+            </div>
+
+            {/* Modal Content */}
+            <div className="p-6 space-y-5">
+              {/* Scope Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-3">
+                  What to download?
+                </label>
+                <div className="space-y-2">
+                  <label className="flex items-center p-3 border-2 border-slate-200 rounded-lg cursor-pointer hover:border-green-400 hover:bg-green-50 transition-all">
+                    <input
+                      type="radio"
+                      name="scope"
+                      value="current"
+                      checked={downloadScope === 'current'}
+                      onChange={(e) => setDownloadScope(e.target.value)}
+                      className="w-4 h-4 text-green-600 focus:ring-green-500"
+                      disabled={isExporting}
+                    />
+                    <div className="ml-3">
+                      <span className="font-medium text-slate-800">Current Timetable</span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        {selectedSemester && selectedBranch && selectedBatch 
+                          ? `${selectedSemester} - ${selectedBranch} - ${selectedBatch}`
+                          : 'Only the currently opened timetable'}
+                      </p>
+                    </div>
+                  </label>
+                  
+                  <label className="flex items-center p-3 border-2 border-slate-200 rounded-lg cursor-pointer hover:border-green-400 hover:bg-green-50 transition-all">
+                    <input
+                      type="radio"
+                      name="scope"
+                      value="all"
+                      checked={downloadScope === 'all'}
+                      onChange={(e) => setDownloadScope(e.target.value)}
+                      className="w-4 h-4 text-green-600 focus:ring-green-500"
+                      disabled={isExporting}
+                    />
+                    <div className="ml-3">
+                      <span className="font-medium text-slate-800">All Open Timetables</span>
+                      <p className="text-xs text-slate-500 mt-0.5">
+                        All {tabs.length} timetable{tabs.length !== 1 ? 's' : ''} currently in tabs
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Format Selection */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-3">
+                  Select format
+                </label>
+                <div className="grid grid-cols-3 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setDownloadFormat('pdf')}
+                    disabled={isExporting}
+                    className={`p-3 rounded-lg border-2 transition-all text-center ${
+                      downloadFormat === 'pdf'
+                        ? 'border-green-500 bg-green-50 text-green-700'
+                        : 'border-slate-200 hover:border-green-300 text-slate-600'
+                    }`}
+                  >
+                    <div className="text-2xl mb-1">📄</div>
+                    <div className="text-xs font-medium">PDF</div>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setDownloadFormat('docx')}
+                    disabled={isExporting}
+                    className={`p-3 rounded-lg border-2 transition-all text-center ${
+                      downloadFormat === 'docx'
+                        ? 'border-blue-500 bg-blue-50 text-blue-700'
+                        : 'border-slate-200 hover:border-blue-300 text-slate-600'
+                    }`}
+                  >
+                    <div className="text-2xl mb-1">📝</div>
+                    <div className="text-xs font-medium">DOCX</div>
+                  </button>
+                  
+                  <button
+                    type="button"
+                    onClick={() => setDownloadFormat('excel')}
+                    disabled={isExporting}
+                    className={`p-3 rounded-lg border-2 transition-all text-center ${
+                      downloadFormat === 'excel'
+                        ? 'border-emerald-500 bg-emerald-50 text-emerald-700'
+                        : 'border-slate-200 hover:border-emerald-300 text-slate-600'
+                    }`}
+                  >
+                    <div className="text-2xl mb-1">📊</div>
+                    <div className="text-xs font-medium">Excel</div>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Footer */}
+            <div className="p-4 border-t border-slate-200 bg-slate-50 flex justify-end gap-3">
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                disabled={isExporting}
+                className="px-4 py-2 text-slate-600 hover:bg-slate-200 rounded-lg transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDownload}
+                disabled={isExporting}
+                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+              >
+                {isExporting ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent"></div>
+                    <span>Exporting...</span>
+                  </>
+                ) : (
+                  <>
+                    <FiUpload size={16} />
+                    <span>Download {downloadFormat.toUpperCase()}</span>
+                  </>
+                )}
               </button>
             </div>
           </div>
