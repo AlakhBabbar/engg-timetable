@@ -358,3 +358,66 @@ export const autoUpdateActiveSemesters = async () => {
     throw error;
   }
 };
+
+/**
+ * Activate all semesters at once
+ * @returns {Promise<Array>} - Array of all activated semesters
+ */
+export const activateAllSemesters = async () => {
+  try {
+    // Get all semesters
+    const allSemesters = await fetchSemesters();
+    
+    if (allSemesters.length === 0) {
+      console.log('No semesters available to activate');
+      return [];
+    }
+    
+    // Update all semesters to active using batch operation
+    const batch = writeBatch(db);
+    
+    // Set all semesters to active
+    allSemesters.forEach(semester => {
+      const semRef = doc(db, SEMESTERS_COLLECTION, semester.id);
+      batch.update(semRef, { 
+        status: 'active',
+        updatedAt: serverTimestamp()
+      });
+    });
+    
+    // Update settings document with all active semesters
+    const allSemesterIds = allSemesters.map(sem => sem.id);
+    const settingsRef = collection(db, SETTINGS_COLLECTION);
+    const settingsQuery = query(settingsRef, orderBy('createdAt', 'desc'), where('type', '==', 'global'));
+    const settingsSnapshot = await getDocs(settingsQuery);
+    
+    if (!settingsSnapshot.empty) {
+      const settingsDoc = settingsSnapshot.docs[0];
+      batch.update(doc(db, SETTINGS_COLLECTION, settingsDoc.id), {
+        currentSemester: allSemesters[0].id, // Use first semester as primary
+        activeSemesters: allSemesterIds, // All semester IDs
+        updatedAt: serverTimestamp()
+      });
+    } else {
+      // Create new settings document if it doesn't exist
+      const newSettingsRef = doc(collection(db, SETTINGS_COLLECTION));
+      batch.set(newSettingsRef, {
+        type: 'global',
+        currentSemester: allSemesters[0].id,
+        activeSemesters: allSemesterIds,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
+    }
+    
+    // Commit the batch
+    await batch.commit();
+    
+    console.log(`Activated all ${allSemesters.length} semesters`);
+    return allSemesters.map(sem => ({ ...sem, status: 'active' }));
+    
+  } catch (error) {
+    console.error('Error activating all semesters:', error);
+    throw error;
+  }
+};
