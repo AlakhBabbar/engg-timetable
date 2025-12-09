@@ -26,6 +26,7 @@ export default function SuperAdminCourseManagement() {
   const [searchTerm, setSearchTerm] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showInfoTooltip, setShowInfoTooltip] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const fileInputRef = useRef(null);
   const tooltipRef = useRef(null);
 
@@ -136,9 +137,7 @@ export default function SuperAdminCourseManagement() {
       semester: course.semester || '',
       department: course.department || '',
       faculty: course.faculty?.id || '',
-      lectureHours: course.lectureHours || 0,
-      tutorialHours: course.tutorialHours || 0,
-      practicalHours: course.practicalHours || 0,
+      weeklyHours: course.weeklyHours || course.credits || 3,
       credits: course.credits || 0,
       type: course.type || 'Core',
       description: course.description || '',
@@ -159,18 +158,10 @@ export default function SuperAdminCourseManagement() {
     try {
       setIsLoading(true);
       
-      // Calculate weekly hours from individual components
-      const weeklyHours = `${editFormData.lectureHours}L+${editFormData.tutorialHours}T+${editFormData.practicalHours}P`;
-      
-      const formDataWithWeeklyHours = {
-        ...editFormData,
-        weeklyHours: weeklyHours
-      };
-      
       const updatedCourses = await SuperAdminCourseManagementService.updateCourse(
         courses, 
         editingCourse.id, 
-        formDataWithWeeklyHours, 
+        editFormData, 
         faculty, 
         departments
       );
@@ -201,13 +192,66 @@ export default function SuperAdminCourseManagement() {
   };
 
   // Handle file upload
+  // Parse CSV content to JSON
+  const parseCSV = (csvContent) => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      throw new Error('CSV file must contain headers and at least one data row');
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const courses = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+      const course = {};
+
+      headers.forEach((header, index) => {
+        const value = values[index] || '';
+        const lowerHeader = header.toLowerCase();
+
+        if (lowerHeader === 'code') course.code = value;
+        else if (lowerHeader === 'title') course.title = value;
+        else if (lowerHeader === 'faculty') course.faculty = value || null;
+        else if (lowerHeader === 'semester') course.semester = value;
+        else if (lowerHeader === 'department') course.department = value;
+        else if (lowerHeader === 'type') course.type = value || 'Core';
+        else if (lowerHeader.includes('weekly') || lowerHeader.includes('hours')) {
+          course.weeklyHours = parseFloat(value) || 0;
+        }
+        else if (lowerHeader === 'credits') course.credits = parseFloat(value) || 0;
+        else if (lowerHeader.includes('common')) {
+          course.isCommonCourse = value.toLowerCase() === 'true' || value === '1';
+        }
+      });
+
+      // Set credits from weeklyHours if not provided
+      if (!course.credits && course.weeklyHours) {
+        course.credits = course.weeklyHours;
+      }
+      if (!course.weeklyHours && course.credits) {
+        course.weeklyHours = course.credits;
+      }
+
+      if (course.code && course.title && course.semester) {
+        courses.push(course);
+      }
+    }
+
+    return courses;
+  };
+
   const handleFileUpload = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
 
+    const fileName = file.name.toLowerCase();
+    const isJSON = fileName.endsWith('.json');
+    const isCSV = fileName.endsWith('.csv') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+
     // Validate file type
-    if (!file.name.endsWith('.json')) {
-      showError('Please upload a valid JSON file.', {
+    if (!isJSON && !isCSV) {
+      showError('Please upload a valid JSON or CSV/Excel file.', {
         duration: 6000
       });
       return;
@@ -221,36 +265,120 @@ export default function SuperAdminCourseManagement() {
       
       reader.onload = async (e) => {
         try {
-          const jsonData = JSON.parse(e.target.result);
+          let coursesArray;
           
-          // Validate that it's an array
-          if (!Array.isArray(jsonData)) {
-            showError('JSON file must contain an array of courses.', {
+          if (isJSON) {
+            // Parse JSON file
+            const jsonData = JSON.parse(e.target.result);
+            
+            // Validate that it's an array
+            if (!Array.isArray(jsonData)) {
+              showError('JSON file must contain an array of courses.', {
+                duration: 6000
+              });
+              setIsLoading(false);
+              return;
+            }
+            coursesArray = jsonData;
+          } else {
+            // Parse CSV file
+            const csvContent = e.target.result;
+            coursesArray = parseCSV(csvContent);
+          }
+          
+          // Use coursesArray from here onwards
+          if (coursesArray.length === 0) {
+            showError(`${isJSON ? 'JSON' : 'CSV'} file is empty. Please provide course data.`, {
               duration: 6000
             });
             setIsLoading(false);
             return;
           }
 
-          if (jsonData.length === 0) {
-            showError('JSON file is empty. Please provide course data.', {
-              duration: 6000
-            });
-            setIsLoading(false);
-            return;
-          }
+          // Remove the old jsonData.length check as it's already handled above
 
-          // Validate and show warnings for course data
-          const validation = validateCourseData(jsonData, targetDepartment);
-          let coursesArray = jsonData;
+          // Validate course data for basic errors (excluding department issues which we'll handle interactively)
+          const validation = validateCourseData(coursesArray, targetDepartment);
 
           if (validation.errors.length > 0) {
-            showError(`❌ Found ${validation.errors.length} error(s) in your course data:\n\n${validation.errors.slice(0, 5).join('\n')}${validation.errors.length > 5 ? `\n... and ${validation.errors.length - 5} more errors` : ''}\n\nPlease fix these errors and try again.`, {
-              duration: 15000
+            const errorList = validation.errors.slice(0, 8).join('\n');
+            const moreErrors = validation.errors.length > 8 ? `\n... and ${validation.errors.length - 8} more errors` : '';
+            
+            showError(`❌ Upload Blocked: Found ${validation.errors.length} error(s) in your course data`, {
+              details: `${errorList}${moreErrors}\n\n📝 Actions Required:\n• Fix invalid department names in your file\n• Remove courses with invalid departments\n• Or select a target department for courses without one\n\nThen try uploading again.`,
+              duration: 25000
             });
             setIsLoading(false);
             return;
           }
+          
+          // Process courses with invalid departments interactively
+          const validatedCourses = [];
+          for (let i = 0; i < coursesArray.length; i++) {
+            const course = coursesArray[i];
+            let courseDept = course.department ? course.department.toString().trim() : '';
+            
+            // Check if department exists (skip if using target department)
+            if (courseDept && !targetDepartment) {
+              const validDeptIds = departments.map(d => d.id);
+              const validDeptNames = departments.map(d => d.name.toLowerCase());
+              
+              const foundById = validDeptIds.includes(courseDept);
+              const foundByName = validDeptNames.includes(courseDept.toLowerCase());
+              
+              if (!foundById && !foundByName) {
+                // Department doesn't exist - ask user what to do
+                const availableDepts = departments.map(d => d.name).join(', ');
+                const action = window.prompt(
+                  `⚠️ Course: ${course.code} - ${course.title}\n\n` +
+                  `Department "${courseDept}" does not exist in the system.\n\n` +
+                  `Available departments:\n${availableDepts}\n\n` +
+                  `Options:\n` +
+                  `1. Enter a valid department name to change it\n` +
+                  `2. Type "skip" to skip this course\n` +
+                  `3. Type "cancel" to cancel entire upload\n\n` +
+                  `Your choice:`
+                );
+                
+                if (!action || action.toLowerCase() === 'cancel') {
+                  showInfo('Upload canceled by user.', { duration: 4000 });
+                  setIsLoading(false);
+                  return;
+                } else if (action.toLowerCase() === 'skip') {
+                  showInfo(`Skipping course: ${course.code}`, { duration: 2000 });
+                  continue; // Skip this course
+                } else {
+                  // User entered a new department - validate it
+                  const newDept = action.trim();
+                  const newDeptValid = validDeptIds.includes(newDept) || 
+                                      validDeptNames.includes(newDept.toLowerCase());
+                  
+                  if (newDeptValid) {
+                    // Find the correct department ID
+                    const deptObj = departments.find(d => 
+                      d.id === newDept || d.name.toLowerCase() === newDept.toLowerCase()
+                    );
+                    course.department = deptObj.id;
+                    showInfo(`Updated ${course.code} department to: ${deptObj.name}`, { duration: 2000 });
+                  } else {
+                    showWarning(`Invalid department "${newDept}". Skipping course: ${course.code}`, { duration: 3000 });
+                    continue; // Skip this course
+                  }
+                }
+              }
+            }
+            
+            validatedCourses.push(course);
+          }
+          
+          if (validatedCourses.length === 0) {
+            showWarning('No courses to import after validation.', { duration: 4000 });
+            setIsLoading(false);
+            return;
+          }
+          
+          coursesArray = validatedCourses;
+          showSuccess(`✅ Validated ${coursesArray.length} courses. Proceeding with import...`, { duration: 3000 });
 
           if (validation.warnings.length > 0) {
             const userConfirmed = window.confirm(
@@ -467,47 +595,12 @@ export default function SuperAdminCourseManagement() {
         errors.push(`${courseContext}: Missing or empty semester`);
       }
 
-      // Department validation and counting
+      // Department validation and counting (only check for missing departments, not validity)
       if (!course.department || course.department.trim() === '') {
         coursesWithoutDepartment++;
         if (!targetDept) {
           errors.push(`${courseContext}: No department specified and no target department selected`);
         }
-      } else {
-        const dept = course.department.toString().trim();
-        const validDeptIds = departments.map(d => d.id);
-        const validDeptNames = departments.map(d => d.name);
-        
-        // Check if department exists by ID or name
-        const foundById = validDeptIds.includes(dept);
-        const foundByName = validDeptNames.includes(dept);
-        
-        if (!foundById && !foundByName) {
-          const availableDepts = departments.map(d => `${d.name} (${d.id})`);
-          warnings.push(`${courseContext}: Department "${dept}" not found in system. Available departments: ${availableDepts.slice(0, 3).join(', ')}, etc.`);
-        }
-      }
-
-      // Hour validation
-      const lectureHours = parseInt(course.lectureHours);
-      const tutorialHours = parseInt(course.tutorialHours);
-      const practicalHours = parseInt(course.practicalHours);
-
-      if (isNaN(lectureHours) || lectureHours < 0) {
-        warnings.push(`${courseContext}: Invalid lecture hours, defaulting to 0`);
-      }
-
-      if (isNaN(tutorialHours) || tutorialHours < 0) {
-        warnings.push(`${courseContext}: Invalid tutorial hours, defaulting to 0`);
-      }
-
-      if (isNaN(practicalHours) || practicalHours < 0) {
-        warnings.push(`${courseContext}: Invalid practical hours, defaulting to 0`);
-      }
-
-      // Check if all hours are zero
-      if ((lectureHours || 0) + (tutorialHours || 0) + (practicalHours || 0) === 0) {
-        warnings.push(`${courseContext}: All hours are zero, course might be incomplete`);
       }
 
       // Faculty validation
@@ -531,7 +624,7 @@ export default function SuperAdminCourseManagement() {
       }
 
       // Expected fields suggestion
-      const expectedFields = ['code', 'title', 'semester', 'lectureHours', 'tutorialHours', 'practicalHours', 'faculty', 'department', 'type', 'credits'];
+      const expectedFields = ['code', 'title', 'semester', 'weeklyHours', 'faculty', 'department', 'type', 'credits'];
       const missingFields = expectedFields.filter(field => !(field in course));
       if (missingFields.length > 0) {
         warnings.push(`${courseContext}: Missing optional fields: ${missingFields.join(', ')}`);
@@ -555,6 +648,43 @@ export default function SuperAdminCourseManagement() {
     linkElement.click();
     
     showInfo('Example JSON file downloaded. Check your Downloads folder.', {
+      duration: 4000
+    });
+    setShowDownloadModal(false);
+  };
+
+  // Download example Excel/CSV
+  const downloadExampleExcel = () => {
+    const exampleData = SuperAdminCourseManagementService.getExampleCourseData();
+    
+    // Create CSV content (Excel-compatible)
+    const headers = ['Code', 'Title', 'Semester', 'Department', 'Weekly Hours', 'Credits', 'Type', 'Common Course'];
+    const csvRows = [
+      headers.join(','),
+      ...exampleData.map(course => [
+        `"${course.code}"`,
+        `"${course.title}"`,
+        `"${course.semester}"`,
+        `"${course.department || ''}"`,
+        course.weeklyHours || 0,
+        course.credits || 0,
+        `"${course.type || 'Core'}"`,
+        course.isCommonCourse ? 'TRUE' : 'FALSE'
+      ].join(','))
+    ];
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'superadmin_course_example.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setShowDownloadModal(false);
+    showInfo('Example CSV file downloaded. Check your Downloads folder.', {
       duration: 4000
     });
   };
@@ -607,17 +737,17 @@ export default function SuperAdminCourseManagement() {
               Bulk Course Upload
             </h2>
             <p className="text-sm text-gray-600 mt-1">
-              Upload courses in JSON format to any department
+              Upload courses in JSON or CSV/Excel format to any department
             </p>
           </div>
           
           <div className="flex items-center gap-3">
             <button
-              onClick={downloadExampleJSON}
+              onClick={() => setShowDownloadModal(true)}
               className="inline-flex items-center gap-2 px-3 py-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 border border-gray-300 rounded-md transition-colors duration-200"
             >
               <FiDownload size={16} />
-              Example JSON
+              Download Example
             </button>
             
             <div className="relative" ref={tooltipRef}>
@@ -683,7 +813,7 @@ export default function SuperAdminCourseManagement() {
             <input
               ref={fileInputRef}
               type="file"
-              accept=".json"
+              accept=".json,.csv,.xlsx,.xls"
               onChange={handleFileUpload}
               disabled={isLoading || uploadState.isUploading}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -927,10 +1057,7 @@ export default function SuperAdminCourseManagement() {
                       <div className="flex items-center gap-2">
                         <FiClock className="text-gray-400" size={16} />
                         <div className="text-sm text-gray-900">
-                          <div>{course.weeklyHours || 'Not specified'}</div>
-                          <div className="text-xs text-gray-500">
-                            L:{course.lectureHours} T:{course.tutorialHours} P:{course.practicalHours}
-                          </div>
+                          {course.weeklyHours || course.credits || 'Not specified'}
                         </div>
                       </div>
                     </td>
@@ -1135,6 +1262,56 @@ export default function SuperAdminCourseManagement() {
         )}
       </div>
 
+      {/* Download Format Selection Modal */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-800">Choose Download Format</h3>
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition p-1 hover:bg-gray-100 rounded-full"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+            <p className="text-gray-600 mb-6">Select the format for the example course dataset:</p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={downloadExampleJSON}
+                className="flex items-center justify-between p-4 border-2 border-teal-500 rounded-lg hover:bg-teal-50 transition group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center group-hover:bg-teal-200 transition">
+                    <FiDownload size={24} className="text-teal-600" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-semibold text-gray-800">JSON Format</p>
+                    <p className="text-sm text-gray-500">Best for structured data</p>
+                  </div>
+                </div>
+                <span className="text-teal-600 font-medium">.json</span>
+              </button>
+              <button
+                onClick={downloadExampleExcel}
+                className="flex items-center justify-between p-4 border-2 border-green-500 rounded-lg hover:bg-green-50 transition group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition">
+                    <FiDownload size={24} className="text-green-600" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-semibold text-gray-800">Excel/CSV Format</p>
+                    <p className="text-sm text-gray-500">Opens in spreadsheet apps</p>
+                  </div>
+                </div>
+                <span className="text-green-600 font-medium">.csv</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Edit Course Modal */}
       {isEditModalOpen && (
         <div 
@@ -1241,44 +1418,16 @@ export default function SuperAdminCourseManagement() {
                   </select>
                 </div>
 
-                {/* Lecture Hours */}
+                {/* Weekly Hours */}
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Lecture Hours
+                    Weekly Hours
                   </label>
                   <input
                     type="number"
                     min="0"
-                    value={editFormData.lectureHours}
-                    onChange={(e) => setEditFormData({ ...editFormData, lectureHours: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                {/* Tutorial Hours */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Tutorial Hours
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editFormData.tutorialHours}
-                    onChange={(e) => setEditFormData({ ...editFormData, tutorialHours: parseInt(e.target.value) })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
-                </div>
-
-                {/* Practical Hours */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Practical Hours
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={editFormData.practicalHours}
-                    onChange={(e) => setEditFormData({ ...editFormData, practicalHours: parseInt(e.target.value) })}
+                    value={editFormData.weeklyHours}
+                    onChange={(e) => setEditFormData({ ...editFormData, weeklyHours: parseInt(e.target.value) })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   />
                 </div>

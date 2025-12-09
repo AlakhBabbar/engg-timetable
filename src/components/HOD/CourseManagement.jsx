@@ -24,6 +24,7 @@ export default function CourseManagement() {
   const [selectedFaculty, setSelectedFaculty] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const [showDownloadModal, setShowDownloadModal] = useState(false);
   const [editingCourse, setEditingCourse] = useState(null);
   const [formData, setFormData] = useState({
     title: '',
@@ -31,9 +32,7 @@ export default function CourseManagement() {
     faculty: '',
     semester: selectedSemester || 'Semester 1',
     weeklyHours: '',
-    lectureHours: '3',
-    tutorialHours: '1',
-    practicalHours: '0',
+    credits: '',
     targetDepartment: '' // Will be set when modal opens
   });
   const [isLoading, setIsLoading] = useState(false);
@@ -122,16 +121,12 @@ export default function CourseManagement() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  // Format weekly hours when lecture, tutorial, or practical hours change
+  // Sync credits with weeklyHours
   useEffect(() => {
-    const { lectureHours, tutorialHours, practicalHours } = formData;
-    const weeklyHours = CourseManagementService.formatWeeklyHours(
-      lectureHours,
-      tutorialHours,
-      practicalHours
-    );
-    setFormData(prev => ({ ...prev, weeklyHours }));
-  }, [formData.lectureHours, formData.tutorialHours, formData.practicalHours]);
+    if (formData.weeklyHours && !formData.credits) {
+      setFormData(prev => ({ ...prev, credits: prev.weeklyHours }));
+    }
+  }, [formData.weeklyHours]);
 
   // Open modal for new course
   const openNewCourseModal = () => {
@@ -142,9 +137,7 @@ export default function CourseManagement() {
       faculty: '',
       semester: 'Semester 1',
       weeklyHours: '',
-      lectureHours: '3',
-      tutorialHours: '1',
-      practicalHours: '0',
+      credits: '',
       targetDepartment: user?.department || ''
     });
     setShowModal(true);
@@ -180,9 +173,6 @@ export default function CourseManagement() {
       
       setEditingCourse(latestCourseData);
       
-      // Parse weekly hours into components using the available data
-      const { lectureHours, tutorialHours, practicalHours } = CourseManagementService.parseWeeklyHours(latestCourseData.weeklyHours, latestCourseData);
-      
       // Determine target department correctly
       let targetDepartment;
       if (latestCourseData.isCommon || latestCourseData.department === 'common') {
@@ -194,20 +184,13 @@ export default function CourseManagement() {
       // Ensure faculty ID is a string
       const facultyId = latestCourseData.faculty ? String(latestCourseData.faculty.id) : '';
       
-      // IMPORTANT: Don't use fallback values if parseWeeklyHours returned valid values
-      const finalLectureHours = lectureHours !== undefined && lectureHours !== null ? lectureHours : '3';
-      const finalTutorialHours = tutorialHours !== undefined && tutorialHours !== null ? tutorialHours : '1';
-      const finalPracticalHours = practicalHours !== undefined && practicalHours !== null ? practicalHours : '0';
-      
       setFormData({
         title: latestCourseData.title || '',
         code: latestCourseData.code || '',
         faculty: facultyId,
         semester: latestCourseData.semester || 'Semester 1',
-        weeklyHours: latestCourseData.weeklyHours || '',
-        lectureHours: finalLectureHours,
-        tutorialHours: finalTutorialHours,
-        practicalHours: finalPracticalHours,
+        weeklyHours: latestCourseData.weeklyHours || latestCourseData.credits || '',
+        credits: latestCourseData.credits || latestCourseData.weeklyHours || '',
         targetDepartment
       });
       setShowModal(true);
@@ -218,9 +201,6 @@ export default function CourseManagement() {
       
       // Fallback to local state data if Firestore fetch fails
       setEditingCourse(course);
-      
-      // Parse weekly hours into components using local data
-      const { lectureHours, tutorialHours, practicalHours } = CourseManagementService.parseWeeklyHours(course.weeklyHours, course);
       
       // Determine target department correctly for fallback
       let targetDepartment;
@@ -233,20 +213,13 @@ export default function CourseManagement() {
       // Ensure faculty ID is a string for fallback
       const facultyId = course.faculty ? String(course.faculty.id) : '';
       
-      // IMPORTANT: Don't use fallback values if parseWeeklyHours returned valid values
-      const finalLectureHours = lectureHours !== undefined && lectureHours !== null ? lectureHours : '3';
-      const finalTutorialHours = tutorialHours !== undefined && tutorialHours !== null ? tutorialHours : '1';
-      const finalPracticalHours = practicalHours !== undefined && practicalHours !== null ? practicalHours : '0';
-      
       setFormData({
         title: course.title || '',
         code: course.code || '',
         faculty: facultyId,
         semester: course.semester || 'Semester 1',
-        weeklyHours: course.weeklyHours || '',
-        lectureHours: finalLectureHours,
-        tutorialHours: finalTutorialHours,
-        practicalHours: finalPracticalHours,
+        weeklyHours: course.weeklyHours || course.credits || '',
+        credits: course.credits || course.weeklyHours || '',
         targetDepartment
       });
       setShowModal(true);
@@ -347,14 +320,62 @@ export default function CourseManagement() {
     }
   };
 
-  // Handle file upload and JSON parsing with rate limiting
+  // Parse CSV content to JSON
+  const parseCSV = (csvContent) => {
+    const lines = csvContent.split('\n').filter(line => line.trim());
+    if (lines.length < 2) {
+      throw new Error('CSV file must contain headers and at least one data row');
+    }
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/"/g, ''));
+    const courses = [];
+
+    for (let i = 1; i < lines.length; i++) {
+      const values = lines[i].split(',').map(v => v.trim().replace(/"/g, ''));
+      const course = {};
+
+      headers.forEach((header, index) => {
+        const value = values[index] || '';
+        const lowerHeader = header.toLowerCase();
+
+        if (lowerHeader === 'code') course.code = value;
+        else if (lowerHeader === 'title') course.title = value;
+        else if (lowerHeader === 'faculty') course.faculty = value || null;
+        else if (lowerHeader === 'semester') course.semester = value;
+        else if (lowerHeader.includes('weekly') || lowerHeader.includes('hours')) {
+          course.weeklyHours = parseFloat(value) || 0;
+        }
+        else if (lowerHeader === 'credits') course.credits = parseFloat(value) || 0;
+      });
+
+      // Set credits from weeklyHours if not provided
+      if (!course.credits && course.weeklyHours) {
+        course.credits = course.weeklyHours;
+      }
+      if (!course.weeklyHours && course.credits) {
+        course.weeklyHours = course.credits;
+      }
+
+      if (course.code && course.title && course.semester) {
+        courses.push(course);
+      }
+    }
+
+    return courses;
+  };
+
+  // Handle file upload and JSON/CSV parsing with rate limiting
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     
+    const fileName = file.name.toLowerCase();
+    const isJSON = fileName.endsWith('.json');
+    const isCSV = fileName.endsWith('.csv') || fileName.endsWith('.xlsx') || fileName.endsWith('.xls');
+    
     // Validate file type
-    if (!file.name.toLowerCase().endsWith('.json')) {
-      showError('Please select a valid JSON file', {
+    if (!isJSON && !isCSV) {
+      showError('Please select a valid JSON or CSV/Excel file', {
         duration: 5000
       });
       return;
@@ -367,13 +388,21 @@ export default function CourseManagement() {
       const reader = new FileReader();
       reader.onload = async (event) => {
         try {
-          const jsonData = JSON.parse(event.target.result);
+          let coursesArray;
           
-          // Handle both direct array and nested structure
-          const coursesArray = Array.isArray(jsonData) ? jsonData : jsonData.courses;
-          
-          if (!Array.isArray(coursesArray)) {
-            throw new Error('JSON data must be an array of courses or contain a "courses" array');
+          if (isJSON) {
+            // Parse JSON file
+            const jsonData = JSON.parse(event.target.result);
+            // Handle both direct array and nested structure
+            coursesArray = Array.isArray(jsonData) ? jsonData : jsonData.courses;
+            
+            if (!Array.isArray(coursesArray)) {
+              throw new Error('JSON data must be an array of courses or contain a "courses" array');
+            }
+          } else {
+            // Parse CSV file
+            const csvContent = event.target.result;
+            coursesArray = parseCSV(csvContent);
           }
 
           if (coursesArray.length === 0) {
@@ -522,7 +551,7 @@ export default function CourseManagement() {
           
         } catch (err) {
           if (err.name === 'SyntaxError') {
-            showError('Invalid JSON file format. Please check your file and try again.', {
+            showError(`Invalid ${isJSON ? 'JSON' : 'CSV'} file format. Please check your file and try again.`, {
               details: err.message,
               duration: 8000
             });
@@ -574,6 +603,38 @@ export default function CourseManagement() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
+    setShowDownloadModal(false);
+  };
+
+  // Download example Excel dataset
+  const downloadExampleExcel = () => {
+    const exampleData = CourseManagementService.getExampleCourseData();
+    
+    // Create CSV content (Excel-compatible)
+    const headers = ['Code', 'Title', 'Faculty', 'Semester', 'Weekly Hours', 'Credits'];
+    const csvRows = [
+      headers.join(','),
+      ...exampleData.map(course => [
+        `"${course.code}"`,
+        `"${course.title}"`,
+        `"${course.faculty || ''}"`,
+        `"${course.semester}"`,
+        course.weeklyHours || 0,
+        course.credits || 0
+      ].join(','))
+    ];
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'courses_dataset_example.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    setShowDownloadModal(false);
   };
 
   // Comprehensive JSON validation function for courses
@@ -856,12 +917,13 @@ export default function CourseManagement() {
             {/* Tooltip */}
             {showInfoTooltip && (
               <div className="absolute bottom-full right-0 mb-2 w-72 bg-white rounded-lg shadow-xl p-4 text-sm border border-gray-200 z-50">
-                <p className="font-medium mb-2 text-gray-700">JSON Dataset Format</p>
-                <p className="text-gray-600 mb-3">Upload a JSON file containing an array of courses with their details.</p>
+                <p className="font-medium mb-2 text-gray-700">Course Dataset Format</p>
+                <p className="text-gray-600 mb-3">Upload a JSON or CSV/Excel file containing course details (code, title, semester, weekly hours, credits).</p>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
-                    downloadExampleJSON();
+                    setShowDownloadModal(true);
+                    setShowInfoTooltip(false);
                   }}
                   className="flex items-center text-teal-600 hover:text-teal-800 font-medium"
                 >
@@ -878,7 +940,7 @@ export default function CourseManagement() {
       <input
         type="file"
         ref={fileInputRef}
-        accept=".json"
+        accept=".json,.csv,.xlsx,.xls"
         onChange={handleFileUpload}
         className="hidden"
       />
@@ -1012,6 +1074,56 @@ export default function CourseManagement() {
         </div>
       </div>
       
+      {/* Download Format Selection Modal */}
+      {showDownloadModal && (
+        <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-md w-full">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-xl font-bold text-gray-800">Choose Download Format</h3>
+              <button
+                onClick={() => setShowDownloadModal(false)}
+                className="text-gray-400 hover:text-gray-600 transition p-1 hover:bg-gray-100 rounded-full"
+              >
+                <FiX size={24} />
+              </button>
+            </div>
+            <p className="text-gray-600 mb-6">Select the format for the example course dataset:</p>
+            <div className="flex flex-col gap-3">
+              <button
+                onClick={downloadExampleJSON}
+                className="flex items-center justify-between p-4 border-2 border-teal-500 rounded-lg hover:bg-teal-50 transition group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-teal-100 rounded-lg flex items-center justify-center group-hover:bg-teal-200 transition">
+                    <FiDownload size={24} className="text-teal-600" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-semibold text-gray-800">JSON Format</p>
+                    <p className="text-sm text-gray-500">Best for structured data</p>
+                  </div>
+                </div>
+                <span className="text-teal-600 font-medium">.json</span>
+              </button>
+              <button
+                onClick={downloadExampleExcel}
+                className="flex items-center justify-between p-4 border-2 border-green-500 rounded-lg hover:bg-green-50 transition group"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-200 transition">
+                    <FiDownload size={24} className="text-green-600" />
+                  </div>
+                  <div className="text-left">
+                    <p className="font-semibold text-gray-800">Excel/CSV Format</p>
+                    <p className="text-sm text-gray-500">Opens in spreadsheet apps</p>
+                  </div>
+                </div>
+                <span className="text-green-600 font-medium">.csv</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add/Edit Course Modal */}
       {showModal && (
         <div className="fixed inset-0 flex items-center justify-center bg-black bg-opacity-50 z-50 backdrop-blur-sm p-4 overflow-y-auto">
@@ -1092,60 +1204,30 @@ export default function CourseManagement() {
                   </div>
                 )}
                 
-                {/* Weekly Hours */}
+                {/* Weekly Hours / Credits */}
                 <div>
                   <div className="flex items-center mb-2">
                     <FiClock size={16} className="text-teal-600 mr-2" />
-                    <label className="block text-sm font-medium text-gray-700">Weekly Hours</label>
+                    <label className="block text-sm font-medium text-gray-700">Weekly Hours / Credits</label>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Lectures</label>
-                      <div className="flex">
-                        <input
-                          type="number"
-                          name="lectureHours"
-                          value={formData.lectureHours}
-                          onChange={handleChange}
-                          min="0"
-                          max="10"
-                          className="w-full px-2 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                        />
-                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500 text-sm">L</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Tutorials</label>
-                      <div className="flex">
-                        <input
-                          type="number"
-                          name="tutorialHours"
-                          value={formData.tutorialHours}
-                          onChange={handleChange}
-                          min="0"
-                          max="10"
-                          className="w-full px-2 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                        />
-                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500 text-sm">T</span>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">Practicals</label>
-                      <div className="flex">
-                        <input
-                          type="number"
-                          name="practicalHours"
-                          value={formData.practicalHours}
-                          onChange={handleChange}
-                          min="0"
-                          max="10"
-                          className="w-full px-2 py-2 border border-gray-300 rounded-l-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
-                        />
-                        <span className="bg-gray-100 px-2 py-2 border border-l-0 border-gray-300 rounded-r-lg text-gray-500 text-sm">P</span>
-                      </div>
-                    </div>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">Format: <span className="font-medium">{formData.weeklyHours}</span></p>
+                  <input
+                    type="number"
+                    name="weeklyHours"
+                    value={formData.weeklyHours}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setFormData(prev => ({ 
+                        ...prev, 
+                        weeklyHours: value,
+                        credits: value
+                      }));
+                    }}
+                    min="0"
+                    required
+                    placeholder="Enter weekly hours"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-teal-500 focus:border-transparent text-sm"
+                  />
+                  <p className="text-xs text-gray-500 mt-2">Enter the total weekly hours/credits for this course</p>
                 </div>
                 
                 {/* Row 2: Semester */}

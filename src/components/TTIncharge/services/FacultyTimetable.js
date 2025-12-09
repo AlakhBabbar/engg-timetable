@@ -2,18 +2,10 @@
 import { facultyData, coursesData, roomsData, timeSlots, weekDays } from './TimetableBuilder';
 import { db, collection, query, where, onSnapshot, getDocs } from '../../../firebase/config';
 
-// Function to calculate weekly hours from string format (e.g., "3L+1T+2P")
-export const calculateHoursFromString = (hoursString) => {
-  // Extract numbers from strings like "3L+1T+2P"
-  const lectureMatch = hoursString.match(/(\d+)L/);
-  const tutorialMatch = hoursString.match(/(\d+)T/);
-  const practicalMatch = hoursString.match(/(\d+)P/);
-  
-  const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
-  const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
-  const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
-  
-  return lectureHours + tutorialHours + practicalHours;
+// Function to get hours from credits or weekly hours
+export const calculateHoursFromString = (credits) => {
+  // Simply return credits as numeric value
+  return typeof credits === 'number' ? credits : parseInt(credits) || 0;
 };
 
 // Create a timetable grid for a faculty based on their assigned courses

@@ -117,9 +117,6 @@ export const fetchAllCourses = async () => {
         department: courseData.department || '',
         departmentName: departmentName,
         isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin flag for common courses
-        lectureHours: courseData.lectureHours || 0,
-        tutorialHours: courseData.tutorialHours || 0,
-        practicalHours: courseData.practicalHours || 0,
         credits: courseData.credits || 0,
         type: courseData.type || 'Core',
         description: courseData.description || '',
@@ -606,12 +603,6 @@ export const processSuperAdminCourseImport = async (courseData, faculty, targetD
       };
     }
 
-    // Format weekly hours
-    const lectureHours = parseInt(courseData.lectureHours) || 0;
-    const tutorialHours = parseInt(courseData.tutorialHours) || 0;
-    const practicalHours = parseInt(courseData.practicalHours) || 0;
-    const totalHours = lectureHours + tutorialHours + practicalHours;
-
     // Find faculty member if specified
     let assignedFaculty = null;
     if (courseData.faculty) {
@@ -627,19 +618,15 @@ export const processSuperAdminCourseImport = async (courseData, faculty, targetD
       code: courseData.code.toUpperCase(),
       title: courseData.title,
       semester: courseData.semester,
-      lectureHours,
-      tutorialHours,
-      practicalHours,
-      weeklyHours: totalHours,
+      weeklyHours: courseData.weeklyHours || courseData.credits || 3,
       faculty: assignedFaculty ? assignedFaculty.name : courseData.faculty || '',
       facultyId: assignedFaculty ? assignedFaculty.id : null,
       facultyList: assignedFaculty ? [assignedFaculty.id] : [],
-      credits: courseData.credits || Math.ceil(totalHours / 3),
+      credits: courseData.credits || 3,
       department: departmentId, // Use specified department (SuperAdmin privilege)
       isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin can mark as common course
       type: courseData.type || 'Core',
       description: courseData.description || '',
-      prerequisites: Array.isArray(courseData.prerequisites) ? courseData.prerequisites : [],
       active: courseData.active !== false, // Default to true unless explicitly false
       createdAt: existingCourse ? existingCourse.createdAt : new Date().toISOString(),
       updatedAt: new Date().toISOString()
@@ -814,18 +801,14 @@ export const updateCourse = async (courses, courseId, formData, faculty = [], de
       faculty: primaryFacultyId, // Primary faculty for backward compatibility
       facultyList: newFacultyIds, // All assigned faculty
       semester: formData.semester,
-      weeklyHours: formData.weeklyHours,
+      weeklyHours: parseFloat(formData.weeklyHours) || 0,
       department: formData.department || existingCourse.department,
       isCommonCourse: formData.isCommonCourse || false,
       updatedAt: serverTimestamp(),
       // Additional fields
-      lectureHours: parseInt(formData.lectureHours || 0),
-      tutorialHours: parseInt(formData.tutorialHours || 0),
-      practicalHours: parseInt(formData.practicalHours || 0),
-      credits: parseInt(formData.credits || 0),
+      credits: parseFloat(formData.credits || formData.weeklyHours) || 0,
       type: formData.type || 'Core',
-      description: formData.description || '',
-      prerequisites: formData.prerequisites || []
+      description: formData.description || ''
     };
     
     // Update course in Firebase
@@ -885,14 +868,11 @@ export const updateCourse = async (courses, courseId, formData, faculty = [], de
       faculty: facultyList.length > 0 ? facultyList[0] : null, // Primary faculty
       facultyList: facultyList, // All assigned faculty
       semester: formData.semester,
-      weeklyHours: formData.weeklyHours,
+      weeklyHours: parseFloat(formData.weeklyHours) || 0,
       department: formData.department || existingCourse.department,
       departmentName: departmentName,
       isCommonCourse: formData.isCommonCourse || false,
-      lectureHours: parseInt(formData.lectureHours || 0),
-      tutorialHours: parseInt(formData.tutorialHours || 0),
-      practicalHours: parseInt(formData.practicalHours || 0),
-      credits: parseInt(formData.credits || 0),
+      credits: parseFloat(formData.credits || formData.weeklyHours) || 0,
       type: formData.type || 'Core',
       description: formData.description || ''
     };
@@ -1028,9 +1008,7 @@ export const getExampleCourseData = () => {
       title: "Chemistry for Engineers",
       faculty: "Dr. Alex Johnson",
       semester: "Semester 1",
-      lectureHours: 3,
-      tutorialHours: 1,
-      practicalHours: 0,
+      weeklyHours: 4,
       department: "Chemistry", // Belongs to Chemistry dept
       isCommonCourse: true, // But available to all departments
       type: "Core",
@@ -1042,9 +1020,7 @@ export const getExampleCourseData = () => {
       title: "Engineering Mathematics I",
       faculty: "Dr. Sarah Miller",
       semester: "Semester 1",
-      lectureHours: 4,
-      tutorialHours: 1,
-      practicalHours: 0,
+      weeklyHours: 5,
       department: "Mathematics", // Belongs to Mathematics dept
       isCommonCourse: true, // Available to all engineering departments
       type: "Core",
@@ -1056,9 +1032,7 @@ export const getExampleCourseData = () => {
       title: "Introduction to Computer Science",
       faculty: "Dr. John Smith",
       semester: "Semester 1",
-      lectureHours: 3,
-      tutorialHours: 0,
-      practicalHours: 2,
+      weeklyHours: 5,
       department: "Computer Science", // Belongs to CS dept only
       isCommonCourse: false, // Not a common course
       type: "Core",
@@ -1070,9 +1044,7 @@ export const getExampleCourseData = () => {
       title: "Thermodynamics",
       faculty: "Dr. Emily Chen",
       semester: "Semester 3",
-      lectureHours: 3,
-      tutorialHours: 1,
-      practicalHours: 1,
+      weeklyHours: 5,
       department: "Mechanical Engineering", // Belongs to ME dept only
       isCommonCourse: false, // Not a common course
       type: "Core",
@@ -1084,9 +1056,7 @@ export const getExampleCourseData = () => {
       title: "Data Structures and Algorithms",
       faculty: null,
       semester: "Semester 2",
-      lectureHours: 3,
-      tutorialHours: 0,
-      practicalHours: 2,
+      weeklyHours: 5,
       department: "Computer Science", // Belongs to CS dept
       isCommonCourse: true, // But taught to ECE and other depts too
       type: "Core",
