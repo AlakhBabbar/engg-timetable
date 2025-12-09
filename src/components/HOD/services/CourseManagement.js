@@ -153,15 +153,10 @@ export const fetchSingleCourse = async (courseId) => {
       department: courseData.department || '',
       isCommon: isCommon,
       isCommonCourse: courseData.isCommonCourse || false, // SuperAdmin flag
-      // Include the individual hour fields
-      lectureHours: courseData.lectureHours || 0,
-      tutorialHours: courseData.tutorialHours || 0,
-      practicalHours: courseData.practicalHours || 0,
       // Include other important fields
       credits: courseData.credits || 0,
       type: courseData.type || 'Core',
       description: courseData.description || '',
-      prerequisites: courseData.prerequisites || [],
       active: courseData.active !== false,
       facultyId: courseData.facultyId || null,
       createdAt: courseData.createdAt || '',
@@ -318,17 +313,14 @@ export const filterCourses = (courses, searchTerm, selectedSemester, selectedFac
 };
 
 /**
- * Parse weekly hours from string format
- * @param {string} weeklyHours - Weekly hours string (e.g. "3L+1T+2P")
- * @returns {Object} - Parsed hours
- */
-/**
- * Parse weekly hours into components (lecture, tutorial, practical)
- * @param {string|number} weeklyHours - Weekly hours string or number
- * @param {Object} courseData - Full course data object (optional) 
- * @returns {Object} - Parsed hours
+ * DEPRECATED: No longer parsing weekly hours - using credits directly
+ * Kept for backward compatibility but returns empty values
  */
 export const parseWeeklyHours = (weeklyHours, courseData = null) => {
+  // Return empty values - no longer using this parsing
+  return { lectureHours: '0', tutorialHours: '0', practicalHours: '0' };
+  
+  /* OLD IMPLEMENTATION - COMMENTED OUT
   
   // If course data is provided and has individual hour fields, use them directly
   if (courseData && (courseData.lectureHours !== undefined || courseData.tutorialHours !== undefined || courseData.practicalHours !== undefined)) {
@@ -415,31 +407,15 @@ export const parseWeeklyHours = (weeklyHours, courseData = null) => {
       practicalHours: '0'
     };
   }
+  END OF OLD IMPLEMENTATION */
 };
 
 /**
- * Format weekly hours from components
- * @param {string} lectureHours - Lecture hours
- * @param {string} tutorialHours - Tutorial hours
- * @param {string} practicalHours - Practical hours
- * @returns {string} - Formatted weekly hours
+ * DEPRECATED: No longer formatting weekly hours - using credits directly
  */
 export const formatWeeklyHours = (lectureHours, tutorialHours, practicalHours) => {
-  const parts = [];
-  
-  if (lectureHours && parseInt(lectureHours) > 0) {
-    parts.push(`${lectureHours}L`);
-  }
-  
-  if (tutorialHours && parseInt(tutorialHours) > 0) {
-    parts.push(`${tutorialHours}T`);
-  }
-  
-  if (practicalHours && parseInt(practicalHours) > 0) {
-    parts.push(`${practicalHours}P`);
-  }
-  
-  return parts.join('+') || '0L';
+  // No longer formatting - return empty string
+  return '';
 };
 
 /**
@@ -487,14 +463,12 @@ export const addCourse = async (courses, formData, faculty, departmentId, user =
       faculty: primaryFacultyId, // Primary faculty for backward compatibility
       facultyList: facultyIds, // All assigned faculty
       semester: formData.semester,
-      weeklyHours: formData.weeklyHours,
+      weeklyHours: parseFloat(formData.weeklyHours) || 0,
       department: departmentId,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       // Additional fields
-      lectureHours: parseInt(formData.lectureHours || 0),
-      tutorialHours: parseInt(formData.tutorialHours || 0),
-      practicalHours: parseInt(formData.practicalHours || 0),
+      credits: parseFloat(formData.credits || formData.weeklyHours) || 0,
       tags: [] // Can be populated based on course title/code
     };
     
@@ -609,12 +583,10 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
       faculty: primaryFacultyId, // Primary faculty for backward compatibility
       facultyList: newFacultyIds, // All assigned faculty
       semester: formData.semester,
-      weeklyHours: formData.weeklyHours,
+      weeklyHours: parseFloat(formData.weeklyHours) || 0,
       updatedAt: serverTimestamp(),
       // Additional fields
-      lectureHours: parseInt(formData.lectureHours || 0),
-      tutorialHours: parseInt(formData.tutorialHours || 0),
-      practicalHours: parseInt(formData.practicalHours || 0)
+      credits: parseFloat(formData.credits || formData.weeklyHours) || 0
     };
     
     // Update course in Firebase
@@ -667,7 +639,8 @@ export const updateCourse = async (courses, courseId, formData, faculty, departm
       faculty: facultyList.length > 0 ? facultyList[0] : null, // Primary faculty
       facultyList: facultyList, // All assigned faculty
       semester: formData.semester,
-      weeklyHours: formData.weeklyHours
+      weeklyHours: parseFloat(formData.weeklyHours) || 0,
+      credits: parseFloat(formData.credits || formData.weeklyHours) || 0
     };
     
     // Return updated courses array
@@ -783,15 +756,9 @@ export const processUploadedCourses = async (jsonData, courses, faculty, departm
         // Check if course already exists
         const existingIndex = updatedCourses.findIndex(c => c.code === courseData.code);
         
-        // Format weekly hours
-        const lectureHours = courseData.lectureHours || 0;
-        const tutorialHours = courseData.tutorialHours || 0;
-        const practicalHours = courseData.practicalHours || 0;
-        const weeklyHours = formatWeeklyHours(
-          lectureHours.toString(), 
-          tutorialHours.toString(), 
-          practicalHours.toString()
-        );
+        // Get credits/weekly hours from the course data
+        const weeklyHours = parseFloat(courseData.weeklyHours || courseData.credits) || 0;
+        const credits = parseFloat(courseData.credits || courseData.weeklyHours) || 0;
         
         // Find faculty by name or ID if specified
         let facultyId = null;
@@ -810,9 +777,7 @@ export const processUploadedCourses = async (jsonData, courses, faculty, departm
           faculty: facultyId,
           semester: courseData.semester,
           weeklyHours: weeklyHours,
-          lectureHours: lectureHours.toString(),
-          tutorialHours: tutorialHours.toString(),
-          practicalHours: practicalHours.toString()
+          credits: credits
         };
         
         // Update or create course
@@ -1116,36 +1081,32 @@ export const getExampleCourseData = () => {
       title: "Introduction to Computer Science",
       faculty: "Dr. Alex Johnson",
       semester: "Semester 1",
-      lectureHours: 3,
-      tutorialHours: 1,
-      practicalHours: 0
+      weeklyHours: 4,
+      credits: 4
     },
     {
       code: "CS202",
       title: "Data Structures and Algorithms",
       faculty: null,
       semester: "Semester 2",
-      lectureHours: 3,
-      tutorialHours: 0,
-      practicalHours: 2
+      weeklyHours: 5,
+      credits: 5
     },
     {
       code: "MATH101",
       title: "Engineering Mathematics I",
       faculty: "Dr. Sarah Miller",
       semester: "Semester 1",
-      lectureHours: 4,
-      tutorialHours: 1,
-      practicalHours: 0
+      weeklyHours: 5,
+      credits: 5
     },
     {
       code: "PHY101",
       title: "Engineering Physics",
       faculty: "Dr. John Smith",
       semester: "Semester 1",
-      lectureHours: 3,
-      tutorialHours: 1,
-      practicalHours: 2
+      weeklyHours: 6,
+      credits: 6
     }
   ];
 };
@@ -1217,10 +1178,8 @@ export const createSampleCommonCourses = async () => {
         code: 'MATH101',
         title: 'Engineering Mathematics I',
         semester: 'Semester 1',
-        lectureHours: 4,
-        tutorialHours: 1,
-        practicalHours: 0,
-        weeklyHours: '4L+1T',
+        weeklyHours: 5,
+        credits: 5,
         department: 'common',
         faculty: null,
         facultyList: [],
@@ -1231,10 +1190,8 @@ export const createSampleCommonCourses = async () => {
         code: 'PHY101',
         title: 'Engineering Physics',
         semester: 'Semester 1',
-        lectureHours: 3,
-        tutorialHours: 1,
-        practicalHours: 2,
-        weeklyHours: '3L+1T+2P',
+        weeklyHours: 6,
+        credits: 6,
         department: 'common',
         faculty: null,
         facultyList: [],
@@ -1245,10 +1202,8 @@ export const createSampleCommonCourses = async () => {
         code: 'CHEM101',
         title: 'Engineering Chemistry',
         semester: 'Semester 1',
-        lectureHours: 3,
-        tutorialHours: 0,
-        practicalHours: 2,
-        weeklyHours: '3L+2P',
+        weeklyHours: 5,
+        credits: 5,
         department: 'common',
         faculty: null,
         facultyList: [],
@@ -1259,10 +1214,8 @@ export const createSampleCommonCourses = async () => {
         code: 'ENG101',
         title: 'Technical Communication',
         semester: 'Semester 2',
-        lectureHours: 2,
-        tutorialHours: 1,
-        practicalHours: 0,
-        weeklyHours: '2L+1T',
+        weeklyHours: 3,
+        credits: 3,
         department: 'common',
         faculty: null,
         facultyList: [],

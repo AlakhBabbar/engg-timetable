@@ -197,16 +197,8 @@ export const fetchCourses = async (departmentId, semester = null) => {
 
 // Helper function to calculate weekly hours as a number
 export const calculateHoursFromString = (hoursString) => {
-  // Extract numbers from strings like "3L+1T+2P"
-  const lectureMatch = hoursString.match(/(\d+)L/);
-  const tutorialMatch = hoursString.match(/(\d+)T/);
-  const practicalMatch = hoursString.match(/(\d+)P/);
-  
-  const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
-  const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
-  const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
-  
-  return lectureHours + tutorialHours + practicalHours;
+  // Simply return credits as numeric value
+  return typeof hoursString === 'number' ? hoursString : parseInt(hoursString) || 0;
 };
 
 // Calculate the faculty load data with course information

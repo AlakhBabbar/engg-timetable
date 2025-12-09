@@ -43,11 +43,8 @@ export const useHODLayout = (user, setUser) => {
   }, [location]);
   
   const sidebarItems = [
-    { label: 'Dashboard', icon: FiGrid, iconSize: 18, path: '/hod/dashboard' },
     { label: 'Courses', icon: FiBook, iconSize: 18, path: '/hod/courses' },
     { label: 'Assign-Course', icon: FiUsers, iconSize: 18, path: '/hod/assign-faculty' },
-    { label: 'Reports', icon: FiFileText, iconSize: 18, path: '/hod/reports' },
-    { label: 'Timetable', icon: FiCalendar, iconSize: 18, path: '/hod/timetable' },
   ];
 
   const handleNavigation = (path, label) => {

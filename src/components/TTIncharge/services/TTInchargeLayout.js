@@ -65,10 +65,8 @@ export const useTTInchargeLayout = (setUser) => {
   };
   
   const sidebarItems = [
-    { label: 'Dashboard', icon: 'FiGrid', path: '/tt/dashboard' },
     { label: 'Batch Management', icon: 'FiUsers', path: '/tt/batch-management' },
     { label: 'Timetable Builder', icon: 'FiCalendar', path: '/tt/timetable-builder' },
-    { label: 'Conflicts', icon: 'FiAlertCircle', path: '/tt/conflicts' },
     { label: 'Rooms', icon: 'FiHome', path: '/tt/rooms' },
     { label: 'Faculty View', icon: 'FiUsers', path: '/tt/faculty-timetable' },
     { label: 'Room Availability Allocation', icon: 'FiCheckSquare', path: '/tt/room-availability-allocation' },

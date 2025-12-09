@@ -329,21 +329,9 @@ export const getTimeSlots = (weeklyHours) => {
     return parseInt(weeklyHoursStr) || 0;
   }
   
-  try {
-    // Parse the L+T+P format
-    const lectureMatch = weeklyHoursStr.match(/(\d+)L/);
-    const tutorialMatch = weeklyHoursStr.match(/(\d+)T/);
-    const practicalMatch = weeklyHoursStr.match(/(\d+)P/);
-    
-    const lectureHours = lectureMatch ? parseInt(lectureMatch[1]) : 0;
-    const tutorialHours = tutorialMatch ? parseInt(tutorialMatch[1]) : 0;
-    const practicalHours = practicalMatch ? parseInt(practicalMatch[1]) : 0;
-    
-    return lectureHours + tutorialHours + practicalHours;
-  } catch (error) {
-    console.error('Error parsing weekly hours:', weeklyHours, error);
-    return 0;
-  }
+  // If it's a number, return it
+  const hours = parseInt(weeklyHoursStr);
+  return isNaN(hours) ? 0 : hours;
 };
 
 /**
@@ -487,7 +475,7 @@ export const assignFacultyToCourse = async (departmentId, courseId, facultyId, r
         });
         
         // Update load hours
-        const hoursChange = -getTimeSlots(course.weeklyHours);
+        const hoursChange = -(course.credits || course.weeklyHours || 0);
         updateFacultyLoadLocal(removedFacultyId, hoursChange);
       }
     }
@@ -519,7 +507,7 @@ export const assignFacultyToCourse = async (departmentId, courseId, facultyId, r
     });
     
     // Update new faculty's load hours (proportional if multiple faculty)
-    const totalHours = getTimeSlots(course.weeklyHours);
+    const totalHours = course.credits || course.weeklyHours || 0;
     const hoursPerFaculty = Math.ceil(totalHours / newFacultyList.length);
     updateFacultyLoadLocal(facultyId, hoursPerFaculty);
     
@@ -630,7 +618,7 @@ export const removeFacultyFromCourse = async (departmentId, courseId, facultyId)
     });
     
     // Update faculty's load hours
-    const totalHours = getTimeSlots(course.weeklyHours);
+    const totalHours = course.credits || course.weeklyHours || 0;
     const previousHoursPerFaculty = Math.ceil(totalHours / currentFacultyList.length);
     updateFacultyLoadLocal(facultyId, -previousHoursPerFaculty);
     
@@ -739,7 +727,7 @@ export const autoAssignFaculty = async (departmentId, courses = null, faculty = 
       if (allowMultiple) {
         // For multiple assignments, consider adding faculty to courses that might benefit
         const currentFacultyList = course.facultyList || (course.faculty ? [course.faculty] : []);
-        const totalHours = getTimeSlots(course.weeklyHours);
+        const totalHours = course.credits || course.weeklyHours || 0;
         
         // Only add if the course has high workload and could benefit from multiple faculty
         if (totalHours >= 4 && currentFacultyList.length < 2) {
@@ -1747,7 +1735,7 @@ export const clearAllAssignments = async (departmentName) => {
             });
             
             // Update faculty load (remove the hours from this course)
-            const totalHours = getTimeSlots(course.weeklyHours);
+            const totalHours = course.credits || course.weeklyHours || 0;
             const hoursPerFaculty = Math.ceil(totalHours / currentFacultyList.length);
             updateFacultyLoadLocal(facultyId, -hoursPerFaculty);
           }
